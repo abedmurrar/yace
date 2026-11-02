@@ -1,0 +1,20 @@
+[package]
+name = "yace-keymap"
+description = "YACE keybinding engine: key parsing, when-clauses, chords, layered VS Code-style keymaps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+smallvec.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
+
+[lints]
+workspace = true

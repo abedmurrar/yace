@@ -1,0 +1,44 @@
+[package]
+name = "yace"
+description = "YACE — Yet Another Code Editor: a fast, terminal-native, multi-root code editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "yace"
+path = "src/main.rs"
+
+[lib]
+name = "yace_app"
+path = "src/lib.rs"
+
+[dependencies]
+yace-buffer.workspace = true
+yace-workspace.workspace = true
+yace-keymap.workspace = true
+yace-config.workspace = true
+ratatui.workspace = true
+crossbeam-channel.workspace = true
+notify.workspace = true
+globset.workspace = true
+clap.workspace = true
+arboard.workspace = true
+trash.workspace = true
+signal-hook.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+portable-pty.workspace = true
+
+[lints]
+workspace = true

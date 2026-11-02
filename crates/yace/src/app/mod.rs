@@ -1,0 +1,730 @@
+//! Application state and event handling. `App` is terminal-agnostic: it
+//! consumes [`AppEvent`]s, mutates state and emits [`Effect`]s (directory
+//! reads, watch changes, raw terminal output) that the event loop performs.
+//! Tests drive it directly with synthetic events.
+
+mod edit;
+mod explorer_ops;
+mod files;
+mod mouse;
+mod session;
+mod workspace_ops;
+
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
+
+use ratatui::{
+    crossterm::event::{Event, KeyCode as CtKey, KeyEvent, KeyEventKind, KeyModifiers},
+    layout::Rect,
+};
+use yace_config::{ConfigError, Layer, Level, Paths, Settings};
+use yace_keymap::{ContextSet, KeyCode, KeyPress, Keymap, Mods, Resolution, Resolver, Source, ctx};
+use yace_workspace::{RootId, Workspace, session::RecentList};
+
+use crate::{
+    actions::{CloseFlow, ConfirmAction, PickerAction, PromptAction},
+    clipboard::Clipboard,
+    commands::Registry,
+    editor::{DocId, DocumentStore, GroupId, Layout},
+    explorer::{Entry, Explorer},
+    metrics::Metrics,
+    overlay::{Overlay, OverlayOutcome},
+    theme::{Glyphs, Theme, detect_depth},
+};
+
+pub use edit::{Move, Op, comment_token, language_name};
+pub use mouse::MouseState;
+
+/// Inputs to the application.
+#[derive(Debug, Clone)]
+pub enum AppEvent {
+    Terminal(Event),
+    DirLoaded {
+        dir: PathBuf,
+        result: Result<Vec<Entry>, String>,
+    },
+    FsChanged(Vec<PathBuf>),
+    /// SIGTERM / SIGHUP: persist and exit without discarding anything.
+    Terminate,
+}
+
+/// Side effects requested by the application.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Effect {
+    ReadDir(PathBuf),
+    Watch(PathBuf),
+    Unwatch(PathBuf),
+    /// Raw bytes for the terminal (OSC 52 clipboard, title).
+    Write(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    Explorer,
+    Editor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Severity {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub struct Notification {
+    pub level: Severity,
+    pub text: String,
+    pub expires: Option<Instant>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClosedTab {
+    pub path: PathBuf,
+    pub group: GroupId,
+}
+
+pub struct AppOptions {
+    pub paths: Paths,
+    pub system_clipboard: bool,
+    pub keyboard_enhanced: bool,
+    pub process_start: Instant,
+}
+
+pub struct App {
+    pub paths: Paths,
+    user_layer: Layer,
+    pub config_errors: Vec<ConfigError>,
+    /// Settings for the window (user + workspace).
+    pub settings: Settings,
+    root_settings: HashMap<RootId, Settings>,
+    pub keymap: Keymap,
+    pub resolver: Resolver,
+    pub commands: Registry,
+    pub workspace: Workspace,
+    pub explorer: Explorer,
+    pub docs: DocumentStore,
+    pub layout: Layout,
+    pub focus: Focus,
+    pub overlays: Vec<Overlay>,
+    pub notifications: Vec<Notification>,
+    pub notification_log: Vec<(Severity, String)>,
+    pub sidebar_visible: bool,
+    pub sidebar_width: u16,
+    pub theme: Theme,
+    pub glyphs: Glyphs,
+    pub metrics: Metrics,
+    pub clipboard: Clipboard,
+    pub closed_tabs: Vec<ClosedTab>,
+    pub recent: RecentList,
+    pub recent_files: Vec<PathBuf>,
+    pub close_flow: Option<CloseFlow>,
+    pub quit: bool,
+    pub keyboard_enhanced: bool,
+    effects: Vec<Effect>,
+    watched: BTreeSet<PathBuf>,
+    /// Terminal size.
+    pub area: Rect,
+    pub needs_render: bool,
+    pub mouse: MouseState,
+    autosave_deadline: Option<Instant>,
+    pending_fs: HashSet<PathBuf>,
+    fs_deadline: Option<Instant>,
+    /// Scroll the active view to its cursor after this event.
+    reveal_cursor: bool,
+    /// Docs with an external-change dialog already shown.
+    conflict_prompted: HashSet<DocId>,
+    /// Session restore enabled for workspace switches.
+    pub restore_sessions: bool,
+    /// Set while "Save All" runs inside a close flow.
+    suppress_flow: bool,
+}
+
+const FS_COALESCE: Duration = Duration::from_millis(100);
+
+impl App {
+    pub fn new(opts: AppOptions) -> Self {
+        let (user_layer, mut config_errors) = yace_config::load_toml_layer(&opts.paths.user_settings(), Level::User);
+        let (settings, errs) = yace_config::resolve(std::slice::from_ref(&user_layer));
+        config_errors.extend(errs);
+        let theme = Theme::yace_dark().for_depth(detect_depth(settings.workbench.color_depth));
+        let glyphs = Glyphs::from_setting(settings.workbench.glyphs);
+        let (recent, recent_err) = RecentList::load(&opts.paths.recent_file());
+        let mut app = Self {
+            user_layer,
+            config_errors: Vec::new(),
+            root_settings: HashMap::new(),
+            keymap: Keymap::new(),
+            resolver: Resolver::default(),
+            commands: Registry::builtin(),
+            workspace: Workspace::empty_untitled(opts.paths.state_dir.join("untitled").join("empty.code-workspace")),
+            explorer: Explorer::new(&settings.files.exclude, settings.explorer.show_hidden),
+            docs: DocumentStore::default(),
+            layout: Layout::default(),
+            focus: Focus::Explorer,
+            overlays: Vec::new(),
+            notifications: Vec::new(),
+            notification_log: Vec::new(),
+            sidebar_visible: true,
+            sidebar_width: settings.workbench.sidebar_width,
+            theme,
+            glyphs,
+            metrics: Metrics::new(opts.process_start),
+            clipboard: Clipboard::new(opts.system_clipboard),
+            closed_tabs: Vec::new(),
+            recent,
+            recent_files: Vec::new(),
+            close_flow: None,
+            quit: false,
+            keyboard_enhanced: opts.keyboard_enhanced,
+            effects: Vec::new(),
+            watched: BTreeSet::new(),
+            area: Rect::new(0, 0, 120, 40),
+            needs_render: true,
+            mouse: MouseState::default(),
+            autosave_deadline: None,
+            pending_fs: HashSet::new(),
+            fs_deadline: None,
+            reveal_cursor: false,
+            conflict_prompted: HashSet::new(),
+            restore_sessions: true,
+            suppress_flow: false,
+            settings,
+            paths: opts.paths,
+        };
+        app.reload_keymap();
+        app.report_config_errors(config_errors);
+        if let Some(e) = recent_err {
+            app.notify(Severity::Warning, e);
+        }
+        app
+    }
+
+    // ------------------------------------------------------------------
+    // Effects and deadlines (used by the event loop)
+
+    pub fn take_effects(&mut self) -> Vec<Effect> {
+        for job in self.explorer.take_jobs() {
+            self.effects.push(Effect::ReadDir(job.dir));
+        }
+        std::mem::take(&mut self.effects)
+    }
+
+    pub(crate) fn emit(&mut self, e: Effect) {
+        self.effects.push(e);
+    }
+
+    /// The earliest moment `on_tick` has work to do.
+    pub fn next_deadline(&self) -> Option<Instant> {
+        [
+            self.resolver.deadline(),
+            self.fs_deadline,
+            self.autosave_deadline,
+            self.notifications.iter().filter_map(|n| n.expires).min(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
+
+    pub fn on_tick(&mut self, now: Instant) {
+        if self.resolver.expire(now) {
+            self.needs_render = true;
+        }
+        if self.fs_deadline.is_some_and(|d| now >= d) {
+            self.fs_deadline = None;
+            let paths: Vec<PathBuf> = self.pending_fs.drain().collect();
+            self.process_fs_changes(paths);
+        }
+        if self.autosave_deadline.is_some_and(|d| now >= d) {
+            self.autosave_deadline = None;
+            self.autosave_all();
+        }
+        let before = self.notifications.len();
+        self.notifications.retain(|n| n.expires.is_none_or(|e| e > now));
+        if self.notifications.len() != before {
+            self.needs_render = true;
+        }
+        self.sync_watches();
+    }
+
+    // ------------------------------------------------------------------
+    // Notifications
+
+    pub fn notify(&mut self, level: Severity, text: impl Into<String>) {
+        let text = text.into();
+        tracing::info!(?level, "{text}");
+        let ttl = match level {
+            Severity::Info => Some(Duration::from_secs(4)),
+            Severity::Warning => Some(Duration::from_secs(8)),
+            Severity::Error => None,
+        };
+        self.notification_log.push((level, text.clone()));
+        if self.notification_log.len() > 200 {
+            self.notification_log.remove(0);
+        }
+        self.notifications.retain(|n| n.text != text);
+        self.notifications.push(Notification { level, text, expires: ttl.map(|t| Instant::now() + t) });
+        if self.notifications.len() > 5 {
+            self.notifications.remove(0);
+        }
+        self.needs_render = true;
+    }
+
+    pub fn dismiss_notification(&mut self) {
+        self.notifications.pop();
+        self.needs_render = true;
+    }
+
+    pub(crate) fn report_config_errors(&mut self, errors: Vec<ConfigError>) {
+        if errors.is_empty() {
+            return;
+        }
+        let first = errors[0].to_string();
+        let n = errors.len();
+        self.config_errors.extend(errors);
+        let msg = if n == 1 {
+            format!("Settings problem: {first}")
+        } else {
+            format!("{n} settings problems; first: {first} (run \"Developer: Show Configuration Errors\")")
+        };
+        self.notify(Severity::Warning, msg);
+    }
+
+    // ------------------------------------------------------------------
+    // Settings and keymap
+
+    pub(crate) fn reload_keymap(&mut self) {
+        let mut km = yace_keymap::default_keymap();
+        let (specs, mut errors) = yace_config::load_keybindings(&self.paths.keybindings());
+        let binding_errors = km.apply_specs(&specs, Source::User);
+        errors.extend(binding_errors.into_iter().map(|e| ConfigError {
+            origin: self.paths.keybindings().display().to_string(),
+            key: None,
+            message: e.to_string(),
+        }));
+        self.keymap = km;
+        self.resolver.timeout = Duration::from_millis(self.settings.keyboard.chord_timeout_ms.max(200));
+        self.report_config_errors(errors);
+    }
+
+    /// Recompute window and per-root settings.
+    pub(crate) fn reload_settings(&mut self) {
+        let (user_layer, mut errors) = yace_config::load_toml_layer(&self.paths.user_settings(), Level::User);
+        self.user_layer = user_layer;
+        let ws_layer = Layer::new(
+            Level::Workspace,
+            self.workspace.file().map(|p| p.display().to_string()).unwrap_or_else(|| "workspace".into()),
+            yace_config::from_vscode_settings(&self.workspace.settings),
+        );
+        let (settings, e) = yace_config::resolve(&[self.user_layer.clone(), ws_layer.clone()]);
+        errors.extend(e);
+        self.settings = settings;
+        self.root_settings.clear();
+        let roots: Vec<(RootId, PathBuf, bool)> =
+            self.workspace.roots().iter().map(|r| (r.id, r.path.clone(), r.is_available())).collect();
+        for (id, path, available) in roots {
+            if !available {
+                continue;
+            }
+            let (layer, e) = yace_config::load_root_layer(&path);
+            errors.extend(e);
+            if let Some(layer) = layer {
+                let (s, e) = yace_config::resolve(&[self.user_layer.clone(), ws_layer.clone(), layer]);
+                errors.extend(e);
+                self.root_settings.insert(id, s);
+            }
+        }
+        self.explorer.show_hidden = self.settings.explorer.show_hidden;
+        self.explorer.set_excludes(&self.settings.files.exclude);
+        self.glyphs = Glyphs::from_setting(self.settings.workbench.glyphs);
+        self.theme = Theme::yace_dark().for_depth(detect_depth(self.settings.workbench.color_depth));
+        self.config_errors.clear();
+        self.report_config_errors(errors);
+        self.needs_render = true;
+    }
+
+    /// Effective settings for a file (root-level overrides applied).
+    pub fn settings_for(&self, path: Option<&Path>) -> &Settings {
+        path.and_then(|p| self.workspace.root_for_path(p))
+            .and_then(|r| self.root_settings.get(&r.id))
+            .unwrap_or(&self.settings)
+    }
+
+    // ------------------------------------------------------------------
+    // Context for keybindings
+
+    pub fn context(&self) -> ContextSet {
+        let mut c = ContextSet::new();
+        c.set(ctx::KEYBOARD_ENHANCED, self.keyboard_enhanced);
+        c.set(ctx::NOTIFICATION_VISIBLE, !self.notifications.is_empty());
+        c.set(ctx::MULTIPLE_EDITOR_GROUPS, self.layout.groups().len() > 1);
+        match self.focus {
+            Focus::Explorer if self.sidebar_visible => {
+                c.set(ctx::EXPLORER_FOCUS, true);
+                c.set(ctx::EXPLORER_FILTER_ACTIVE, !self.explorer.filter.is_empty());
+            }
+            _ => {
+                if let Some(v) = self.layout.active_group().active_view() {
+                    c.set(ctx::EDITOR_FOCUS, true);
+                    c.set(ctx::EDITOR_HAS_SELECTION, v.sel.has_non_empty());
+                    c.set(ctx::EDITOR_HAS_MULTIPLE_SELECTIONS, v.sel.is_multi());
+                }
+            }
+        }
+        c
+    }
+
+    // ------------------------------------------------------------------
+    // Event dispatch
+
+    pub fn handle(&mut self, event: AppEvent) {
+        let start = Instant::now();
+        let is_input = matches!(event, AppEvent::Terminal(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)));
+        match event {
+            AppEvent::Terminal(Event::Key(k)) => self.on_key(k),
+            AppEvent::Terminal(Event::Mouse(m)) => self.on_mouse(m),
+            AppEvent::Terminal(Event::Paste(s)) => self.on_paste(&s),
+            AppEvent::Terminal(Event::Resize(w, h)) => self.resize(w, h),
+            AppEvent::Terminal(Event::FocusGained) => self.check_open_docs_on_disk(),
+            AppEvent::Terminal(Event::FocusLost) => {
+                if self.settings.files.auto_save == yace_config::AutoSave::OnFocusChange {
+                    self.autosave_all();
+                }
+            }
+            AppEvent::DirLoaded { dir, result } => {
+                self.explorer.on_dir_loaded(&dir, result);
+            }
+            AppEvent::FsChanged(paths) => {
+                self.pending_fs.extend(paths);
+                if self.fs_deadline.is_none() {
+                    self.fs_deadline = Some(Instant::now() + FS_COALESCE);
+                }
+                return;
+            }
+            AppEvent::Terminate => {
+                self.save_session();
+                self.quit = true;
+            }
+        }
+        if self.reveal_cursor {
+            self.reveal_cursor = false;
+            self.scroll_active_to_cursor();
+        }
+        self.clamp_explorer_scroll();
+        self.sync_watches();
+        self.needs_render = true;
+        if is_input {
+            self.metrics.input.record(start.elapsed());
+        }
+    }
+
+    pub fn resize(&mut self, w: u16, h: u16) {
+        // The preferred sidebar width is kept; layout clamps it per frame.
+        self.area = Rect::new(0, 0, w, h);
+        self.reveal_cursor = true;
+    }
+
+    fn on_key(&mut self, k: KeyEvent) {
+        if k.kind == KeyEventKind::Release {
+            return;
+        }
+        let (key, ch) = convert_key(&k);
+        let Some(key) = key else { return };
+
+        if let Some(top) = self.overlays.last_mut() {
+            let outcome = top.handle_key(key, ch);
+            self.on_overlay_outcome(outcome);
+            return;
+        }
+
+        let ctx = self.context();
+        match self.resolver.feed(&self.keymap, key, &ctx) {
+            Resolution::Command { command, args } => self.execute(&command, args.as_ref()),
+            Resolution::Pending(_) => {}
+            Resolution::InvalidChord(seq) => {
+                self.notify(Severity::Info, format!("The key combination ({seq}) is not a command."));
+            }
+            Resolution::Unbound => self.on_unbound_key(key, ch),
+        }
+    }
+
+    fn on_unbound_key(&mut self, key: KeyPress, ch: Option<char>) {
+        let Some(c) = key.text_char(ch) else { return };
+        match self.focus {
+            Focus::Editor => self.type_char(c),
+            Focus::Explorer => {
+                if !(c == ' ' && self.explorer.filter.is_empty()) {
+                    self.explorer.filter.push(c);
+                    self.explorer.rebuild_rows();
+                    // Jump to the first match below the root.
+                    let f = self.explorer.filter.to_lowercase();
+                    if let Some(i) =
+                        self.explorer.rows.iter().position(|r| r.depth > 0 && r.label.to_lowercase().contains(&f))
+                    {
+                        self.explorer.selected = i;
+                    }
+                }
+            }
+        }
+    }
+
+    fn on_paste(&mut self, text: &str) {
+        if let Some(top) = self.overlays.last_mut() {
+            top.paste(text);
+            return;
+        }
+        if self.focus == Focus::Editor {
+            self.insert_text(text);
+        }
+    }
+
+    /// Run a command by id.
+    pub fn execute(&mut self, id: &str, args: Option<&serde_json::Value>) {
+        match self.commands.get(id) {
+            Some(cmd) => {
+                let handler = cmd.handler;
+                handler(self, args);
+            }
+            None => self.notify(Severity::Error, format!("command '{id}' not found")),
+        }
+        self.needs_render = true;
+    }
+
+    // ------------------------------------------------------------------
+    // Overlays
+
+    pub fn open_overlay(&mut self, o: Overlay) {
+        self.resolver.cancel();
+        self.overlays.push(o);
+        self.needs_render = true;
+    }
+
+    fn on_overlay_outcome(&mut self, outcome: OverlayOutcome) {
+        match outcome {
+            OverlayOutcome::Consumed => {}
+            OverlayOutcome::Cancel => {
+                let closed = self.overlays.pop();
+                if let Some(Overlay::Prompt(p)) = closed
+                    && let PromptAction::SaveAs { doc } = p.action
+                    && self.close_flow.as_ref().is_some_and(|f| f.saving == Some(doc))
+                {
+                    self.close_flow = None;
+                }
+            }
+            OverlayOutcome::SubmitPrompt(text) => {
+                let Some(Overlay::Prompt(p)) = self.overlays.last().cloned() else { return };
+                match self.on_prompt_submit(p.action.clone(), text) {
+                    Ok(()) => {
+                        // The handler may have pushed a follow-up overlay;
+                        // remove the prompt itself.
+                        if let Some(i) =
+                            self.overlays.iter().rposition(|o| matches!(o, Overlay::Prompt(q) if q.action == p.action))
+                        {
+                            self.overlays.remove(i);
+                        }
+                    }
+                    Err(msg) => {
+                        if let Some(Overlay::Prompt(q)) = self.overlays.last_mut() {
+                            q.error = Some(msg);
+                        }
+                    }
+                }
+            }
+            OverlayOutcome::Confirm(action) => {
+                self.overlays.pop();
+                self.on_confirm(action);
+            }
+            OverlayOutcome::Pick(data) => {
+                let Some(Overlay::Picker(p)) = self.overlays.pop() else { return };
+                self.on_pick(p.action, data);
+            }
+        }
+    }
+
+    fn on_prompt_submit(&mut self, action: PromptAction, text: String) -> Result<(), String> {
+        let text = text.trim().to_string();
+        match action {
+            PromptAction::NewFile { dir } => self.create_entry(&dir, &text, false),
+            PromptAction::NewFolder { dir } => self.create_entry(&dir, &text, true),
+            PromptAction::Rename { path } => self.rename_entry(&path, &text),
+            PromptAction::Move { path } => self.move_entry(&path, &text),
+            PromptAction::AddRoot => self.add_root_from_input(&text),
+            PromptAction::LocateRoot(id) => self.locate_root(id, &text),
+            PromptAction::RenameRoot(id) => {
+                self.workspace.rename_root(id, Some(text));
+                self.after_roots_changed();
+                Ok(())
+            }
+            PromptAction::SaveAs { doc } => self.save_as(doc, &text),
+            PromptAction::SaveWorkspaceAs => self.save_workspace_as(&text),
+            PromptAction::OpenFolder => self.open_folder_from_input(&text),
+            PromptAction::OpenWorkspaceFile => self.open_workspace_from_input(&text),
+            PromptAction::OpenFile => self.open_file_from_input(&text),
+            PromptAction::GotoLine => self.goto_line(&text),
+        }
+    }
+
+    fn on_confirm(&mut self, action: ConfirmAction) {
+        match action {
+            ConfirmAction::Nothing => {}
+            ConfirmAction::Close(choice) => self.on_close_choice(choice),
+            ConfirmAction::Trash(p) => self.trash_entry(&p),
+            ConfirmAction::DeletePermanently(p) => self.delete_permanently(&p),
+            ConfirmAction::OverwriteSave(doc) => {
+                self.save_doc(doc, true);
+            }
+            ConfirmAction::ReloadFromDisk(doc) => {
+                self.conflict_prompted.remove(&doc);
+                self.reload_doc(doc);
+            }
+            ConfirmAction::KeepMine(doc) => {
+                self.conflict_prompted.remove(&doc);
+                if let Some(d) = self.docs.doc_mut(doc) {
+                    d.disk_state = yace_buffer::DiskState::Conflicted;
+                }
+            }
+            ConfirmAction::RemoveRoot(id) => self.remove_root(id),
+            ConfirmAction::OpenLarge { path, preview } => self.open_file_confirmed(&path, preview, true),
+            ConfirmAction::OverwriteExisting { doc, path } => self.save_as_confirmed(doc, &path),
+            ConfirmAction::CreateParentAndSave { doc, path } => {
+                if let Some(parent) = path.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    self.notify(Severity::Error, format!("Could not create {}: {e}", parent.display()));
+                    return;
+                }
+                self.save_as_confirmed(doc, &path);
+            }
+        }
+    }
+
+    fn on_pick(&mut self, action: PickerAction, data: usize) {
+        match action {
+            PickerAction::RunCommand => {
+                if let Some(id) = self.commands.palette_ids().get(data).copied() {
+                    self.execute(id, None);
+                }
+            }
+            PickerAction::OpenRecent => self.open_recent(data),
+            PickerAction::Root(a) => self.root_action(a, RootId(data as u32)),
+            PickerAction::ChangeEol => {
+                self.change_eol(if data == 0 { yace_buffer::LineEnding::Lf } else { yace_buffer::LineEnding::CrLf })
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Focus
+
+    pub fn focus_explorer(&mut self) {
+        if !self.sidebar_visible {
+            self.sidebar_visible = true;
+        }
+        self.focus_changed(Focus::Explorer);
+    }
+
+    pub fn focus_editor(&mut self) {
+        self.focus_changed(Focus::Editor);
+    }
+
+    fn focus_changed(&mut self, to: Focus) {
+        if self.focus != to && self.settings.files.auto_save == yace_config::AutoSave::OnFocusChange {
+            self.autosave_all();
+        }
+        self.focus = to;
+        self.resolver.cancel();
+    }
+
+    // ------------------------------------------------------------------
+    // Watching (bounded, non-recursive; TODO.md D8)
+
+    pub(crate) fn sync_watches(&mut self) {
+        let mut want: BTreeSet<PathBuf> = self.explorer.expanded_dirs().into_iter().collect();
+        for (_, e) in self.docs.iter() {
+            if let Some(parent) = e.doc.path().and_then(Path::parent) {
+                want.insert(parent.to_path_buf());
+            }
+        }
+        let remove: Vec<PathBuf> = self.watched.difference(&want).cloned().collect();
+        let add: Vec<PathBuf> = want.difference(&self.watched).cloned().collect();
+        for p in remove {
+            self.watched.remove(&p);
+            self.effects.push(Effect::Unwatch(p));
+        }
+        for p in add {
+            self.watched.insert(p.clone());
+            self.effects.push(Effect::Watch(p));
+        }
+    }
+
+    pub fn watched_dirs(&self) -> &BTreeSet<PathBuf> {
+        &self.watched
+    }
+
+    fn clamp_explorer_scroll(&mut self) {
+        let height = crate::ui::explorer_list_height(self) as usize;
+        let ex = &mut self.explorer;
+        if height == 0 {
+            return;
+        }
+        if ex.selected < ex.scroll {
+            ex.scroll = ex.selected;
+        } else if ex.selected >= ex.scroll + height {
+            ex.scroll = ex.selected + 1 - height;
+        }
+        ex.scroll = ex.scroll.min(ex.rows.len().saturating_sub(height));
+    }
+
+    /// Schedule auto-save after an edit (setting `files.autoSave`).
+    pub(crate) fn on_document_edited(&mut self) {
+        if self.settings.files.auto_save == yace_config::AutoSave::AfterDelay {
+            self.autosave_deadline =
+                Some(Instant::now() + Duration::from_millis(self.settings.files.auto_save_delay.max(100)));
+        }
+    }
+}
+
+/// Convert a crossterm key to a normalised YACE key plus the typed char.
+pub fn convert_key(k: &KeyEvent) -> (Option<KeyPress>, Option<char>) {
+    let mut mods = Mods::NONE;
+    if k.modifiers.contains(KeyModifiers::CONTROL) {
+        mods = mods | Mods::CTRL;
+    }
+    if k.modifiers.contains(KeyModifiers::SHIFT) {
+        mods = mods | Mods::SHIFT;
+    }
+    if k.modifiers.contains(KeyModifiers::ALT) {
+        mods = mods | Mods::ALT;
+    }
+    if k.modifiers.contains(KeyModifiers::SUPER) || k.modifiers.contains(KeyModifiers::META) {
+        mods = mods | Mods::META;
+    }
+    let (code, ch) = match k.code {
+        CtKey::Char(c) => (KeyCode::Char(c), Some(c)),
+        CtKey::F(n) => (KeyCode::F(n), None),
+        CtKey::Enter => (KeyCode::Enter, None),
+        CtKey::Tab => (KeyCode::Tab, None),
+        CtKey::BackTab => {
+            mods = mods | Mods::SHIFT;
+            (KeyCode::Tab, None)
+        }
+        CtKey::Backspace => (KeyCode::Backspace, None),
+        CtKey::Esc => (KeyCode::Escape, None),
+        CtKey::Up => (KeyCode::Up, None),
+        CtKey::Down => (KeyCode::Down, None),
+        CtKey::Left => (KeyCode::Left, None),
+        CtKey::Right => (KeyCode::Right, None),
+        CtKey::Home => (KeyCode::Home, None),
+        CtKey::End => (KeyCode::End, None),
+        CtKey::PageUp => (KeyCode::PageUp, None),
+        CtKey::PageDown => (KeyCode::PageDown, None),
+        CtKey::Insert => (KeyCode::Insert, None),
+        CtKey::Delete => (KeyCode::Delete, None),
+        _ => return (None, None),
+    };
+    (Some(KeyPress::normalized(code, mods)), ch)
+}

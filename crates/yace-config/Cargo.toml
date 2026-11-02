@@ -1,0 +1,21 @@
+[package]
+name = "yace-config"
+description = "YACE settings: layered TOML configuration, VS Code settings mapping, XDG paths, atomic writes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+directories.workspace = true
+jsonc-parser.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+yace-keymap.workspace = true
+
+[lints]
+workspace = true

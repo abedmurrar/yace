@@ -1,0 +1,113 @@
+# Configuration
+
+## Files and locations (XDG)
+
+| What | Path | Override |
+|---|---|---|
+| User settings | `~/.config/yace/config.toml` | `YACE_CONFIG_DIR` |
+| User keybindings | `~/.config/yace/keybindings.toml` | `YACE_CONFIG_DIR` |
+| Session state, recent list, untitled workspaces, log | `~/.local/state/yace/` | `YACE_STATE_DIR` |
+| Cache | `~/.cache/yace/` | `YACE_CACHE_DIR` |
+
+"Preferences: Open User Settings (TOML)" (`Ctrl+,`) creates the file from a
+commented template if it doesn't exist. Saving it inside YACE reloads the
+settings immediately.
+
+## Precedence
+
+1. Built-in defaults
+2. User settings (`config.toml`)
+3. Workspace settings: the `settings` object of the `.code-workspace` file
+4. Repository settings: `<root>/.vscode/settings.json`, for files inside
+   that root
+
+Steps 3 and 4 use **VS Code's setting names**. YACE maps the keys it
+understands, listed below, and ignores the rest without rewriting them. To
+set YACE-only options in a workspace file, put them in a `"yace"` object
+that mirrors the TOML layout, for example
+`"yace": { "files": { "largeFileThresholdMb": 100 } }`.
+
+Each value is validated on its own. An invalid value is reported (file +
+key) and the next lower layer's value is used. The full list of problems is
+in "Developer: Show Configuration Errors".
+
+**Scopes.** Some settings only make sense in certain places:
+- *application* (user only): `keyboard.*`, `workbench.restoreWorkspace`,
+  `workbench.colorDepth`, `workbench.glyphs`
+- *window* (user or workspace): `files.autoSave`, `files.autoSaveDelay`,
+  `files.largeFileThresholdMb`, `explorer.*`, the other `workbench.*` keys
+- *resource* (also per repository): every `editor.*` key, `files.exclude`,
+  `files.eol`, `files.insertFinalNewline`, `files.trimTrailingWhitespace`
+
+## Settings
+
+### `[editor]`
+
+| Key | Default | Values | VS Code key |
+|---|---|---|---|
+| `tabSize` | `4` | integer ≥ 1 | `editor.tabSize` |
+| `insertSpaces` | `true` | bool | `editor.insertSpaces` |
+| `autoClosingBrackets` | `true` | bool | `editor.autoClosingBrackets` (`"never"` → false) |
+| `lineNumbers` | `"on"` | `"on"`, `"off"`, `"relative"` | `editor.lineNumbers` |
+| `renderLineHighlight` | `true` | bool | `editor.renderLineHighlight` (`"none"` → false) |
+| `cursorSurroundingLines` | `3` | integer | `editor.cursorSurroundingLines` |
+| `scrollBeyondLastLine` | `true` | bool | `editor.scrollBeyondLastLine` |
+| `matchBrackets` | `true` | bool | `editor.matchBrackets` (`"never"` → false) |
+
+### `[files]`
+
+| Key | Default | Values | VS Code key |
+|---|---|---|---|
+| `exclude` | `.git`, `.svn`, `.hg`, `CVS`, `.DS_Store`, `Thumbs.db` (as `**/…`) | list of globs. **Additive**: each layer adds; `"!glob"` removes one | `files.exclude` (`{glob: true/false}`) |
+| `autoSave` | `"off"` | `"off"`, `"afterDelay"`, `"onFocusChange"` | `files.autoSave` (`onWindowChange` → `onFocusChange`) |
+| `autoSaveDelay` | `1000` | milliseconds | `files.autoSaveDelay` |
+| `insertFinalNewline` | `false` | bool | `files.insertFinalNewline` |
+| `trimTrailingWhitespace` | `false` | bool | `files.trimTrailingWhitespace` |
+| `eol` | `"auto"` | `"auto"`, `"lf"`, `"crlf"` (for new files; existing files keep theirs) | `files.eol` |
+| `largeFileThresholdMb` | `50` | MiB; larger files open in large-file mode after confirmation | — |
+
+### `[explorer]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `showHidden` | `true` | show dotfiles (excluded globs stay hidden) |
+| `confirmDelete` | `true` | ask before moving to Trash |
+
+### `[workbench]`
+
+| Key | Default | Meaning | VS Code key |
+|---|---|---|---|
+| `enablePreview` | `true` | single-click / Space opens a reusable preview tab | `workbench.editor.enablePreview` |
+| `restoreWorkspace` | `true` | `yace` with no arguments reopens the most recent workspace | — |
+| `glyphs` | `"unicode"` | `"unicode"`, `"nerdFont"`, `"ascii"`: icon and border characters | — |
+| `colorDepth` | `"auto"` | `"auto"`, `"truecolor"`, `"256"`, `"16"`, `"mono"` (`NO_COLOR` forces mono) | — |
+| `sidebarWidth` | `32` | initial side bar width in cells | — |
+
+### `[keyboard]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `chordTimeoutMs` | `3000` | how long `Ctrl+K` waits for the second key |
+| `enhancedProtocol` | `true` | use the Kitty keyboard protocol when the terminal supports it |
+
+## Fonts
+
+YACE runs inside your terminal, so the terminal emulator controls the font
+family, size and rendering. YACE controls colours, text styles and which
+glyphs it uses (`workbench.glyphs`).
+
+## Example
+
+```toml
+[editor]
+tabSize = 2
+lineNumbers = "relative"
+
+[files]
+autoSave = "afterDelay"
+trimTrailingWhitespace = true
+exclude = ["**/node_modules", "**/dist", "**/.next", "**/coverage"]
+
+[workbench]
+glyphs = "nerdFont"
+```
