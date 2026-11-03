@@ -22,6 +22,7 @@ pub enum PromptAction {
     OpenWorkspaceFile,
     OpenFile,
     GotoLine,
+    RenameTerminal(u32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +57,9 @@ pub enum ConfirmAction {
     },
     /// Workspace search: apply the previewed replacement.
     ReplaceInFiles,
+    KillTerminal(u32),
+    /// Stop running terminals, then continue with the given step.
+    KillTerminalsThen(Box<AfterClose>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +79,8 @@ pub enum PickerAction {
     OpenRecent,
     Root(RootAction),
     ChangeEol,
+    NewTerminalInRoot,
+    NewTerminalProfile,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -15,6 +15,50 @@ Security, Performance.
 
 ### Added
 
+- **Integrated terminal** in a bottom panel, running real shells on a PTY
+  (`alacritty_terminal`). Colours, full-screen apps (vim, htop, less,
+  Claude Code), resizing, bracketed paste, mouse reporting, a bounded
+  scrollback and the alternate screen all work.
+  - Open with `` Ctrl+` `` (or `` Alt+` `` on terminals that can't send it),
+    toggle the panel with `Ctrl+J`, add one with `` Ctrl+Shift+` ``.
+  - Terminals are **root-aware**. A new one starts in the workspace folder
+    of the active file, and "Open Terminal in Workspace Folder…" lets you
+    pick. "Open Terminal in Active File's Folder" and Explorer → "Open in
+    Integrated Terminal" are there too. Each tab shows its folder, e.g.
+    `1: zsh — GLOBAL API`.
+  - Multiple sessions with tabs: `Ctrl+PgUp`/`Ctrl+PgDn`, click, `×`, `+`.
+    Rename, clear, kill, and a maximize panel.
+  - With the terminal focused, every key goes to the shell. Ctrl+C
+    interrupts, or copies when text is selected. Only a short list of
+    commands keeps working: Quick Open, the palette, terminal toggles and
+    switching, Explorer, search, focus editor, `F6`. Configure it with
+    `terminal.commandsToSkipShell`.
+  - Mouse: drag to select (Shift inside mouse-aware apps), the wheel
+    scrolls back, middle-click pastes. `Shift+PgUp/PgDn` scrolls too.
+  - Lifecycle: an exited shell shows its exit code and `Enter` restarts it.
+    Killing a terminal while a command runs asks first, and so do quitting
+    or switching workspace with running commands. Shells are stopped on
+    exit, so no orphan processes are left.
+  - Profiles (`[[terminal.profiles]]`: shell, args, env, `startupCommand`,
+    e.g. one that runs `claude`) and "Create New Terminal (With Profile)…".
+  - Terminal tabs are restored with the workspace as **new** sessions,
+    marked "(new session)". YACE never pretends a process survived a quit.
+- `[terminal]` settings (user scope only, so a workspace can't choose the
+  program that runs): `shell`, `args`, `env`, `scrollback`, `panelHeight`,
+  `cwd`, `commandsToSkipShell`, `confirmKill`, `profiles`,
+  `defaultProfile`.
+
+### Performance
+
+- Terminal output is parsed on its own thread, and redraws are coalesced to
+  one per frame. Typing in the editor while a terminal prints
+  `seq 1 2000000`: input handling p95 0.47 ms, render p95 0.13 ms.
+- Editor memory: 7.9 MiB with one terminal, 26.7 MiB with a full
+  10,000-line scrollback. Shells run as separate processes. Reproduce with
+  `scripts/bench_terminal.py`.
+
+### Added
+
 - `CREDITS.md` acknowledges the projects YACE is built on, and
   `THIRD_PARTY_LICENSES.md` (generated) lists every bundled crate with its
   licence texts. Both are shipped in release archives and referenced from

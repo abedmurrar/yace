@@ -94,9 +94,26 @@ impl Harness {
         Paths::in_dir(self.state.path())
     }
 
+    /// Wait (up to `timeout`) until `pred` holds, settling in between.
+    /// For real terminal sessions, whose output arrives asynchronously.
+    pub fn wait_for(&mut self, timeout: Duration, pred: impl Fn(&mut Self) -> bool) -> bool {
+        let start = Instant::now();
+        loop {
+            self.settle();
+            if pred(self) {
+                return true;
+            }
+            if start.elapsed() > timeout {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
     /// Execute pending effects synchronously until quiescent.
     pub fn settle(&mut self) {
         use yace_app::workers::{self, IndexCmd};
+        self.app.drain_terminal_notices();
         for _ in 0..200 {
             let effects = self.app.take_effects();
             if effects.is_empty() {

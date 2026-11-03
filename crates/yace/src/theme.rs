@@ -54,6 +54,12 @@ pub struct Theme {
     pub find_match_bg: Color,
     pub find_current_bg: Color,
     pub match_fg: Color,
+    pub terminal_bg: Color,
+    pub terminal_fg: Color,
+    /// ANSI 0–15 for the integrated terminal.
+    pub terminal_ansi: [Color; 16],
+    /// Colour depth the theme was converted for.
+    pub depth: Depth,
 }
 
 impl Theme {
@@ -106,13 +112,62 @@ impl Theme {
             find_match_bg: Color::Rgb(0x62, 0x33, 0x15),
             find_current_bg: Color::Rgb(0x9e, 0x6a, 0x03),
             match_fg: Color::Rgb(0x3d, 0xa9, 0xfc),
+            terminal_bg: Color::Rgb(0x1a, 0x1b, 0x20),
+            terminal_fg: Color::Rgb(0xd4, 0xd6, 0xdc),
+            terminal_ansi: [
+                Color::Rgb(0x1e, 0x1f, 0x24),
+                Color::Rgb(0xe0, 0x6c, 0x75),
+                Color::Rgb(0x98, 0xc3, 0x79),
+                Color::Rgb(0xe5, 0xc0, 0x7b),
+                Color::Rgb(0x61, 0xaf, 0xef),
+                Color::Rgb(0xc6, 0x78, 0xdd),
+                Color::Rgb(0x56, 0xb6, 0xc2),
+                Color::Rgb(0xd4, 0xd6, 0xdc),
+                Color::Rgb(0x5c, 0x63, 0x70),
+                Color::Rgb(0xf0, 0x7c, 0x85),
+                Color::Rgb(0xa8, 0xd3, 0x89),
+                Color::Rgb(0xf5, 0xd0, 0x8b),
+                Color::Rgb(0x71, 0xbf, 0xff),
+                Color::Rgb(0xd6, 0x88, 0xed),
+                Color::Rgb(0x66, 0xc6, 0xd2),
+                Color::Rgb(0xff, 0xff, 0xff),
+            ],
+            depth: Depth::TrueColor,
         }
     }
 
     /// Downgrade every token for terminals with fewer colours.
     pub fn for_depth(mut self, depth: Depth) -> Self {
+        self.depth = depth;
         if depth == Depth::TrueColor {
             return self;
+        }
+        for c in &mut self.terminal_ansi {
+            *c = if depth == Depth::Ansi16 || depth == Depth::Mono { *c } else { downgrade(*c, depth) };
+        }
+        if depth == Depth::Ansi16 {
+            // Use the terminal's own 16 colours.
+            const N: [Color; 16] = [
+                Color::Black,
+                Color::Red,
+                Color::Green,
+                Color::Yellow,
+                Color::Blue,
+                Color::Magenta,
+                Color::Cyan,
+                Color::Gray,
+                Color::DarkGray,
+                Color::LightRed,
+                Color::LightGreen,
+                Color::LightYellow,
+                Color::LightBlue,
+                Color::LightMagenta,
+                Color::LightCyan,
+                Color::White,
+            ];
+            self.terminal_ansi = N;
+        } else if depth == Depth::Mono {
+            self.terminal_ansi = [Color::Reset; 16];
         }
         macro_rules! conv {
             ($($f:ident),*) => { $( self.$f = downgrade(self.$f, depth); )* };
@@ -163,7 +218,9 @@ impl Theme {
             whitespace,
             find_match_bg,
             find_current_bg,
-            match_fg
+            match_fg,
+            terminal_bg,
+            terminal_fg
         );
         self
     }
@@ -217,7 +274,8 @@ pub fn detect_depth(setting: ColorDepth) -> Depth {
     Depth::Ansi16
 }
 
-fn downgrade(c: Color, depth: Depth) -> Color {
+/// Convert a colour for the terminal's colour depth.
+pub fn downgrade(c: Color, depth: Depth) -> Color {
     let Color::Rgb(r, g, b) = c else { return c };
     match depth {
         Depth::TrueColor => c,

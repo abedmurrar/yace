@@ -24,8 +24,16 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum Drag {
     Sidebar,
+    Panel,
+    /// Selecting text in the terminal.
+    TermSelect,
+    /// Forwarding drags to a terminal application (mouse mode).
+    TermReport,
     Split(SplitHandle),
-    Select { group: GroupId, anchor: Range },
+    Select {
+        group: GroupId,
+        anchor: Range,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -56,6 +64,24 @@ impl App {
                     && button == MouseButton::Left
                 {
                     self.mouse.drag = Some(Drag::Sidebar);
+                    return;
+                }
+                if let Some(b) = wl.panel_border
+                    && hit(b, x, y)
+                {
+                    self.mouse.drag = Some(Drag::Panel);
+                    return;
+                }
+                if let Some(strip) = wl.panel_tabs
+                    && hit(strip, x, y)
+                {
+                    self.mouse_panel_tabs(strip, x, button);
+                    return;
+                }
+                if let Some(content) = wl.panel_content
+                    && hit(content, x, y)
+                {
+                    self.mouse_terminal(content, m, count);
                     return;
                 }
                 if let Some(h) = wl.handles.iter().find(|h| hit(h.rect, x, y)) {
@@ -104,6 +130,17 @@ impl App {
                     self.sidebar_width = x.saturating_sub(self.area.x).clamp(10, max);
                 }
                 Some(Drag::Split(h)) => self.layout.drag_handle(&h, x, y),
+                Some(Drag::Panel) => {
+                    let bottom = self.area.bottom().saturating_sub(1);
+                    self.panel.height =
+                        bottom.saturating_sub(y).saturating_sub(2).clamp(3, self.area.height.saturating_sub(8).max(3));
+                    self.panel.maximized = false;
+                }
+                Some(Drag::TermSelect) | Some(Drag::TermReport) => {
+                    if let Some(content) = wl.panel_content {
+                        self.mouse_terminal(content, m, 1);
+                    }
+                }
                 Some(Drag::Select { group, anchor }) => {
                     if let Some(g) = wl.groups.iter().find(|g| g.id == group)
                         && let Some(pos) = self.position_at(g, x, y)
@@ -118,9 +155,22 @@ impl App {
                 }
                 None => {}
             },
-            MouseEventKind::Up(_) => self.mouse.drag = None,
+            MouseEventKind::Up(_) => {
+                if matches!(self.mouse.drag, Some(Drag::TermReport))
+                    && let Some(content) = wl.panel_content
+                {
+                    self.mouse_terminal(content, m, 1);
+                }
+                self.mouse.drag = None;
+            }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
                 let delta: isize = if m.kind == MouseEventKind::ScrollDown { 3 } else { -3 };
+                if let Some(content) = wl.panel_content
+                    && hit(content, x, y)
+                {
+                    self.mouse_terminal(content, m, 1);
+                    return;
+                }
                 if wl.sidebar.is_some_and(|s| hit(s, x, y)) {
                     let max = self
                         .explorer
@@ -197,6 +247,106 @@ impl App {
                 self.open_file(&row.path, true);
                 self.focus = Focus::Explorer;
             }
+        }
+    }
+
+    fn mouse_panel_tabs(&mut self, strip: Rect, x: u16, button: MouseButton) {
+        let (cells, plus) = ui::panel_tab_cells(self, strip);
+        if plus.is_some_and(|p| x >= p.x && x < p.x + p.width) {
+            self.new_terminal_default();
+            return;
+        }
+        if let Some((i, _, _, close_x)) = cells.into_iter().find(|(_, cx, w, _)| x >= *cx && x < cx + w) {
+            self.panel.active = i;
+            if button == MouseButton::Middle || x == close_x {
+                self.kill_terminal_requested();
+            } else {
+                self.ensure_active_started();
+                self.focus_changed(Focus::Terminal);
+            }
+        }
+    }
+
+    /// Clicks, drags and wheel in the terminal area: selection and
+    /// scrollback, or SGR/X10 reports when the application wants mouse input.
+    fn mouse_terminal(&mut self, content: Rect, m: MouseEvent, count: u8) {
+        use yace_terminal::{MouseButton as TB, MouseKind as TK, encode_key, encode_mouse};
+        if !matches!(m.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown | MouseEventKind::Moved) {
+            self.focus_changed(Focus::Terminal);
+        }
+        let row = m.row.saturating_sub(content.y) as usize;
+        let col = m.column.saturating_sub(content.x) as usize;
+        let mut mods = yace_keymap::Mods::NONE;
+        if m.modifiers.contains(KeyModifiers::SHIFT) {
+            mods = mods | yace_keymap::Mods::SHIFT;
+        }
+        if m.modifiers.contains(KeyModifiers::ALT) {
+            mods = mods | yace_keymap::Mods::ALT;
+        }
+        if m.modifiers.contains(KeyModifiers::CONTROL) {
+            mods = mods | yace_keymap::Mods::CTRL;
+        }
+        let Some(s) = self.panel.active_tab().and_then(|t| t.session.as_ref()) else { return };
+        let modes = s.modes();
+        // Shift bypasses mouse reporting (select text in a TUI app).
+        let report = modes.any_mouse() && !m.modifiers.contains(KeyModifiers::SHIFT);
+        let button = |b: MouseButton| match b {
+            MouseButton::Left => TB::Left,
+            MouseButton::Middle => TB::Middle,
+            MouseButton::Right => TB::Right,
+        };
+        match m.kind {
+            MouseEventKind::Down(b) => {
+                if report {
+                    if let Some(bytes) = encode_mouse(button(b), TK::Press, row, col, mods, modes) {
+                        s.write(&bytes);
+                    }
+                    self.mouse.drag = Some(Drag::TermReport);
+                } else if b == MouseButton::Left {
+                    s.select_clear();
+                    s.select_start(row, col, count >= 2);
+                    self.mouse.drag = Some(Drag::TermSelect);
+                } else if b == MouseButton::Middle {
+                    self.terminal_paste();
+                }
+            }
+            MouseEventKind::Drag(b) => {
+                if report {
+                    if let Some(bytes) = encode_mouse(button(b), TK::Drag, row, col, mods, modes) {
+                        s.write(&bytes);
+                    }
+                } else {
+                    s.select_update(row, col);
+                }
+            }
+            MouseEventKind::Up(b) => {
+                if report && let Some(bytes) = encode_mouse(button(b), TK::Release, row, col, mods, modes) {
+                    s.write(&bytes);
+                }
+            }
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                let up = m.kind == MouseEventKind::ScrollUp;
+                if report {
+                    let wb = if up { TB::WheelUp } else { TB::WheelDown };
+                    if let Some(bytes) = encode_mouse(wb, TK::Press, row, col, mods, modes) {
+                        s.write(&bytes);
+                    }
+                } else if modes.alt_screen && modes.alternate_scroll {
+                    // Full-screen apps without mouse mode: send arrow keys.
+                    let key = yace_keymap::KeyPress::new(
+                        if up { yace_keymap::KeyCode::Up } else { yace_keymap::KeyCode::Down },
+                        yace_keymap::Mods::NONE,
+                    );
+                    if let Some(bytes) = encode_key(key, None, modes) {
+                        for _ in 0..3 {
+                            s.write(&bytes);
+                        }
+                    }
+                } else {
+                    s.scroll(if up { 3 } else { -3 });
+                }
+            }
+            _ => {}
         }
     }
 

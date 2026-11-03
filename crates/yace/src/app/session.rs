@@ -75,6 +75,21 @@ impl App {
             })
             .collect();
         st.recent_commands = self.quick_open.recent_commands.iter().map(|c| c.to_string()).collect();
+        st.panel_visible = self.panel.visible;
+        st.panel_height = Some(self.panel.height);
+        st.panel_maximized = self.panel.maximized;
+        st.active_terminal = self.panel.active;
+        st.terminals = self
+            .panel
+            .tabs
+            .iter()
+            .map(|t| yace_workspace::session::TerminalState {
+                name: t.name.trim_end_matches(" (new session)").to_string(),
+                cwd: t.session.as_ref().and_then(|s| s.current_dir()).unwrap_or_else(|| t.cwd.clone()),
+                root_path: t.root.and_then(|r| self.workspace.root(r)).map(|r| r.path.display().to_string()),
+                profile: t.profile.clone(),
+            })
+            .collect();
         if let Err(e) = session::save(&self.state_path(), &st) {
             tracing::warn!("could not save session: {e}");
         }
@@ -115,6 +130,23 @@ impl App {
                 Some((r.id.0, rel.clone()))
             })
             .collect();
+        if let Some(h) = st.panel_height {
+            self.panel.height = h.max(3);
+        }
+        self.panel.maximized = st.panel_maximized;
+        let terminals: Vec<_> = st
+            .terminals
+            .iter()
+            .map(|t| {
+                let root = t
+                    .root_path
+                    .as_deref()
+                    .and_then(|p| self.workspace.roots().iter().find(|r| r.path == Path::new(p)))
+                    .map(|r| r.id);
+                (root, t.clone())
+            })
+            .collect();
+        self.restore_terminals(terminals, st.active_terminal, st.panel_visible);
         let ids: Vec<&'static str> = self.commands.all().iter().map(|c| c.id).collect();
         self.quick_open.recent_commands =
             st.recent_commands.iter().filter_map(|c| ids.iter().find(|id| **id == c.as_str()).copied()).collect();

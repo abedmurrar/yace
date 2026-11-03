@@ -34,6 +34,22 @@ pub struct WorkspaceState {
     pub quick_open_picked: Vec<(String, String)>,
     /// Recently used command ids, most recent first.
     pub recent_commands: Vec<String>,
+    pub panel_visible: bool,
+    pub panel_height: Option<u16>,
+    pub panel_maximized: bool,
+    /// Terminal tabs (metadata only: processes never survive a restart).
+    pub terminals: Vec<TerminalState>,
+    pub active_terminal: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TerminalState {
+    pub name: String,
+    pub cwd: PathBuf,
+    /// Absolute path of the workspace root it belonged to.
+    pub root_path: Option<String>,
+    pub profile: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

@@ -21,6 +21,7 @@ yace-workspace.workspace = true
 yace-keymap.workspace = true
 yace-config.workspace = true
 yace-search.workspace = true
+yace-terminal.workspace = true
 ratatui.workspace = true
 crossbeam-channel.workspace = true
 notify.workspace = true
@@ -42,6 +43,7 @@ libc = "0.2"
 tempfile.workspace = true
 yace-search.workspace = true
 portable-pty.workspace = true
+vt100 = "0.15"
 
 [lints]
 workspace = true

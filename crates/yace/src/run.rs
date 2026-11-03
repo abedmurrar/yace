@@ -124,6 +124,19 @@ impl Runtime {
         if let Some(e) = err {
             app.notify(Severity::Warning, e);
         }
+        // Terminal sessions notify through the app's channel; forward them.
+        let notices = app.terminal_notices();
+        let ntx = tx.clone();
+        thread::Builder::new()
+            .name("yace-term-notices".into())
+            .spawn(move || {
+                for n in notices {
+                    if ntx.send(AppEvent::TerminalNotice(n)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .expect("spawn notice forwarder");
         let index = crate::workers::spawn_index_actor(tx.clone());
         let find = crate::workers::spawn_find_worker(tx.clone());
         Self { tx, rx, pool, watcher, watch_errors_reported: false, index, search: Default::default(), find }

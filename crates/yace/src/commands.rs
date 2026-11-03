@@ -300,10 +300,50 @@ fn builtin_commands() -> Vec<Command> {
             a.sidebar_width.saturating_add(4)),
         c!("yace.sidebar.decreaseWidth", "View", "Decrease Side Bar Width", |a, _| a.sidebar_width =
             a.sidebar_width.saturating_sub(4).max(10)),
-        c!("workbench.action.togglePanel", "View", "Toggle Panel", |a, _| a
-            .not_available("The bottom panel", "M5 (integrated terminal)")),
-        c!("workbench.action.terminal.toggleTerminal", "View", "Toggle Terminal", |a, _| a
-            .not_available("The integrated terminal", "M5")),
+        c!("workbench.action.togglePanel", "View", "Toggle Panel", |a, _| a.toggle_panel()),
+        c!("workbench.action.terminal.toggleTerminal", "View", "Toggle Terminal", |a, _| a.toggle_terminal()),
+        c!("workbench.action.terminal.focus", "Terminal", "Focus Terminal", |a, _| a.show_terminal()),
+        c!("workbench.action.terminal.new", "Terminal", "Create New Terminal", |a, _| a.new_terminal_default()),
+        c!("yace.terminal.newInRoot", "Terminal", "Open Terminal in Workspace Folder…", |a, _| a
+            .new_terminal_in_root_picker()),
+        c!("yace.terminal.newInActiveFileDir", "Terminal", "Open Terminal in Active File's Folder", |a, _| {
+            a.new_terminal_in_active_file_dir()
+        }),
+        c!("openInIntegratedTerminal", "Terminal", "Open in Integrated Terminal (Explorer selection)", |a, _| {
+            a.new_terminal_in_explorer_dir()
+        }),
+        c!("workbench.action.terminal.newWithProfile", "Terminal", "Create New Terminal (With Profile)…", |a, _| {
+            a.new_terminal_with_profile_picker()
+        }),
+        c!("workbench.action.terminal.kill", "Terminal", "Kill the Active Terminal Instance", |a, _| a
+            .kill_terminal_requested()),
+        c!("workbench.action.terminal.rename", "Terminal", "Rename…", |a, _| a.rename_terminal_prompt()),
+        c!("workbench.action.terminal.focusNext", "Terminal", "Focus Next Terminal", |a, _| a.focus_terminal_tab(1)),
+        c!("workbench.action.terminal.focusPrevious", "Terminal", "Focus Previous Terminal", |a, _| a
+            .focus_terminal_tab(-1)),
+        c!("workbench.action.terminal.clear", "Terminal", "Clear", |a, _| a.terminal_clear()),
+        c!(hidden "workbench.action.terminal.scrollUp", "Terminal", "Scroll Up (Line)", |a, _| a.terminal_scroll(1)),
+        c!(hidden "workbench.action.terminal.scrollDown", "Terminal", "Scroll Down (Line)", |a, _| a.terminal_scroll(-1)),
+        c!(hidden "workbench.action.terminal.scrollUpPage", "Terminal", "Scroll Up (Page)", |a, _| {
+            let p = a.terminal_page();
+            a.terminal_scroll(p)
+        }),
+        c!(hidden "workbench.action.terminal.scrollDownPage", "Terminal", "Scroll Down (Page)", |a, _| {
+            let p = a.terminal_page();
+            a.terminal_scroll(-p)
+        }),
+        c!("workbench.action.terminal.copySelection", "Terminal", "Copy Selection", |a, _| {
+            a.terminal_copy();
+        }),
+        c!("workbench.action.terminal.paste", "Terminal", "Paste into Active Terminal", |a, _| a.terminal_paste()),
+        c!("workbench.action.toggleMaximizedPanel", "View", "Toggle Maximized Panel", |a, _| {
+            a.panel.maximized = !a.panel.maximized;
+            a.show_terminal();
+        }),
+        c!("yace.panel.increaseHeight", "View", "Increase Panel Height", |a, _| a.panel.height =
+            a.panel.height.saturating_add(3)),
+        c!("yace.panel.decreaseHeight", "View", "Decrease Panel Height", |a, _| a.panel.height =
+            a.panel.height.saturating_sub(3).max(4)),
         c!("workbench.action.findInFiles", "Search", "Find in Files", |a, _| a.search_open(false)),
         c!("workbench.action.replaceInFiles", "Search", "Replace in Files", |a, _| a.search_open(true)),
         c!("search.action.clearSearchResults", "Search", "Clear Search Results", |a, _| a.search_clear()),

@@ -95,6 +95,36 @@ in "Developer: Show Configuration Errors".
 | `maxResults` | `20000` | stop a workspace search after this many matches | `search.maxResults` |
 | `maxIndexedFiles` | `500000` | per-folder cap for the Quick Open index | — |
 
+### `[terminal]`
+
+User settings only: a workspace file can never choose which program runs
+(spec §4.12).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `shell` | `""` | shell executable; empty = `$SHELL` (else `/bin/sh`) |
+| `args` | `[]` | arguments for the shell |
+| `env` | `{}` | extra environment variables, e.g. `[terminal.env]` `EDITOR = "yace"` |
+| `scrollback` | `10000` | lines kept per terminal (memory is bounded by this; a full 10,000-line buffer at 100 columns is about 20 MiB) |
+| `panelHeight` | `12` | bottom panel height in rows (drag its top border to resize) |
+| `cwd` | `"activeRoot"` | where new terminals start: `"activeRoot"` (workspace folder of the active file), `"activeFileDir"`, `"firstRoot"` |
+| `commandsToSkipShell` | `[]` | extra command ids that keep working while a terminal has focus |
+| `confirmKill` | `"whenRunning"` | ask before killing a terminal: `"whenRunning"`, `"always"`, `"never"` |
+| `defaultProfile` | `""` | profile used by "Create New Terminal" |
+| `profiles` | `[]` | `[[terminal.profiles]]` tables: `name`, `shell`, `args`, `env`, `startupCommand` |
+
+Example: a profile that starts Claude Code in the active folder.
+
+```toml
+[[terminal.profiles]]
+name = "claude"
+startupCommand = "claude"
+```
+
+Terminal tabs (name, folder, profile) are restored with the workspace.
+Restored tabs start a **new** shell when shown, marked "(new session)":
+processes never survive quitting YACE.
+
 ### `[keyboard]`
 
 | Key | Default | Meaning |

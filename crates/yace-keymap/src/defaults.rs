@@ -20,6 +20,8 @@ pub mod ctx {
     pub const FIND_WIDGET_FOCUS: &str = "findWidgetFocus";
     pub const SEARCH_VIEW_FOCUS: &str = "searchViewFocus";
     pub const SEARCH_INPUT_FOCUS: &str = "searchInputFocus";
+    pub const TERMINAL_FOCUS: &str = "terminalFocus";
+    pub const PANEL_VISIBLE: &str = "panelVisible";
 }
 
 const ED: &str = "editorFocus";
@@ -39,6 +41,7 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+b", "workbench.action.toggleSidebarVisibility", ""),
     ("ctrl+j", "workbench.action.togglePanel", ""),
     ("ctrl+`", "workbench.action.terminal.toggleTerminal", ""),
+    ("ctrl+shift+`", "workbench.action.terminal.new", ""),
     ("ctrl+shift+f", "workbench.action.findInFiles", ""),
     ("ctrl+t", "workbench.action.showAllSymbols", ""),
     ("ctrl+g", "workbench.action.gotoLine", ""),
@@ -217,6 +220,16 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("alt+l", "editor.action.selectHighlights", "editorFocus && !keyboardEnhanced"),
     ("alt+t", "workbench.action.reopenClosedEditor", "!keyboardEnhanced"),
     ("alt+z", "redo", "editorFocus && !keyboardEnhanced"),
+    ("alt+`", "workbench.action.terminal.toggleTerminal", "!keyboardEnhanced"),
+    // --- Terminal (only these and the skip-shell list bypass the shell) ----
+    ("ctrl+shift+c", "workbench.action.terminal.copySelection", "terminalFocus"),
+    ("ctrl+shift+v", "workbench.action.terminal.paste", "terminalFocus"),
+    ("shift+pageup", "workbench.action.terminal.scrollUpPage", "terminalFocus"),
+    ("shift+pagedown", "workbench.action.terminal.scrollDownPage", "terminalFocus"),
+    ("ctrl+shift+up", "workbench.action.terminal.scrollUp", "terminalFocus"),
+    ("ctrl+shift+down", "workbench.action.terminal.scrollDown", "terminalFocus"),
+    ("ctrl+pagedown", "workbench.action.terminal.focusNext", "terminalFocus"),
+    ("ctrl+pageup", "workbench.action.terminal.focusPrevious", "terminalFocus"),
 ];
 
 /// Build the default keymap layer.

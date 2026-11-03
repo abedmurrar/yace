@@ -12,6 +12,7 @@ mod mouse;
 mod quick_open;
 mod search_view;
 mod session;
+mod terminal;
 mod workspace_ops;
 
 use std::{
@@ -43,6 +44,7 @@ pub use edit::{Move, Op, comment_token, language_name};
 pub use find::FindField;
 pub use mouse::MouseState;
 pub use search_view::{Row as SearchRow, SearchField};
+pub use terminal::{PanelState, TermTab, snapshot as terminal_snapshot};
 
 /// Inputs to the application.
 #[derive(Debug)]
@@ -85,6 +87,8 @@ pub enum AppEvent {
         path: PathBuf,
         result: Result<Box<yace_buffer::Document>, String>,
     },
+    /// From a terminal session (output, title, exit, bell).
+    TerminalNotice(yace_terminal::Notice),
 }
 
 /// Side effects requested by the application.
@@ -119,6 +123,8 @@ pub enum Focus {
     Editor,
     /// The find/replace bar of the active editor group.
     Find,
+    /// The active terminal in the bottom panel.
+    Terminal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -212,6 +218,8 @@ pub struct App {
     /// Back/forward navigation history.
     pub nav: history::NavHistory,
     last_trim: Option<Instant>,
+    /// The bottom panel and its terminals.
+    pub panel: terminal::PanelState,
 }
 
 const FS_COALESCE: Duration = Duration::from_millis(100);
@@ -269,6 +277,7 @@ impl App {
             search: Default::default(),
             nav: Default::default(),
             last_trim: None,
+            panel: Default::default(),
             settings,
             paths: opts.paths,
         };
@@ -454,6 +463,7 @@ impl App {
         c.set(ctx::NOTIFICATION_VISIBLE, !self.notifications.is_empty());
         c.set(ctx::MULTIPLE_EDITOR_GROUPS, self.layout.groups().len() > 1);
         c.set(ctx::FIND_WIDGET_VISIBLE, self.find.visible);
+        c.set(ctx::PANEL_VISIBLE, self.panel.visible);
         match self.focus {
             Focus::Explorer if self.sidebar_visible && self.sidebar_view == SidebarView::Search => {
                 c.set(ctx::SEARCH_VIEW_FOCUS, true);
@@ -465,6 +475,9 @@ impl App {
             }
             Focus::Find => {
                 c.set(ctx::FIND_WIDGET_FOCUS, true);
+            }
+            Focus::Terminal => {
+                c.set(ctx::TERMINAL_FOCUS, true);
             }
             _ => {
                 if let Some(v) = self.layout.active_group().active_view() {
@@ -524,8 +537,11 @@ impl App {
             }
             AppEvent::FindDone { seq, result } => self.on_find_done(seq, result),
             AppEvent::FileLoaded { doc, path, result } => self.on_file_loaded(doc, path, result),
+            AppEvent::TerminalNotice(n) => self.on_terminal_notice(n),
         }
         self.refresh_find_if_stale();
+        self.ensure_active_started();
+        self.sync_terminal_size();
         if self.reveal_cursor {
             self.reveal_cursor = false;
             self.scroll_active_to_cursor();
@@ -557,6 +573,11 @@ impl App {
             return;
         }
 
+        if self.focus == Focus::Terminal && self.panel.visible {
+            self.resolver.cancel();
+            self.terminal_key(key, ch);
+            return;
+        }
         let ctx = self.context();
         match self.resolver.feed(&self.keymap, key, &ctx) {
             Resolution::Command { command, args } => self.execute(&command, args.as_ref()),
@@ -581,7 +602,7 @@ impl App {
         let Some(c) = key.text_char(ch) else { return };
         match self.focus {
             Focus::Editor => self.type_char(c),
-            Focus::Find => {}
+            Focus::Find | Focus::Terminal => {}
             Focus::Explorer => {
                 if !(c == ' ' && self.explorer.filter.is_empty()) {
                     self.explorer.filter.push(c);
@@ -610,6 +631,7 @@ impl App {
             Focus::Editor => self.insert_text(text),
             Focus::Find => self.find_paste(text),
             Focus::Explorer if self.sidebar_view == SidebarView::Search => self.search_paste(text),
+            Focus::Terminal => self.terminal_paste_text(text),
             Focus::Explorer => {}
         }
     }
@@ -699,6 +721,10 @@ impl App {
             PromptAction::OpenWorkspaceFile => self.open_workspace_from_input(&text),
             PromptAction::OpenFile => self.open_file_from_input(&text),
             PromptAction::GotoLine => self.goto_line(&text),
+            PromptAction::RenameTerminal(id) => {
+                self.rename_terminal(id, &text);
+                Ok(())
+            }
         }
     }
 
@@ -725,6 +751,12 @@ impl App {
             ConfirmAction::OpenLarge { path, preview } => self.open_file_confirmed(&path, preview, true),
             ConfirmAction::OverwriteExisting { doc, path } => self.save_as_confirmed(doc, &path),
             ConfirmAction::ReplaceInFiles => self.search_replace_all(),
+            ConfirmAction::KillTerminal(id) => self.kill_terminal(id),
+            ConfirmAction::KillTerminalsThen(after) => {
+                self.kill_all_terminals();
+                let docs = self.docs.ids();
+                self.start_close(docs, *after);
+            }
             ConfirmAction::CreateParentAndSave { doc, path } => {
                 if let Some(parent) = path.parent()
                     && let Err(e) = std::fs::create_dir_all(parent)
@@ -746,6 +778,8 @@ impl App {
                 }
             }
             PickerAction::QuickOpen => self.quick_open_pick(data),
+            PickerAction::NewTerminalInRoot => self.new_terminal_in_root(RootId(data as u32)),
+            PickerAction::NewTerminalProfile => self.new_terminal_with_profile(data),
             PickerAction::OpenRecent => self.open_recent(data),
             PickerAction::Root(a) => self.root_action(a, RootId(data as u32)),
             PickerAction::ChangeEol => {

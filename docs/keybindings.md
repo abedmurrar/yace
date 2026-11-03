@@ -40,6 +40,7 @@ Rebind those in the terminal, or use the fallbacks below.
 | `Alt+T` | Reopen Closed Editor | `Ctrl+Shift+T` |
 | `Alt+Shift+F` | Search across the workspace | `Ctrl+Shift+F` |
 | `Alt+Shift+H` | Replace across the workspace | `Ctrl+Shift+H` |
+| `` Alt+` `` | Toggle terminal | `` Ctrl+` `` (legacy terminals send it as `Ctrl+Space`) |
 | `Alt+Z` | Redo | `Ctrl+Shift+Z` (`Ctrl+Y` also works) |
 | `Ctrl+PgDn` / `Ctrl+PgUp` | Next / previous editor | `Ctrl+Tab` |
 
@@ -84,9 +85,36 @@ Rebind those in the terminal, or use the fallbacks below.
 | `Escape` | Dismiss Notification | `yace.dismissNotification` |
 
 These are reserved for later milestones and currently show a "not available
-yet" notice: `Ctrl+J` (panel, M5), `` Ctrl+` `` (terminal, M5),
-`Ctrl+K Ctrl+T` (themes, M6), and `Ctrl+Shift+O`, `Ctrl+T`, `Ctrl+Space`,
-`F2`, `F12` (language features, M7).
+yet" notice: `Ctrl+K Ctrl+T` (themes, M6), and `Ctrl+Shift+O`, `Ctrl+T`,
+`Ctrl+Space`, `F2`, `F12` (language features, M7).
+
+### Integrated terminal
+
+| Keys | Action |
+|---|---|
+| `` Ctrl+` `` (legacy terminals: `` Alt+` ``) | show and focus the terminal; again to hide it |
+| `` Ctrl+Shift+` `` | new terminal in the active file's workspace folder |
+| `Ctrl+J` | show / hide the bottom panel |
+| `Ctrl+PgDn` / `Ctrl+PgUp` (terminal focused) | next / previous terminal |
+| `Ctrl+C` | interrupt (or copy, when text is selected) |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` | copy selection / paste |
+| `Shift+PgUp` / `Shift+PgDn`, `Ctrl+Shift+Up` / `Ctrl+Shift+Down`, mouse wheel | scroll back |
+| mouse drag (hold `Shift` inside mouse-aware apps) | select text |
+| `F6` | switch focus between the terminal/explorer and the editor |
+
+While a terminal has focus, **every key goes to the shell** except these
+commands, which keep working: Quick Open (`Ctrl+P`), Command Palette
+(`Ctrl+Shift+P`, `F1`), toggle terminal/panel, new terminal, next/previous
+terminal, terminal copy/paste/scroll, maximize panel, Explorer
+(`Ctrl+Shift+E`), Find in Files (`Ctrl+Shift+F`), focus editor group
+(`Ctrl+1`–`3`) and `F6`. Add more with `terminal.commandsToSkipShell`.
+`Ctrl+K`, `Ctrl+R`, `Ctrl+D`, `Ctrl+B` and so on reach the shell.
+
+Other terminal commands are in the palette: "Open Terminal in Workspace
+Folder…", "Open Terminal in Active File's Folder", "Create New Terminal
+(With Profile)…", "Kill the Active Terminal Instance", "Rename…", "Clear",
+"Toggle Maximized Panel". In the Explorer, "Open in Integrated Terminal"
+starts one in the selected folder.
 
 ### Quick Open (`Ctrl+P`)
 

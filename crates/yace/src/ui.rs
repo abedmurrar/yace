@@ -48,6 +48,10 @@ pub struct WorkbenchLayout {
     pub groups: Vec<GroupLayout>,
     pub handles: Vec<SplitHandle>,
     pub status: Rect,
+    /// Bottom panel: drag border, tab strip, terminal content.
+    pub panel_border: Option<Rect>,
+    pub panel_tabs: Option<Rect>,
+    pub panel_content: Option<Rect>,
 }
 
 fn digits(n: usize) -> u16 {
@@ -72,6 +76,20 @@ pub fn workbench_layout(app: &App) -> WorkbenchLayout {
         (Some(sb), Some(border), ed)
     } else {
         (None, None, main)
+    };
+    // Bottom panel below the editor groups (the sidebar stays full height).
+    let (editor, panel_border, panel_tabs, panel_content) = if app.panel.visible && editor.height >= 6 {
+        let total = if app.panel.maximized {
+            editor.height
+        } else {
+            (app.panel.height.max(3) + 2).min(editor.height.saturating_sub(4)).max(4)
+        };
+        let border = Rect { y: editor.bottom() - total, height: 1, ..editor };
+        let tabs = Rect { y: border.y + 1, height: 1, ..editor };
+        let content = Rect { y: tabs.y + 1, height: total.saturating_sub(2), ..editor };
+        (Rect { height: editor.height - total, ..editor }, Some(border), Some(tabs), Some(content))
+    } else {
+        (editor, None, None, None)
     };
     let explorer_title = sidebar.map(|s| Rect { height: s.height.min(1), ..s });
     let explorer_list = sidebar.map(|s| Rect { y: s.y + 1, height: s.height.saturating_sub(1), ..s });
@@ -98,7 +116,19 @@ pub fn workbench_layout(app: &App) -> WorkbenchLayout {
             GroupLayout { id, rect, tabs, content, gutter, text_x, text_width }
         })
         .collect();
-    WorkbenchLayout { sidebar, sidebar_border, explorer_title, explorer_list, editor, groups, handles, status }
+    WorkbenchLayout {
+        sidebar,
+        sidebar_border,
+        explorer_title,
+        explorer_list,
+        editor,
+        groups,
+        handles,
+        status,
+        panel_border,
+        panel_tabs,
+        panel_content,
+    }
 }
 
 pub fn explorer_list_height(app: &App) -> u16 {
@@ -202,6 +232,7 @@ pub fn draw(app: &App, f: &mut Frame) {
         };
         fill_with(buf, h.rect, glyph, Style::new().fg(theme.border).bg(theme.bg));
     }
+    draw_panel(app, buf, &wl);
     draw_status(app, buf, wl.status);
     let mut cursor = None;
     if app.overlays.is_empty() {
@@ -212,6 +243,7 @@ pub fn draw(app: &App, f: &mut Frame) {
                 wl.explorer_list.and_then(|l| search_view_cursor(app, l))
             }
             Focus::Explorer => None,
+            Focus::Terminal => terminal_cursor(app, &wl),
         };
     }
     if let Some(o) = app.overlays.last() {
@@ -1264,4 +1296,186 @@ fn search_view_cursor(app: &App, list: Rect) -> Option<(u16, u16)> {
     let cells = input.cursor_cells() as u16;
     let scroll = cells.saturating_sub(r.width.saturating_sub(2));
     Some((r.x + 1 + cells - scroll, r.y))
+}
+
+// ---------------------------------------------------------------------------
+// Bottom panel (integrated terminal)
+
+/// One terminal tab in the strip: (tab index, x, width, close x).
+pub type PanelTabCell = (usize, u16, u16, u16);
+
+/// Tab-strip geometry plus the "+" button.
+pub fn panel_tab_cells(app: &App, strip: Rect) -> (Vec<PanelTabCell>, Option<Rect>) {
+    let mut x = strip.x + 10; // " TERMINAL "
+    let mut out = Vec::new();
+    for i in 0..app.panel.tabs.len() {
+        let label = app.terminal_label(i);
+        let w = (UnicodeWidthStr::width(label.as_str()) as u16 + 4).min(40);
+        if x + w > strip.right().saturating_sub(3) {
+            break;
+        }
+        out.push((i, x, w, x + w - 2));
+        x += w;
+    }
+    let plus = (x + 3 <= strip.right()).then_some(Rect { x: x + 1, y: strip.y, width: 2, height: 1 });
+    (out, plus)
+}
+
+fn term_color(app: &App, c: yace_terminal::TermColor, fg: bool) -> ratatui::style::Color {
+    use ratatui::style::Color;
+    use yace_terminal::TermColor;
+    let t = &app.theme;
+    match c {
+        TermColor::Default => {
+            if fg {
+                t.terminal_fg
+            } else {
+                t.terminal_bg
+            }
+        }
+        TermColor::Named(i) => t.terminal_ansi[usize::from(i).min(15)],
+        TermColor::Indexed(i) => match t.depth {
+            crate::theme::Depth::TrueColor | crate::theme::Depth::Ansi256 => Color::Indexed(i),
+            _ => t.terminal_ansi[usize::from(i % 16)],
+        },
+        TermColor::Rgb(r, g, b) => crate::theme::downgrade(Color::Rgb(r, g, b), t.depth),
+    }
+}
+
+fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
+    let (Some(border), Some(strip), Some(content)) = (wl.panel_border, wl.panel_tabs, wl.panel_content) else { return };
+    let t = &app.theme;
+    let focused = app.focus == Focus::Terminal && app.overlays.is_empty();
+    fill_with(buf, border, app.glyphs.hbar, Style::new().fg(if focused { t.focus_border } else { t.border }).bg(t.bg));
+    fill(buf, strip, Style::new().fg(t.sidebar_fg).bg(t.tab_bar_bg));
+    put(buf, strip.x, strip.y, " TERMINAL ", 10, t.title(focused).bg(t.tab_bar_bg));
+    let (cells, plus) = panel_tab_cells(app, strip);
+    for (i, x, w, close_x) in cells {
+        let active = i == app.panel.active;
+        let style = if active {
+            Style::new().fg(t.tab_active_fg).bg(t.terminal_bg)
+        } else {
+            Style::new().fg(t.tab_inactive_fg).bg(t.tab_inactive_bg)
+        };
+        let r = Rect { x, y: strip.y, width: w, height: 1 };
+        fill(buf, r, style);
+        let label = app.terminal_label(i);
+        put(
+            buf,
+            x + 1,
+            strip.y,
+            &ellipsize(&label, w.saturating_sub(4) as usize, app.glyphs.ellipsis),
+            w.saturating_sub(3),
+            style,
+        );
+        put(buf, close_x, strip.y, app.glyphs.close, 1, style);
+    }
+    if let Some(p) = plus {
+        put(buf, p.x, p.y, "+", 1, Style::new().fg(t.sidebar_fg).bg(t.tab_bar_bg).add_modifier(Modifier::BOLD));
+    }
+    fill(buf, content, Style::new().fg(t.terminal_fg).bg(t.terminal_bg));
+    let Some(tab) = app.panel.active_tab() else {
+        put(
+            buf,
+            content.x + 2,
+            content.y,
+            "No terminals. Press Ctrl+` (or Alt+`) to open one.",
+            content.width,
+            Style::new().fg(t.muted).bg(t.terminal_bg),
+        );
+        return;
+    };
+    if tab.not_started && tab.session.is_none() {
+        let msg = format!("Restored terminal — press Enter to start a new shell in {}", tab.cwd.display());
+        put(
+            buf,
+            content.x + 2,
+            content.y,
+            &ellipsize(&msg, content.width as usize, app.glyphs.ellipsis),
+            content.width.saturating_sub(2),
+            Style::new().fg(t.muted).bg(t.terminal_bg),
+        );
+        return;
+    }
+    let Some(screen) = crate::app::terminal_snapshot(tab) else { return };
+    let rows = screen.rows.min(content.height as usize);
+    let cols = screen.cols.min(content.width as usize);
+    for r in 0..rows {
+        let y = content.y + r as u16;
+        for c in 0..cols {
+            let cell = screen.cell(r, c);
+            if cell.width == 0 {
+                continue;
+            }
+            let st = cell.style;
+            let (mut fg, mut bg) = (term_color(app, cell.fg, true), term_color(app, cell.bg, false));
+            if st.inverse {
+                std::mem::swap(&mut fg, &mut bg);
+            }
+            if st.hidden {
+                fg = bg;
+            }
+            if st.selected {
+                bg = t.selection_bg;
+            }
+            let mut style = Style::new().fg(fg).bg(bg);
+            if st.bold {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            if st.dim {
+                style = style.add_modifier(Modifier::DIM);
+            }
+            if st.italic {
+                style = style.add_modifier(Modifier::ITALIC);
+            }
+            if st.underline {
+                style = style.add_modifier(Modifier::UNDERLINED);
+            }
+            if st.strike {
+                style = style.add_modifier(Modifier::CROSSED_OUT);
+            }
+            let x = content.x + c as u16;
+            let mut sym = String::new();
+            sym.push(if cell.ch == '\0' { ' ' } else { cell.ch });
+            if let Some(e) = &cell.extra {
+                sym.push_str(e);
+            }
+            let w = u16::from(cell.width).min(content.right() - x);
+            put(buf, x, y, &sym, w.max(1), style);
+        }
+    }
+    if let Some(code) = tab.exited {
+        let msg = match code {
+            Some(c) => format!(" Process exited with code {c}. Press Enter to restart, or kill the terminal. "),
+            None => " Process ended. Press Enter to restart, or kill the terminal. ".to_string(),
+        };
+        let y = content.bottom().saturating_sub(1);
+        put(
+            buf,
+            content.x,
+            y,
+            &ellipsize(&msg, content.width as usize, app.glyphs.ellipsis),
+            content.width,
+            Style::new().fg(t.bg).bg(t.warning),
+        );
+    }
+    if screen.display_offset > 0 {
+        let msg = format!(" ↑ {} lines ", screen.display_offset);
+        let w = UnicodeWidthStr::width(msg.as_str()) as u16;
+        put(buf, content.right().saturating_sub(w), content.y, &msg, w, Style::new().fg(t.bg).bg(t.info));
+    }
+}
+
+fn terminal_cursor(app: &App, wl: &WorkbenchLayout) -> Option<(u16, u16)> {
+    let content = wl.panel_content?;
+    let tab = app.panel.active_tab()?;
+    if tab.exited.is_some() {
+        return None;
+    }
+    let screen = crate::app::terminal_snapshot(tab)?;
+    if screen.display_offset > 0 {
+        return None;
+    }
+    let (r, c) = screen.cursor?;
+    ((r as u16) < content.height && (c as u16) < content.width).then(|| (content.x + c as u16, content.y + r as u16))
 }

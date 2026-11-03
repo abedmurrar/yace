@@ -48,6 +48,8 @@ isolation.
 | find worker | — | `Effect::Find` (rope snapshot, O(1) clone) | `FindDone` |
 | file loader | — | `Effect::LoadFile` (files > 1 MiB) | `FileLoaded` |
 
+| terminal sessions (`yace-terminal`) | one `alacritty_terminal` event-loop thread per shell: PTY I/O + VT parsing into a bounded grid | `Session::write` / `resize` / `kill` | `Notice::Output` (coalesced: one pending notice per session until the UI draws it), `Title`, `Exit`, `Bell` |
+
 Every request carries a sequence number, and the app ignores results whose
 number is out of date. The index actor coalesces bursts of queries and
 only answers the latest one. Indexing is **lazy**: it starts on the first

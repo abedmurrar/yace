@@ -131,6 +131,12 @@ impl Keymap {
         errors
     }
 
+    /// The highest-precedence single-key binding for `key` in `ctx`
+    /// (no chords). Used while a terminal has focus.
+    pub fn lookup_single(&self, key: KeyPress, ctx: &dyn Context) -> Option<&Binding> {
+        self.bindings.iter().rev().find(|b| b.keys.len() == 1 && b.keys.presses()[0] == key && b.when.eval(ctx))
+    }
+
     /// Highest-precedence key sequence bound to `command` (for display).
     pub fn keys_for(&self, command: &str, ctx: Option<&dyn Context>) -> Option<&KeySeq> {
         self.bindings.iter().rev().find(|b| b.command == command && ctx.is_none_or(|c| b.when.eval(c))).map(|b| &b.keys)

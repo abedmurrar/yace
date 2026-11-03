@@ -564,6 +564,7 @@ impl App {
         match after {
             AfterClose::Quit => {
                 self.save_session();
+                self.kill_all_terminals();
                 self.quit = true;
             }
             AfterClose::CloseViews(list) => {
@@ -627,6 +628,9 @@ impl App {
     }
 
     pub(crate) fn quit_requested(&mut self) {
+        if self.confirm_running_terminals(AfterClose::Quit) {
+            return;
+        }
         let docs = self.docs.ids();
         self.start_close(docs, AfterClose::Quit);
     }

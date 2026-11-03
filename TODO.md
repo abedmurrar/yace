@@ -14,8 +14,8 @@ Legend:
 
 | | |
 |---|---|
-| Current pass | M1–M3 → **v0.1.0**; M4 (Quick Open, palette, find, workspace search) → **v0.2.0** |
-| Current step | **M4 complete** — released as v0.2.0; next: M5 (integrated terminal) |
+| Current pass | M1–M3 → **v0.1.0**; M4 → **v0.2.0** (+ v0.2.1 polish); M5 (integrated terminal) → **v0.3.0** |
+| Current step | **M5 complete** — released as v0.3.0; next: M6 (themes and customisation) |
 | Toolchain | rustc 1.99.1 stable (rustup) |
 | Last updated | 2026-11-03 (M1–M3 complete) |
 
@@ -52,6 +52,8 @@ Legend:
 | D17 | Search engine is pure Rust: `ignore` + `grep-searcher`/`grep-regex` (ripgrep's crates) in the new `yace-search` crate; no external `rg` | portable, no runtime dependency, same ignore semantics as ripgrep | §14.2, §34.5 |
 | D18 | Own VS Code-style fuzzy scorer (DP alignment, filename-first, word/segment/camel bonuses, deterministic tie-break) instead of nucleo-matcher (MPL-2.0) | no extra licence; fully unit-tested; 200k paths in 9–19 ms using parallel chunks | §6.3 |
 | D20 | glibc tuning: `M_ARENA_MAX=2` at startup and `malloc_trim(0)` after indexing, searches and closing large files (`crates/yace/src/mem.rs`, the only `unsafe`); `YACE_MALLOC_TRIM=0` disables it | per-thread arenas kept freed memory after parallel walks; ~30% lower steady-state RSS measured | §23.6 |
+| D19 | Integrated terminal on `alacritty_terminal` 0.26 (Apache-2.0): complete VT emulation, bounded grid, selection, its own PTY + event loop; `portable-pty` only in tests | mature (Alacritty, Zed), small dependency tree; vt100 lacks a PTY and full-screen fidelity; termwiz is large | §11.2, §11.3, §34.2 |
+| D21 | Terminal settings are user-scope only | a workspace must never choose which program runs | §4.12, §27.3 |
 | D13 | State files live under `$XDG_STATE_HOME/yace`, config under `$XDG_CONFIG_HOME/yace`, cache under `$XDG_CACHE_HOME/yace`. Every state write is atomic (temp + rename) | §17.2, §26.2 | §17.2 |
 
 ### Open questions (spec §34, user decisions pending)
@@ -61,7 +63,7 @@ Legend:
 - [ ] Plugin execution model: in-process vs out-of-process vs hybrid (§18.9, §34.3)
 - [ ] Plugin ABI scope for v1 (§34.4)
 - [x] Search engine: pure Rust (`ignore` + `grep-searcher`) vs an external `rg` (§34.5) — pure Rust (D17)
-- [ ] Integrated terminal emulator library choice, e.g. `alacritty_terminal` / `vt100` / `wezterm-term` (§11.3, §34.2)
+- [x] Integrated terminal emulator library choice (§11.3, §34.2) — `alacritty_terminal` (D19)
 - [ ] Platform scope beyond Linux (§34.8)
 - [ ] Policy for importing VS Code themes (§16.7, §34.9)
 
@@ -248,7 +250,7 @@ Legend:
 - [x] [M2] Renaming or moving an open file updates its open tabs
 - [~] [M2+] Copy / paste of files and directories inside the Explorer (`Ctrl+C` / `Ctrl+V` in explorer context)
 - [~] [M2+] Open File Beside (opens in the next group; needs M3 splits)
-- [~] [M5] Open Terminal in Directory
+- [x] [M5] Open Terminal in Directory — Explorer "Open in Integrated Terminal"
 - [~] [M2+] Reveal in system file manager (`xdg-open`) — needs a trust/confirmation decision
 
 ### Filesystem watching (§8.4)
@@ -474,26 +476,26 @@ Legend:
 
 ## M5 — Integrated terminal (§11)
 
-- [ ] [M5] Decide the emulator library (open question)
-- [ ] [M5] PTY via `portable-pty` (§11.2)
-- [ ] [M5] Terminal emulation: ANSI, cursor, colours, scrolling, alternate screen, input modes, UTF-8, bracketed paste, mouse reporting (§11.3)
-- [ ] [M5] Bottom panel hosting terminals; `Ctrl+J` panel toggle, `` Ctrl+` `` terminal toggle (with legacy fallback)
-- [ ] [M5] Multiple sessions with tabs, names, close, restart (§11.4)
-- [ ] [M5] Independent cwd, env, scrollback per session
-- [ ] [M5] Commands: Open Terminal in Workspace Root, Open Terminal Here, in Selected File Directory, for Active Repository (§4.8)
-- [ ] [M5] Terminal tab shows its root identity (§4.8)
-- [ ] [M5] Profiles: shell, args, env, cwd policy, name, startup command; default = `$SHELL` (§11.5)
-- [ ] [M5] Focus-based input routing; Ctrl+C sends an interrupt in the terminal; Esc passes through (§11.6)
-- [ ] [M5] Configurable list of commands that "skip the shell" (editor shortcuts while the terminal is focused)
-- [ ] [M5] Async output reading; coalesced redraws; bounded scrollback (configurable) (§11.7)
-- [ ] [M5] Thousands of lines/s of output must not degrade editor typing (benchmark) (§11.7)
-- [ ] [M5] Resize propagates to the PTY (§3.3)
-- [ ] [M5] Lifecycle: exit, failed spawn, crash, closing with a running process (confirm), app quit policy, broken pipe; no orphaned processes (§11.8)
-- [ ] [M5] Session restore: layout and metadata only; never pretends a process survived (§4.9)
-- [ ] [M5] Split terminal views (desirable)
-- [ ] [M5] Terminal scrollback search / copy mode
-- [ ] [M5] PTY integration tests: shell startup, input, ANSI, resize, alt screen, Ctrl+C, exit, high volume, scrollback limit, concurrency (§28.3)
-- [ ] [M5] Manual: Claude Code runs correctly inside the integrated terminal (Workflow D)
+- [x] [M5] Decide the emulator library (open question) — `alacritty_terminal` (D19)
+- [x] [M5] PTY (§11.2) — `alacritty_terminal::tty` (rustix-openpty) rather than `portable-pty` (D19)
+- [x] [M5] Terminal emulation: ANSI, cursor, colours, scrolling, alternate screen, input modes, UTF-8, bracketed paste, mouse reporting (§11.3)
+- [x] [M5] Bottom panel hosting terminals; `Ctrl+J` panel toggle, `` Ctrl+` `` terminal toggle (with legacy fallback)
+- [x] [M5] Multiple sessions with tabs, names, close, restart (§11.4)
+- [x] [M5] Independent cwd, env, scrollback per session
+- [x] [M5] Commands: Open Terminal in Workspace Root, Open Terminal Here, in Selected File Directory, for Active Repository (§4.8)
+- [x] [M5] Terminal tab shows its root identity (§4.8)
+- [x] [M5] Profiles: shell, args, env, cwd policy, name, startup command; default = `$SHELL` (§11.5)
+- [x] [M5] Focus-based input routing; Ctrl+C sends an interrupt in the terminal; Esc passes through (§11.6)
+- [x] [M5] Configurable list of commands that "skip the shell" (editor shortcuts while the terminal is focused)
+- [x] [M5] Async output reading; coalesced redraws; bounded scrollback (configurable) (§11.7)
+- [x] [M5] Thousands of lines/s of output must not degrade editor typing (benchmark) (§11.7) — `seq 1 2000000` while typing: editor input p95 0.47 ms, render p95 0.13 ms (`scripts/bench_terminal.py`)
+- [x] [M5] Resize propagates to the PTY (§3.3)
+- [x] [M5] Lifecycle: exit, failed spawn, crash, closing with a running process (confirm), app quit policy, broken pipe; no orphaned processes (§11.8)
+- [x] [M5] Session restore: layout and metadata only; never pretends a process survived (§4.9)
+- [~] [M5] Split terminal views (desirable) — deferred: one terminal visible at a time (tabs)
+- [~] [M5] Terminal scrollback search / copy mode — partial: mouse selection + copy, scrollback scrolling; search in scrollback not yet
+- [x] [M5] PTY integration tests: shell startup, input, ANSI, resize, alt screen, Ctrl+C, exit, high volume, scrollback limit, concurrency (§28.3)
+- [~] [M5] Manual: Claude Code runs correctly inside the integrated terminal (Workflow D) — awaiting the user's manual check
 
 ---
 
@@ -616,6 +618,8 @@ Legend:
 - [ ] [M10] Terminal compatibility matrix: GNOME Terminal, Kitty, Alacritty, WezTerm, Foot, Konsole, tmux (§22.5)
 
 ### Measured results vs §23.1 targets
+
+Terminal (`scripts/bench_terminal.py`, 2026-11-03): editor RSS 6.4 MiB idle, 7.9 MiB with 1 terminal, 26.7 MiB with a full 10k-line scrollback during `seq 1 2000000`, 30.9 MiB with 4 terminals (shells are separate processes).
 
 Memory after Quick Open + a workspace search on a real 9-folder workspace (`scripts/bench_memory.py`, 2026-11-03): v0.2.1 defaults 20.0 MiB (peak 21.5 MiB) with search-as-you-type; with `.claude/worktrees` included 23.9 MiB; without heap trimming (`YACE_MALLOC_TRIM=0`, ≈ v0.2.0) 33.2 MiB. A 108 MiB report from an interactive v0.2.0 session was not reproduced.
 

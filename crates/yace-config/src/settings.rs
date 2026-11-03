@@ -12,6 +12,7 @@ pub struct Settings {
     pub workbench: WorkbenchSettings,
     pub keyboard: KeyboardSettings,
     pub search: SearchSettings,
+    pub terminal: TerminalSettings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -228,6 +229,79 @@ impl Default for SearchSettings {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum TerminalCwd {
+    /// The workspace folder of the active file (else the first folder).
+    #[default]
+    ActiveRoot,
+    /// The directory of the active file.
+    ActiveFileDir,
+    /// The first workspace folder.
+    FirstRoot,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ConfirmKill {
+    /// Ask only when a command is running in the terminal.
+    #[default]
+    WhenRunning,
+    Always,
+    Never,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct TerminalProfile {
+    pub name: String,
+    /// Empty = the default shell.
+    pub shell: String,
+    pub args: Vec<String>,
+    pub env: std::collections::BTreeMap<String, String>,
+    /// Typed into the shell after it starts (e.g. `"claude"`).
+    pub startup_command: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct TerminalSettings {
+    /// Shell executable; empty = `$SHELL` (else `/bin/sh`).
+    pub shell: String,
+    pub args: Vec<String>,
+    /// Extra environment variables for new terminals.
+    pub env: std::collections::BTreeMap<String, String>,
+    /// Lines of scrollback per terminal (bounded memory).
+    pub scrollback: usize,
+    /// Height of the bottom panel in rows.
+    pub panel_height: u16,
+    /// Where new terminals start.
+    pub cwd: TerminalCwd,
+    /// Extra command ids that run even while a terminal has focus.
+    pub commands_to_skip_shell: Vec<String>,
+    pub confirm_kill: ConfirmKill,
+    pub profiles: Vec<TerminalProfile>,
+    /// Profile used by "New Terminal" (empty = the settings above).
+    pub default_profile: String,
+}
+
+impl Default for TerminalSettings {
+    fn default() -> Self {
+        Self {
+            shell: String::new(),
+            args: Vec::new(),
+            env: Default::default(),
+            scrollback: 10_000,
+            panel_height: 12,
+            cwd: TerminalCwd::ActiveRoot,
+            commands_to_skip_shell: Vec::new(),
+            confirm_kill: ConfirmKill::WhenRunning,
+            profiles: Vec::new(),
+            default_profile: String::new(),
+        }
+    }
+}
+
 /// Where a setting may be configured (spec §17.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Scope {
@@ -246,6 +320,8 @@ pub fn scope_of(section: &str, key: &str) -> Scope {
         ("files", "autoSave" | "autoSaveDelay" | "largeFileThresholdMb") => Scope::Window,
         ("files", _) => Scope::Resource,
         ("keyboard", _) => Scope::Application,
+        // A workspace must never choose which program runs (spec §4.12).
+        ("terminal", _) => Scope::Application,
         ("search", "exclude" | "useIgnoreFiles") => Scope::Resource,
         ("workbench", "restoreWorkspace" | "colorDepth" | "glyphs") => Scope::Application,
         _ => Scope::Window,

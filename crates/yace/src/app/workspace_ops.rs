@@ -20,6 +20,7 @@ use crate::{
 impl App {
     /// Install a workspace at startup or after a switch (no prompts).
     pub fn install_workspace(&mut self, ws: Workspace, restore: bool) {
+        self.kill_all_terminals();
         self.workspace = ws;
         self.docs = DocumentStore::default();
         self.layout = Layout::default();
@@ -29,6 +30,8 @@ impl App {
         self.reload_settings();
         self.explorer = Explorer::new(&self.settings.files.exclude, self.settings.explorer.show_hidden);
         self.sidebar_width = self.settings.workbench.sidebar_width;
+        self.panel.height = self.settings.terminal.panel_height.max(3);
+        self.panel.maximized = false;
         self.sidebar_visible = true;
         self.explorer.sync_roots(&self.workspace);
         self.focus = Focus::Explorer;
@@ -70,6 +73,9 @@ impl App {
 
     /// Ask about unsaved changes, then switch.
     pub(crate) fn switch_workspace(&mut self, target: WorkspaceTarget) {
+        if self.confirm_running_terminals(AfterClose::SwitchWorkspace(target.clone())) {
+            return;
+        }
         let docs = self.docs.ids();
         self.start_close(docs, AfterClose::SwitchWorkspace(target));
     }
