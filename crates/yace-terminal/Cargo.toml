@@ -1,0 +1,19 @@
+[package]
+name = "yace-terminal"
+description = "YACE integrated terminal: PTY sessions, terminal emulation (alacritty_terminal), key/paste/mouse encoding"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+alacritty_terminal = "0.26"
+yace-keymap.workspace = true
+crossbeam-channel.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
