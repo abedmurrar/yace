@@ -20,6 +20,7 @@ yace-buffer.workspace = true
 yace-workspace.workspace = true
 yace-keymap.workspace = true
 yace-config.workspace = true
+yace-search.workspace = true
 ratatui.workspace = true
 crossbeam-channel.workspace = true
 notify.workspace = true
@@ -38,6 +39,7 @@ unicode-segmentation.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+yace-search.workspace = true
 portable-pty.workspace = true
 
 [lints]

@@ -6,7 +6,11 @@
 mod edit;
 mod explorer_ops;
 mod files;
+mod find;
+mod history;
 mod mouse;
+mod quick_open;
+mod search_view;
 mod session;
 mod workspace_ops;
 
@@ -36,10 +40,12 @@ use crate::{
 };
 
 pub use edit::{Move, Op, comment_token, language_name};
+pub use find::FindField;
 pub use mouse::MouseState;
+pub use search_view::{Row as SearchRow, SearchField};
 
 /// Inputs to the application.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum AppEvent {
     Terminal(Event),
     DirLoaded {
@@ -49,22 +55,75 @@ pub enum AppEvent {
     FsChanged(Vec<PathBuf>),
     /// SIGTERM / SIGHUP: persist and exit without discarding anything.
     Terminate,
+    /// The Quick Open index grew or finished.
+    IndexProgress {
+        files: usize,
+        complete: bool,
+    },
+    QuickOpenResults {
+        seq: u64,
+        hits: Vec<yace_search::Hit>,
+        indexed: usize,
+        complete: bool,
+        truncated: bool,
+    },
+    SearchFile {
+        seq: u64,
+        file: Box<yace_search::FileMatches>,
+    },
+    SearchDone {
+        seq: u64,
+        summary: yace_search::SearchSummary,
+        error: Option<String>,
+    },
+    FindDone {
+        seq: u64,
+        result: Result<yace_search::FindResult, String>,
+    },
+    FileLoaded {
+        doc: DocId,
+        path: PathBuf,
+        result: Result<Box<yace_buffer::Document>, String>,
+    },
 }
 
 /// Side effects requested by the application.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Effect {
     ReadDir(PathBuf),
     Watch(PathBuf),
     Unwatch(PathBuf),
     /// Raw bytes for the terminal (OSC 52 clipboard, title).
     Write(Vec<u8>),
+    /// A command for the Quick Open index actor.
+    Index(crate::workers::IndexCmd),
+    /// Start a workspace search (cancels the previous one).
+    Search(Box<crate::workers::SearchJob>),
+    SearchCancel,
+    /// Find matches in a document snapshot.
+    Find(Box<crate::workers::FindJob>),
+    /// Load a (large) file in the background.
+    LoadFile {
+        doc: DocId,
+        path: PathBuf,
+        eol: yace_buffer::LineEnding,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
+    /// The sidebar (Explorer or Search view, see `sidebar_view`).
     Explorer,
     Editor,
+    /// The find/replace bar of the active editor group.
+    Find,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SidebarView {
+    #[default]
+    Explorer,
+    Search,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -141,6 +200,15 @@ pub struct App {
     pub restore_sessions: bool,
     /// Set while "Save All" runs inside a close flow.
     suppress_flow: bool,
+    pub sidebar_view: SidebarView,
+    /// Quick Open state (results map, generation, options).
+    pub quick_open: quick_open::QuickOpenState,
+    /// In-file find state.
+    pub find: find::FindState,
+    /// Workspace search view state.
+    pub search: search_view::SearchState,
+    /// Back/forward navigation history.
+    pub nav: history::NavHistory,
 }
 
 const FS_COALESCE: Duration = Duration::from_millis(100);
@@ -192,6 +260,11 @@ impl App {
             conflict_prompted: HashSet::new(),
             restore_sessions: true,
             suppress_flow: false,
+            sidebar_view: SidebarView::Explorer,
+            quick_open: Default::default(),
+            find: Default::default(),
+            search: Default::default(),
+            nav: Default::default(),
             settings,
             paths: opts.paths,
         };
@@ -223,6 +296,7 @@ impl App {
             self.resolver.deadline(),
             self.fs_deadline,
             self.autosave_deadline,
+            self.search.debounce,
             self.notifications.iter().filter_map(|n| n.expires).min(),
         ]
         .into_iter()
@@ -238,6 +312,10 @@ impl App {
             self.fs_deadline = None;
             let paths: Vec<PathBuf> = self.pending_fs.drain().collect();
             self.process_fs_changes(paths);
+        }
+        if self.search.debounce.is_some_and(|d| now >= d) {
+            self.search.debounce = None;
+            self.run_search();
         }
         if self.autosave_deadline.is_some_and(|d| now >= d) {
             self.autosave_deadline = None;
@@ -362,10 +440,18 @@ impl App {
         c.set(ctx::KEYBOARD_ENHANCED, self.keyboard_enhanced);
         c.set(ctx::NOTIFICATION_VISIBLE, !self.notifications.is_empty());
         c.set(ctx::MULTIPLE_EDITOR_GROUPS, self.layout.groups().len() > 1);
+        c.set(ctx::FIND_WIDGET_VISIBLE, self.find.visible);
         match self.focus {
+            Focus::Explorer if self.sidebar_visible && self.sidebar_view == SidebarView::Search => {
+                c.set(ctx::SEARCH_VIEW_FOCUS, true);
+                c.set(ctx::SEARCH_INPUT_FOCUS, self.search.input_focused());
+            }
             Focus::Explorer if self.sidebar_visible => {
                 c.set(ctx::EXPLORER_FOCUS, true);
                 c.set(ctx::EXPLORER_FILTER_ACTIVE, !self.explorer.filter.is_empty());
+            }
+            Focus::Find => {
+                c.set(ctx::FIND_WIDGET_FOCUS, true);
             }
             _ => {
                 if let Some(v) = self.layout.active_group().active_view() {
@@ -409,7 +495,16 @@ impl App {
                 self.save_session();
                 self.quit = true;
             }
+            AppEvent::IndexProgress { files, complete } => self.on_index_progress(files, complete),
+            AppEvent::QuickOpenResults { seq, hits, indexed, complete, truncated } => {
+                self.on_quick_open_results(seq, hits, indexed, complete, truncated)
+            }
+            AppEvent::SearchFile { seq, file } => self.on_search_file(seq, *file),
+            AppEvent::SearchDone { seq, summary, error } => self.on_search_done(seq, summary, error),
+            AppEvent::FindDone { seq, result } => self.on_find_done(seq, result),
+            AppEvent::FileLoaded { doc, path, result } => self.on_file_loaded(doc, path, result),
         }
+        self.refresh_find_if_stale();
         if self.reveal_cursor {
             self.reveal_cursor = false;
             self.scroll_active_to_cursor();
@@ -448,7 +543,16 @@ impl App {
             Resolution::InvalidChord(seq) => {
                 self.notify(Severity::Info, format!("The key combination ({seq}) is not a command."));
             }
-            Resolution::Unbound => self.on_unbound_key(key, ch),
+            Resolution::Unbound => {
+                // Text inputs (find bar, search view) take editing keys.
+                if self.focus == Focus::Find {
+                    self.find_input_key(key, ch);
+                } else if self.focus == Focus::Explorer && self.sidebar_view == SidebarView::Search {
+                    self.search_input_key(key, ch);
+                } else {
+                    self.on_unbound_key(key, ch);
+                }
+            }
         }
     }
 
@@ -456,6 +560,7 @@ impl App {
         let Some(c) = key.text_char(ch) else { return };
         match self.focus {
             Focus::Editor => self.type_char(c),
+            Focus::Find => {}
             Focus::Explorer => {
                 if !(c == ' ' && self.explorer.filter.is_empty()) {
                     self.explorer.filter.push(c);
@@ -475,10 +580,16 @@ impl App {
     fn on_paste(&mut self, text: &str) {
         if let Some(top) = self.overlays.last_mut() {
             top.paste(text);
+            if matches!(top, Overlay::Picker(p) if p.kind == crate::overlay::PickerKind::Dynamic) {
+                self.quick_open_query_changed();
+            }
             return;
         }
-        if self.focus == Focus::Editor {
-            self.insert_text(text);
+        match self.focus {
+            Focus::Editor => self.insert_text(text),
+            Focus::Find => self.find_paste(text),
+            Focus::Explorer if self.sidebar_view == SidebarView::Search => self.search_paste(text),
+            Focus::Explorer => {}
         }
     }
 
@@ -542,6 +653,8 @@ impl App {
                 let Some(Overlay::Picker(p)) = self.overlays.pop() else { return };
                 self.on_pick(p.action, data);
             }
+            OverlayOutcome::QueryChanged => self.quick_open_query_changed(),
+            OverlayOutcome::ToggleIgnored => self.quick_open_toggle_ignored(),
         }
     }
 
@@ -590,6 +703,7 @@ impl App {
             ConfirmAction::RemoveRoot(id) => self.remove_root(id),
             ConfirmAction::OpenLarge { path, preview } => self.open_file_confirmed(&path, preview, true),
             ConfirmAction::OverwriteExisting { doc, path } => self.save_as_confirmed(doc, &path),
+            ConfirmAction::ReplaceInFiles => self.search_replace_all(),
             ConfirmAction::CreateParentAndSave { doc, path } => {
                 if let Some(parent) = path.parent()
                     && let Err(e) = std::fs::create_dir_all(parent)
@@ -606,9 +720,11 @@ impl App {
         match action {
             PickerAction::RunCommand => {
                 if let Some(id) = self.commands.palette_ids().get(data).copied() {
+                    self.quick_open.note_command(id);
                     self.execute(id, None);
                 }
             }
+            PickerAction::QuickOpen => self.quick_open_pick(data),
             PickerAction::OpenRecent => self.open_recent(data),
             PickerAction::Root(a) => self.root_action(a, RootId(data as u32)),
             PickerAction::ChangeEol => {
@@ -631,7 +747,7 @@ impl App {
         self.focus_changed(Focus::Editor);
     }
 
-    fn focus_changed(&mut self, to: Focus) {
+    pub(crate) fn focus_changed(&mut self, to: Focus) {
         if self.focus != to && self.settings.files.auto_save == yace_config::AutoSave::OnFocusChange {
             self.autosave_all();
         }

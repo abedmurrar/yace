@@ -13,6 +13,79 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- **Quick Open (`Ctrl+P`, `Ctrl+E`)**
+  - Fuzzy file search across every workspace folder, with VS Code-style
+    ranking. Matches in the file name rank first, as do exact names and
+    prefixes, word starts and contiguous matches. Recently opened and
+    picked files, plus files in the folder you're working in, get a boost.
+  - A word can also match a folder's name, e.g. `api index`.
+  - Each result shows the file name with the match highlighted, its
+    directory and its folder name, so identical names in different
+    repositories are told apart.
+  - The window opens instantly. Results stream in while folders are still
+    being indexed, and the title shows progress.
+  - Respects `.gitignore`, `files.exclude` and the new `search.exclude`.
+    `Alt+I` includes ignored files.
+  - Modes: `name:42:8` opens at a line and column, `:42` goes to a line,
+    `>` runs a command, `?` lists the modes.
+  - The file index is built lazily, on first use. It's refreshed in the
+    background and cached by name for an instant first open next time
+    (`search.cacheIndex`).
+- **Command palette (`Ctrl+Shift+P` / `F1`)**
+  - Now part of Quick Open: fuzzy matching on title and command id,
+    recently used commands first (remembered per workspace), with
+    keybindings shown.
+- **Find and replace in the editor (`Ctrl+F`, `Ctrl+H`)**
+  - A find bar with a live match count ("3 of 41") and highlighted matches.
+  - Next/previous (`Enter` / `Shift+Enter`, `F3` / `Shift+F3`). Toggles for
+    match case, whole word, regex and in-selection (`Alt+C`, `Alt+W`,
+    `Alt+R`, `Alt+L`). Search history.
+  - Replace one (`Ctrl+Shift+1`) or all (`Ctrl+Alt+Enter`, as one undo
+    step), with `$1` capture groups.
+  - `Alt+Enter` turns every match into a cursor.
+  - Matching runs on a background thread.
+- **Workspace search (`Ctrl+Shift+F`, `Ctrl+Shift+H`)**
+  - A Search view in the sidebar, with query, replace, include and exclude
+    fields, plus case, whole-word and regex toggles.
+  - Results stream in and can be cancelled. They're grouped by folder →
+    file → line, with highlighted previews. `Enter` opens a match,
+    `Space` previews it.
+  - `./Folder Name/…` in "files to include", or Explorer → "Find in
+    Folder…" (`Shift+Alt+F`), limits the search to one folder.
+  - Respects ignore files and skips binary files. Unsaved editor contents
+    are searched as you see them.
+  - Replace All asks first. Matches or files can be excluded with
+    `Delete`. Open files are edited in their editors (undoable, not saved);
+    other files are written to disk, and any file changed since the search
+    is skipped and reported.
+- **Navigation history**
+  - Go Back / Go Forward across files and folders: `Alt+Left` /
+    `Alt+Right`, `Ctrl+Alt+-` / `Ctrl+Shift+-`.
+- **Settings**
+  - A new `[search]` section: `exclude`, `useIgnoreFiles`,
+    `quickOpenIncludeIgnored`, `cacheIndex`, `maxResults`,
+    `maxIndexedFiles`.
+  - `search.exclude` and `search.useIgnoreFiles` are read from VS Code
+    workspace and folder settings.
+
+### Changed
+
+- Files larger than 1 MiB open in the background with a "Loading…" tab
+  instead of freezing the editor. A requested `--goto` position is
+  applied once loading finishes.
+- `Ctrl+P` no longer opens a path prompt; "File: Open File…" still does.
+
+### Performance
+
+Measured on an i5-1135G7:
+- Quick Open query over 200,000 paths: 9–19 ms, running on a background
+  thread.
+- Content search of the YACE repository: 3.5 ms.
+- Startup is unchanged at 5.4 ms median, since indexing is lazy. Memory at
+  the first frame is 6.4 MiB.
+
 ## [0.1.0] - 2026-11-03
 
 First tagged version. It covers milestones M1–M3 (native foundation,

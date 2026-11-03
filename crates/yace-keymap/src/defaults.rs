@@ -16,6 +16,10 @@ pub mod ctx {
     pub const KEYBOARD_ENHANCED: &str = "keyboardEnhanced";
     pub const MULTIPLE_EDITOR_GROUPS: &str = "multipleEditorGroups";
     pub const NOTIFICATION_VISIBLE: &str = "notificationVisible";
+    pub const FIND_WIDGET_VISIBLE: &str = "findWidgetVisible";
+    pub const FIND_WIDGET_FOCUS: &str = "findWidgetFocus";
+    pub const SEARCH_VIEW_FOCUS: &str = "searchViewFocus";
+    pub const SEARCH_INPUT_FOCUS: &str = "searchInputFocus";
 }
 
 const ED: &str = "editorFocus";
@@ -25,6 +29,12 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+shift+p", "workbench.action.showCommands", ""),
     ("f1", "workbench.action.showCommands", ""),
     ("ctrl+p", "workbench.action.quickOpen", ""),
+    ("ctrl+e", "workbench.action.quickOpen", ""),
+    ("ctrl+alt+-", "workbench.action.navigateBack", ""),
+    ("ctrl+shift+-", "workbench.action.navigateForward", ""),
+    ("alt+left", "workbench.action.navigateBack", ""),
+    ("alt+right", "workbench.action.navigateForward", ""),
+    ("ctrl+shift+h", "workbench.action.replaceInFiles", ""),
     ("ctrl+shift+e", "workbench.view.explorer", ""),
     ("ctrl+b", "workbench.action.toggleSidebarVisibility", ""),
     ("ctrl+j", "workbench.action.togglePanel", ""),
@@ -86,8 +96,21 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
         "notificationVisible && !editorHasMultipleSelections && !editorHasSelection",
     ),
     // --- Editor ---------------------------------------------------------------
-    ("ctrl+f", "actions.find", ED),
-    ("ctrl+h", "editor.action.startFindReplaceAction", "editorFocus && keyboardEnhanced"),
+    ("ctrl+f", "actions.find", "editorFocus || findWidgetFocus"),
+    ("ctrl+h", "editor.action.startFindReplaceAction", "(editorFocus || findWidgetFocus) && keyboardEnhanced"),
+    ("f3", "editor.action.nextMatchFindAction", "editorFocus || findWidgetFocus"),
+    ("shift+f3", "editor.action.previousMatchFindAction", "editorFocus || findWidgetFocus"),
+    ("enter", "editor.action.nextMatchFindAction", "findWidgetFocus"),
+    ("shift+enter", "editor.action.previousMatchFindAction", "findWidgetFocus"),
+    ("alt+enter", "editor.action.selectAllMatches", "findWidgetFocus"),
+    ("ctrl+shift+1", "editor.action.replaceOne", "findWidgetFocus"),
+    ("ctrl+alt+enter", "editor.action.replaceAll", "findWidgetFocus"),
+    ("alt+c", "toggleFindCaseSensitive", "findWidgetFocus"),
+    ("alt+w", "toggleFindWholeWord", "findWidgetFocus"),
+    ("alt+r", "toggleFindRegex", "findWidgetFocus"),
+    ("alt+l", "toggleFindInSelection", "findWidgetFocus"),
+    ("tab", "yace.find.toggleField", "findWidgetFocus"),
+    ("escape", "closeFindWidget", "findWidgetFocus"),
     ("ctrl+shift+o", "workbench.action.gotoSymbol", ED),
     ("ctrl+space", "editor.action.triggerSuggest", ED),
     ("f2", "editor.action.rename", ED),
@@ -150,6 +173,7 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+shift+down", "editor.action.insertCursorBelow", ED),
     ("escape", "removeSecondaryCursors", "editorFocus && editorHasMultipleSelections"),
     ("escape", "cancelSelection", "editorFocus && editorHasSelection && !editorHasMultipleSelections"),
+    ("escape", "closeFindWidget", "editorFocus && findWidgetVisible && !editorHasMultipleSelections"),
     ("alt+up", "editor.action.moveLinesUpAction", ED),
     ("alt+down", "editor.action.moveLinesDownAction", ED),
     ("shift+alt+up", "editor.action.copyLinesUpAction", ED),
@@ -178,6 +202,7 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+alt+n", "explorer.newFile", "explorerFocus"),
     ("shift+alt+c", "copyFilePath", "explorerFocus"),
     ("ctrl+shift+alt+c", "copyRelativeFilePath", "explorerFocus"),
+    ("shift+alt+f", "filesExplorer.findInFolder", "explorerFocus"),
     // --- Fallbacks for terminals without the enhanced keyboard protocol -------
     // Legacy terminals send Ctrl+\ as Ctrl+4, Ctrl+/ as Ctrl+7 and
     // Ctrl+Backspace as Ctrl+H, and cannot report Ctrl+Shift+<letter>.
@@ -185,6 +210,8 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+7", "editor.action.commentLine", "editorFocus && !keyboardEnhanced"),
     ("ctrl+h", "deleteWordLeft", "editorFocus && !keyboardEnhanced"),
     ("alt+e", "workbench.view.explorer", "!keyboardEnhanced"),
+    ("alt+shift+f", "workbench.action.findInFiles", "!keyboardEnhanced && !explorerFocus"),
+    ("alt+shift+h", "workbench.action.replaceInFiles", "!keyboardEnhanced"),
     ("alt+s", "workbench.action.files.saveAs", "!keyboardEnhanced"),
     ("alt+k", "editor.action.deleteLines", "editorFocus && !keyboardEnhanced"),
     ("alt+l", "editor.action.selectHighlights", "editorFocus && !keyboardEnhanced"),

@@ -14,8 +14,8 @@ Legend:
 
 | | |
 |---|---|
-| Current pass | **M1–M3** (foundation → multi-root workspace + Explorer → usable editor) — released as **v0.1.0** |
-| Current step | **M4** in progress — step 1/6 done (`yace-search` engine) |
+| Current pass | M1–M3 → **v0.1.0**; M4 (Quick Open, palette, find, workspace search) → **v0.2.0** |
+| Current step | **M4 complete** — released as v0.2.0; next: M5 (integrated terminal) |
 | Toolchain | rustc 1.99.1 stable (rustup) |
 | Last updated | 2026-11-03 (M1–M3 complete) |
 
@@ -92,7 +92,7 @@ Legend:
 - [x] [M1] Render only when dirty (§22.1)
 - [x] [M1] Resize events → relayout plus a clamp of all stored sizes (§3.3)
 - [x] [M1] Bounded fs worker pool (fixed threads, bounded job queue) (§21.5)
-- [~] [M1] Job generation tokens so stale results are dropped (cancellation, §21.3) — partial: duplicate in-flight reads are dropped and results for unloaded dirs are ignored; no generation tokens yet
+- [~] [M1] Job generation tokens so stale results are dropped (cancellation, §21.3) — M4 workers (index, search, find) use sequence numbers and cancel flags; Explorer directory reads only de-duplicate in-flight requests
 - [x] [M1] Input is handled before background results in the same wakeup (priorities, §21.4)
 
 ### App core
@@ -138,7 +138,7 @@ Legend:
 ### Command palette — basic (pulled forward from M4, D11)
 - [x] [M1] `Ctrl+Shift+P` / `F1` open the palette; lists available commands with category, title and keybinding
 - [x] [M1] Substring filtering (fuzzy ranking is M4)
-- [~] [M4] Fuzzy ranking, recently used commands first
+- [x] [M4] Fuzzy ranking, recently used commands first
 
 ### Configuration — `yace-config` (§17)
 - [x] [M1] XDG paths: config, state, cache (`directories`) (§17.2)
@@ -291,7 +291,7 @@ Legend:
 
 ### Large files (§9.8)
 - [x] [M3] Viewport-only rendering
-- [~] [M3] Confirmation above the threshold (default 50 MB); large-file mode disables expensive decorations — partial: confirmation + reduced mode done, but the file is still read synchronously (UI blocks while loading)
+- [x] [M3] Confirmation above the threshold (default 50 MB); large-file mode disables expensive decorations — files > 1 MiB load on a worker (M4); restoring a session still loads them synchronously
 - [x] [M3] Saving still works in large-file mode
 
 ### Selections and multiple cursors (§9.5)
@@ -424,50 +424,50 @@ Legend:
 ## M4 — Quick Open and searching (§6, §7, §9.7, §14)
 
 ### Quick Open (`Ctrl+P`) (§6)
-- [ ] [M4] Floating overlay near the top; editor stays visible (§6.1)
-- [ ] [M4] Opens immediately; never waits for a full scan (§6.2, §32.4)
-- [ ] [M4] Background file discovery per root (`ignore` crate), streaming results progressively (§6.5)
-- [ ] [M4] Results from finished roots usable while other roots continue
-- [ ] [M4] Fuzzy matching (e.g. `jobserv` → `jobs.service.ts`) (§6.3)
-- [ ] [M4] Ranking: exact name, prefix, sequence quality, path segments, recently opened, recently selected, active root, depth (§6.3)
-- [ ] [M4] Deterministic ranking
-- [ ] [M4] Bounded result set; no unlimited allocation (§6.5)
-- [ ] [M4] Result rows: filename, parent dir, ROOT NAME, file-type glyph, match highlighting (§4.5, §6.7)
-- [ ] [M4] Collisions clearly disambiguated (§6.7)
-- [ ] [M4] Exclusions: `files.exclude`, `search.exclude`, `.gitignore`; toggle to include ignored or hidden (§6.6)
-- [ ] [M4] Mode prefixes: `>` commands, `@` symbols in file, `#` workspace symbols, `:N` go to line, `file:L`, `file:L:C`, `?` help (§6.4)
-- [ ] [M4] Cancellation of outdated queries (§21.3, §32.4)
-- [ ] [M4] Lightweight cached index metadata for faster warm start; never treated as authoritative (§23.4)
-- [ ] [M4] Index freshness via fs events / bounded refresh
+- [x] [M4] Floating overlay near the top; editor stays visible (§6.1)
+- [x] [M4] Opens immediately; never waits for a full scan (§6.2, §32.4)
+- [x] [M4] Background file discovery per root (`ignore` crate), streaming results progressively (§6.5)
+- [x] [M4] Results from finished roots usable while other roots continue
+- [x] [M4] Fuzzy matching (e.g. `jobserv` → `jobs.service.ts`) (§6.3)
+- [x] [M4] Ranking: exact name, prefix, sequence quality, path segments, recently opened, recently selected, active root, depth (§6.3)
+- [x] [M4] Deterministic ranking
+- [x] [M4] Bounded result set; no unlimited allocation (§6.5)
+- [~] [M4] Result rows: filename, parent dir, ROOT NAME, file-type glyph, match highlighting (§4.5, §6.7) — filename (fuzzy-highlighted), parent dir and ROOT NAME shown; file-type glyphs arrive with M6 icon themes
+- [x] [M4] Collisions clearly disambiguated (§6.7)
+- [x] [M4] Exclusions: `files.exclude`, `search.exclude`, `.gitignore`; toggle to include ignored or hidden (§6.6)
+- [~] [M4] Mode prefixes: `>` commands, `@` symbols in file, `#` workspace symbols, `:N` go to line, `file:L`, `file:L:C`, `?` help (§6.4) — `>`, `:N`, `file:L[:C]`, `?` done; `@`/`#` show a notice until language support (M7)
+- [x] [M4] Cancellation of outdated queries (§21.3, §32.4)
+- [x] [M4] Lightweight cached index metadata for faster warm start; never treated as authoritative (§23.4)
+- [~] [M4] Index freshness via fs events / bounded refresh — re-walk when Quick Open opens and the index is >30 s old; fs events patch it in between (only for watched dirs)
 
 ### Command palette (full) (§7)
-- [ ] [M4] Shares the Picker component with Quick Open
-- [ ] [M4] Fuzzy search by title and by ID; recently used first
-- [ ] [M4] Keybinding shown per command
+- [x] [M4] Shares the Picker component with Quick Open
+- [x] [M4] Fuzzy search by title and by ID; recently used first
+- [x] [M4] Keybinding shown per command
 
 ### Go to Line (`Ctrl+G`)
-- [ ] [M4] `:line[:col]` prompt; out-of-range clamped
+- [x] [M4] `:line[:col]` prompt; out-of-range clamped
 
 ### Navigation history (§10.3)
-- [ ] [M4] Back / Forward across files and roots (`Ctrl+Alt+-`, `Ctrl+Shift+-`)
+- [x] [M4] Back / Forward across files and roots (`Ctrl+Alt+-`, `Ctrl+Shift+-`)
 
 ### Find in file (`Ctrl+F`, `Ctrl+H`) (§9.7)
-- [ ] [M4] Incremental search; next / previous; match count; highlight
-- [ ] [M4] Case sensitive, whole word, regex toggles
-- [ ] [M4] Replace one, replace all (one undo step)
-- [ ] [M4] Search within selection
-- [ ] [M4] Search history
-- [ ] [M4] No full-document reprocessing per keystroke (incremental / viewport-first)
+- [x] [M4] Incremental search; next / previous; match count; highlight
+- [x] [M4] Case sensitive, whole word, regex toggles
+- [x] [M4] Replace one, replace all (one undo step)
+- [x] [M4] Search within selection
+- [x] [M4] Search history
+- [~] [M4] No full-document reprocessing per keystroke (incremental / viewport-first) — matching runs on a worker against an O(1) rope snapshot, so typing never blocks; it is not yet incremental
 
 ### Workspace search (`Ctrl+Shift+F`) (§4.6, §14)
-- [ ] [M4] Plain, case, whole word, regex
-- [ ] [M4] Include / exclude globs; scope to all roots, one root, selected roots, a directory
-- [ ] [M4] Results grouped by root then file; preview lines; navigate to match
-- [ ] [M4] Respect ignore rules; skip binaries; streamed; cancellable; bounded memory (§14.2)
-- [ ] [M4] No full-text index by default (§14.2)
-- [ ] [M4] Replace in files with preview; per-file and per-match include / exclude (§14.3)
-- [ ] [M4] Replace applies to open buffers as edits, never overwriting unsaved buffers silently (§14.3)
-- [ ] [M4] Search results view in the bottom panel or sidebar
+- [x] [M4] Plain, case, whole word, regex
+- [x] [M4] Include / exclude globs; scope to all roots, one root, selected roots, a directory — globs, `./Root Name/…` scoping and Find in Folder done; multi-root selection via several `./Root` entries
+- [x] [M4] Results grouped by root then file; preview lines; navigate to match
+- [x] [M4] Respect ignore rules; skip binaries; streamed; cancellable; bounded memory (§14.2)
+- [x] [M4] No full-text index by default (§14.2)
+- [~] [M4] Replace in files with preview; per-file and per-match include / exclude (§14.3) — matches listed with per-match/per-file exclusion and a confirmation; an inline before/after diff preview is not yet shown
+- [x] [M4] Replace applies to open buffers as edits, never overwriting unsaved buffers silently (§14.3)
+- [x] [M4] Search results view in the bottom panel or sidebar
 
 ---
 
@@ -614,6 +614,8 @@ Legend:
 
 ### Measured results vs §23.1 targets
 
+Search benchmarks (`cargo bench -p yace-search`, 2026-11-03, i5-1135G7): Quick Open query over 200k paths 9–19 ms (parallel, top-200); walk of this repo 1.5 ms; content search of this repo 3.5 ms. After M4, startup 5.4 ms median and 6.4 MiB at first frame (indexing is lazy).
+
 Buffer benchmarks (`cargo bench -p yace-buffer`, 2026-11-03, i5-1135G7): type 1 char in a 10 MB file 0.76 µs (start) / 1.01 µs (middle) / 1.15 µs (end); type with 1,000 cursors 2.0 ms; undo+redo of a 100k-change transaction 55.6 ms.
 | Metric | Target | Measured | Date / hardware |
 |---|---|---|---|
@@ -626,7 +628,7 @@ Buffer benchmarks (`cargo bench -p yace-buffer`, 2026-11-03, i5-1135G7): type 1 
 
 ## Known gaps after the M1–M3 pass
 
-- [ ] Large files are read synchronously; move loading to a worker (§9.8)
+- [x] Large files are read synchronously; move loading to a worker (§9.8) — done in M4 (except session restore)
 - [x] Automated tests for mouse handling, auto-save, Save All within the close flow, Save As during quit, Reopen Closed Editor (`tests/flows.rs`)
 - [ ] Manual check in GNOME Terminal, Kitty, Alacritty, WezTerm, foot, Konsole, tmux (§22.5) — only a PTY test so far
 - [x] Measure typing→render latency and idle CPU end-to-end (`scripts/bench_interactive.py`)

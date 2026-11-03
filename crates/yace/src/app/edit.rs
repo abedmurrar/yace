@@ -326,7 +326,21 @@ impl App {
     }
 
     /// Place the primary cursor at a 0-based (line, char column), clamped.
+    /// Move the primary cursor to a 0-based (line, column), clamped. If the
+    /// document is still loading, the position is applied when it arrives.
+    pub fn goto_line_col(&mut self, line: usize, col: usize) {
+        self.set_cursor_line_col(line, col);
+    }
+
     pub(crate) fn set_cursor_line_col(&mut self, line: usize, col: usize) {
+        if let Some((_, _, d)) = self.active()
+            && self.docs.is_loading(d)
+        {
+            if let Some(e) = self.docs.get_mut(d) {
+                e.pending_cursor = Some((line, col));
+            }
+            return;
+        }
         self.set_selection_with(|rope, _| {
             let line = line.min(rope.len_lines().saturating_sub(1));
             let len = line_without_ending(rope, line).len_chars();

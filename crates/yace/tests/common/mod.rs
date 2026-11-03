@@ -24,6 +24,14 @@ pub struct Harness {
     pub app: App,
     pub state: tempfile::TempDir,
     pub term: Terminal<TestBackend>,
+    /// The Quick Open index, run synchronously.
+    pub engine: yace_app::workers::IndexEngine,
+    /// When set, walks are queued in `pending_walks` instead of running.
+    pub defer_walks: bool,
+    pub pending_walks: Vec<yace_app::workers::WalkJob>,
+    /// When set, background file loads are queued instead of completing.
+    pub defer_loads: bool,
+    pub pending_loads: Vec<AppEvent>,
 }
 
 impl Harness {
@@ -70,32 +78,94 @@ impl Harness {
         });
         app.resize(120, 40);
         let term = Terminal::new(TestBackend::new(120, 40)).unwrap();
-        Self { app, state, term }
+        Self {
+            app,
+            state,
+            term,
+            engine: Default::default(),
+            defer_walks: false,
+            pending_walks: Vec::new(),
+            defer_loads: false,
+            pending_loads: Vec::new(),
+        }
     }
 
     pub fn paths(&self) -> Paths {
         Paths::in_dir(self.state.path())
     }
 
-    /// Execute pending effects (directory reads) until quiescent.
+    /// Execute pending effects synchronously until quiescent.
     pub fn settle(&mut self) {
-        for _ in 0..100 {
+        use yace_app::workers::{self, IndexCmd};
+        for _ in 0..200 {
             let effects = self.app.take_effects();
-            let reads: Vec<PathBuf> = effects
-                .into_iter()
-                .filter_map(|e| match e {
-                    Effect::ReadDir(d) => Some(d),
-                    _ => None,
-                })
-                .collect();
-            if reads.is_empty() {
+            if effects.is_empty() {
                 return;
             }
-            for d in reads {
-                let result = read_dir_entries(&d);
-                self.app.handle(AppEvent::DirLoaded { dir: d, result });
+            let mut events: Vec<AppEvent> = Vec::new();
+            for e in effects {
+                match e {
+                    Effect::ReadDir(d) => {
+                        let result = read_dir_entries(&d);
+                        events.push(AppEvent::DirLoaded { dir: d, result });
+                    }
+                    Effect::Index(IndexCmd::Sync { roots, walk, cache_dir, max_age }) => {
+                        for job in self.engine.sync(&roots, &walk, cache_dir, max_age) {
+                            if self.defer_walks {
+                                self.pending_walks.push(job);
+                            } else {
+                                self.run_walk(&job);
+                            }
+                        }
+                        events.push(AppEvent::IndexProgress {
+                            files: self.engine.index.total_files(),
+                            complete: !self.engine.is_walking(),
+                        });
+                    }
+                    Effect::Index(IndexCmd::Query { seq, query, ctx, limit }) => {
+                        events.push(self.engine.query(seq, &query, &ctx, limit))
+                    }
+                    Effect::Index(IndexCmd::FsChange { root, rel, exists, is_dir }) => {
+                        self.engine.fs_change(root, &rel, exists, is_dir)
+                    }
+                    Effect::Index(_) => {}
+                    Effect::Search(job) => {
+                        let out = std::sync::Mutex::new(Vec::new());
+                        workers::run_search(&job, &std::sync::atomic::AtomicBool::new(false), &|e| {
+                            out.lock().unwrap().push(e)
+                        });
+                        events.extend(out.into_inner().unwrap());
+                    }
+                    Effect::Find(job) => events.push(workers::run_find(&job)),
+                    Effect::LoadFile { doc, path, eol } => {
+                        let ev = workers::load_file(doc, path, eol);
+                        if self.defer_loads {
+                            self.pending_loads.push(ev);
+                        } else {
+                            events.push(ev);
+                        }
+                    }
+                    Effect::SearchCancel | Effect::Watch(_) | Effect::Unwatch(_) | Effect::Write(_) => {}
+                }
+            }
+            for ev in events {
+                self.app.handle(ev);
             }
         }
+    }
+
+    /// Run a walk to completion, feeding the engine.
+    pub fn run_walk(&mut self, job: &yace_app::workers::WalkJob) {
+        let (files, summary) = yace_search::walk::collect(&job.path, &job.walk);
+        self.engine.batch(job.root, files);
+        self.engine.walk_done(job.root, summary.truncated);
+    }
+
+    /// Complete deferred walks one batch at a time (simulates streaming).
+    pub fn feed_walk_batch(&mut self, root: u32, files: &[&str]) {
+        self.engine.batch(root, files.iter().map(|f| (*f).into()).collect());
+        self.app.handle(AppEvent::IndexProgress { files: self.engine.index.total_files(), complete: false });
+        self.settle();
     }
 
     pub fn key(&mut self, spec: &str) {

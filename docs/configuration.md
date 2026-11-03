@@ -37,7 +37,8 @@ in "Developer: Show Configuration Errors".
 - *window* (user or workspace): `files.autoSave`, `files.autoSaveDelay`,
   `files.largeFileThresholdMb`, `explorer.*`, the other `workbench.*` keys
 - *resource* (also per repository): every `editor.*` key, `files.exclude`,
-  `files.eol`, `files.insertFinalNewline`, `files.trimTrailingWhitespace`
+  `files.eol`, `files.insertFinalNewline`, `files.trimTrailingWhitespace`,
+  `search.exclude`, `search.useIgnoreFiles`
 
 ## Settings
 
@@ -82,6 +83,17 @@ in "Developer: Show Configuration Errors".
 | `glyphs` | `"unicode"` | `"unicode"`, `"nerdFont"`, `"ascii"`: icon and border characters | — |
 | `colorDepth` | `"auto"` | `"auto"`, `"truecolor"`, `"256"`, `"16"`, `"mono"` (`NO_COLOR` forces mono) | — |
 | `sidebarWidth` | `32` | initial side bar width in cells | — |
+
+### `[search]`
+
+| Key | Default | Meaning | VS Code key |
+|---|---|---|---|
+| `exclude` | `**/node_modules`, `**/bower_components`, `**/*.code-search` | globs left out of Quick Open and search, on top of `files.exclude`. **Additive**; `"!glob"` removes one | `search.exclude` |
+| `useIgnoreFiles` | `true` | honour `.gitignore`, `.ignore` and global git excludes | `search.useIgnoreFiles` |
+| `quickOpenIncludeIgnored` | `false` | Quick Open also lists ignored files (toggle per session with `Alt+I`) | — |
+| `cacheIndex` | `true` | cache file **names** in `~/.cache/yace/index/` so Quick Open is instant on the next launch; always refreshed in the background, never trusted blindly | — |
+| `maxResults` | `20000` | stop a workspace search after this many matches | `search.maxResults` |
+| `maxIndexedFiles` | `500000` | per-folder cap for the Quick Open index | — |
 
 ### `[keyboard]`
 

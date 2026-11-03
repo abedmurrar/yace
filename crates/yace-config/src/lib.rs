@@ -123,7 +123,7 @@ pub fn resolve(layers: &[Layer]) -> (Settings, Vec<ConfigError>) {
                     });
                     continue;
                 };
-                let merged = if section == "files" && key == "exclude" {
+                let merged = if (section == "files" || section == "search") && key == "exclude" {
                     sec.get(key).and_then(|c| merge_exclude(c, v)).unwrap_or_else(|| v.clone())
                 } else {
                     v.clone()
@@ -238,6 +238,18 @@ pub fn from_vscode_settings(json: &serde_json::Value) -> Table {
                     .collect();
                 put("files", "exclude", Value::Array(list))
             }
+            ("search.exclude", J::Object(globs)) => {
+                let list = globs
+                    .iter()
+                    .filter_map(|(g, on)| match on {
+                        J::Bool(true) => Some(Value::String(g.clone())),
+                        J::Bool(false) => Some(Value::String(format!("!{g}"))),
+                        _ => None,
+                    })
+                    .collect();
+                put("search", "exclude", Value::Array(list))
+            }
+            ("search.useIgnoreFiles", J::Bool(b)) => put("search", "useIgnoreFiles", Value::Boolean(*b)),
             ("files.autoSave", J::String(s)) => {
                 let mapped = match s.as_str() {
                     "off" => "off",
@@ -334,6 +346,9 @@ impl Paths {
     }
     pub fn recent_file(&self) -> PathBuf {
         self.state_dir.join("recent.json")
+    }
+    pub fn index_cache_dir(&self) -> PathBuf {
+        self.cache_dir.clone()
     }
     pub fn log_file(&self) -> PathBuf {
         self.state_dir.join("yace.log")

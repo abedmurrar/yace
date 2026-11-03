@@ -75,6 +75,19 @@ fn type_save_quit_restores_terminal() {
         "file saved: {:?}",
         std::fs::read_to_string(&file)
     );
+    // Quick Open through the real index actor: Ctrl+P, type, Enter.
+    std::fs::write(dir.path().join("zebra_target.txt"), "found via quick open\n").unwrap();
+    writer.write_all(b"\x10").unwrap(); // Ctrl+P
+    writer.flush().unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    writer.write_all(b"zebtar").unwrap();
+    writer.flush().unwrap();
+    // (Fuzzy highlights interleave style codes, so wait for the indexer
+    // rather than matching the rendered label.)
+    std::thread::sleep(Duration::from_millis(700));
+    writer.write_all(b"\r").unwrap();
+    writer.flush().unwrap();
+    assert!(wait_for(Duration::from_secs(10), || contains(b"found via quick open")), "file opened from quick open");
     writer.write_all(b"\x11").unwrap(); // Ctrl+Q
     writer.flush().unwrap();
     let exited = wait_for(Duration::from_secs(10), || child.try_wait().ok().flatten().is_some());

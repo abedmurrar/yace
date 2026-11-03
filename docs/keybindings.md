@@ -38,6 +38,8 @@ Rebind those in the terminal, or use the fallbacks below.
 | `Alt+K` | Delete Line | `Ctrl+Shift+K` |
 | `Alt+L` | Select All Occurrences | `Ctrl+Shift+L` |
 | `Alt+T` | Reopen Closed Editor | `Ctrl+Shift+T` |
+| `Alt+Shift+F` | Search across the workspace | `Ctrl+Shift+F` |
+| `Alt+Shift+H` | Replace across the workspace | `Ctrl+Shift+H` |
 | `Alt+Z` | Redo | `Ctrl+Shift+Z` (`Ctrl+Y` also works) |
 | `Ctrl+PgDn` / `Ctrl+PgUp` | Next / previous editor | `Ctrl+Tab` |
 
@@ -48,7 +50,10 @@ Rebind those in the terminal, or use the fallbacks below.
 | Keys | Command | Id |
 |---|---|---|
 | `Ctrl+Shift+P`, `F1` | Show All Commands | `workbench.action.showCommands` |
-| `Ctrl+P` | Open File (path prompt; fuzzy Quick Open in M4) | `workbench.action.quickOpen` |
+| `Ctrl+P`, `Ctrl+E` | Quick Open (fuzzy, all roots; `>` commands, `:line`, `file:line:col`, `?` help) | `workbench.action.quickOpen` |
+| `Ctrl+Shift+F` | Search across the workspace (sidebar Search view) | `workbench.action.findInFiles` |
+| `Ctrl+Shift+H` | Replace across the workspace | `workbench.action.replaceInFiles` |
+| `Alt+Left` / `Alt+Right`, `Ctrl+Alt+-` / `Ctrl+Shift+-` | Go Back / Go Forward | `workbench.action.navigateBack` … |
 | `Ctrl+Shift+E` | Focus Explorer | `workbench.view.explorer` |
 | `Ctrl+B` | Toggle Side Bar | `workbench.action.toggleSidebarVisibility` |
 | `Ctrl+K Ctrl+R` | Reveal Active File in Explorer | `workbench.files.action.showActiveFileInExplorer` |
@@ -80,9 +85,46 @@ Rebind those in the terminal, or use the fallbacks below.
 
 These are reserved for later milestones and currently show a "not available
 yet" notice: `Ctrl+J` (panel, M5), `` Ctrl+` `` (terminal, M5),
-`Ctrl+Shift+F` (search, M4), `Ctrl+F` / `Ctrl+H` (find/replace, M4),
 `Ctrl+K Ctrl+T` (themes, M6), and `Ctrl+Shift+O`, `Ctrl+T`, `Ctrl+Space`,
 `F2`, `F12` (language features, M7).
+
+### Quick Open (`Ctrl+P`)
+
+| Keys / prefix | Action |
+|---|---|
+| type | fuzzy file search across every workspace folder (e.g. `jobserv` → `jobs.service.ts`; a word can also match a folder's name: `api index`) |
+| `name:42`, `name:42:8` | open at line / column |
+| `>` | commands (this is also the Command Palette, `Ctrl+Shift+P`) |
+| `:42` | go to line in the active editor |
+| `?` | list the modes |
+| `Alt+I` | include git-ignored files |
+| `Up`/`Down`, `PgUp`/`PgDn`, `Enter`, `Escape` | navigate, open, close |
+
+### Find / replace in the editor (`Ctrl+F`, `Ctrl+H`)
+
+| Keys | Action |
+|---|---|
+| `Enter` / `Shift+Enter`, `F3` / `Shift+F3` | next / previous match |
+| `Alt+C` / `Alt+W` / `Alt+R` / `Alt+L` | match case / whole word / regex / in selection |
+| `Tab` | switch between the find and replace fields |
+| `Up` / `Down` (find field) | search history |
+| `Ctrl+Shift+1` | replace current match |
+| `Ctrl+Alt+Enter` | replace all (one undo step) |
+| `Alt+Enter` | select all matches (multiple cursors) |
+| `Escape` | close the find bar |
+
+### Search view (`Ctrl+Shift+F`)
+
+| Keys | Action |
+|---|---|
+| type | search (runs as you type); `Tab` / `Down` moves through query, replace, include, exclude, results |
+| `Alt+C` / `Alt+W` / `Alt+R` | match case / whole word / regex |
+| `./Root Name/…` in "files to include" | limit the search to one workspace folder (Explorer → `Shift+Alt+F` "Find in Folder…") |
+| results: `Enter` / `Space` | open / preview the match |
+| results: `Left` / `Right` | collapse / expand a file |
+| results: `Delete` | exclude a match or file from replacement |
+| `Ctrl+Alt+Enter` | replace all (with confirmation; open files are edited but not saved) |
+| `Escape` | back to the query, then to the editor |
 
 ### Editor (`editorFocus`)
 

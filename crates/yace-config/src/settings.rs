@@ -11,6 +11,7 @@ pub struct Settings {
     pub explorer: ExplorerSettings,
     pub workbench: WorkbenchSettings,
     pub keyboard: KeyboardSettings,
+    pub search: SearchSettings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -190,6 +191,37 @@ impl Default for KeyboardSettings {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct SearchSettings {
+    /// Globs excluded from Quick Open and search (in addition to
+    /// `files.exclude`). Additive across layers; `"!glob"` removes.
+    pub exclude: Vec<String>,
+    /// Honour `.gitignore`, `.ignore` and global git excludes.
+    pub use_ignore_files: bool,
+    /// Quick Open also lists git-ignored files.
+    pub quick_open_include_ignored: bool,
+    /// Cache file names on disk for an instant Quick Open on next launch.
+    pub cache_index: bool,
+    /// Maximum matches collected by a workspace search.
+    pub max_results: usize,
+    /// Maximum files indexed per root for Quick Open.
+    pub max_indexed_files: usize,
+}
+
+impl Default for SearchSettings {
+    fn default() -> Self {
+        Self {
+            exclude: vec!["**/node_modules".into(), "**/bower_components".into(), "**/*.code-search".into()],
+            use_ignore_files: true,
+            quick_open_include_ignored: false,
+            cache_index: true,
+            max_results: 20_000,
+            max_indexed_files: 500_000,
+        }
+    }
+}
+
 /// Where a setting may be configured (spec §17.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Scope {
@@ -208,6 +240,7 @@ pub fn scope_of(section: &str, key: &str) -> Scope {
         ("files", "autoSave" | "autoSaveDelay" | "largeFileThresholdMb") => Scope::Window,
         ("files", _) => Scope::Resource,
         ("keyboard", _) => Scope::Application,
+        ("search", "exclude" | "useIgnoreFiles") => Scope::Resource,
         ("workbench", "restoreWorkspace" | "colorDepth" | "glyphs") => Scope::Application,
         _ => Scope::Window,
     }

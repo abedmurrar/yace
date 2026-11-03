@@ -128,6 +128,21 @@ pub struct PickerItem {
     pub data: usize,
 }
 
+impl PickerItem {
+    pub fn new(label: impl Into<String>, detail: impl Into<String>, hint: impl Into<String>, data: usize) -> Self {
+        Self { label: label.into(), detail: detail.into(), hint: hint.into(), data }
+    }
+}
+
+/// How a picker's items are filtered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickerKind {
+    /// Items are fixed; the picker filters them itself (fuzzy).
+    Static,
+    /// The app supplies items as the query changes (Quick Open).
+    Dynamic,
+}
+
 #[derive(Debug, Clone)]
 pub struct Picker {
     pub title: String,
@@ -138,6 +153,11 @@ pub struct Picker {
     pub scroll: usize,
     pub action: PickerAction,
     pub empty_text: String,
+    pub kind: PickerKind,
+    /// Char indices of `label` to highlight, parallel to `items`.
+    pub highlights: Vec<Vec<usize>>,
+    /// Extra status shown in the title (e.g. "indexing… 1,234 files").
+    pub status: String,
 }
 
 impl Picker {
@@ -151,35 +171,66 @@ impl Picker {
             scroll: 0,
             action,
             empty_text: "No matching results".into(),
+            kind: PickerKind::Static,
+            highlights: Vec::new(),
+            status: String::new(),
         };
         p.refilter();
         p
     }
-    /// Case-insensitive substring filter over label and detail, preferring
-    /// label matches and earlier matches (fuzzy ranking arrives in M4).
+
+    /// A picker whose items are supplied by the app as the query changes.
+    pub fn dynamic(title: impl Into<String>, action: PickerAction) -> Self {
+        let mut p = Self::new(title, Vec::new(), action);
+        p.kind = PickerKind::Dynamic;
+        p
+    }
+
+    /// Replace the items (already ranked) of a dynamic picker, keeping the
+    /// selection on the same item when possible.
+    pub fn set_items(&mut self, items: Vec<PickerItem>, highlights: Vec<Vec<usize>>, keep_selection: bool) {
+        let prev = self.current().map(|i| i.label.clone() + &i.detail);
+        self.filtered = (0..items.len()).collect();
+        self.items = items;
+        self.highlights = highlights;
+        self.selected = 0;
+        if keep_selection
+            && let Some(prev) = prev
+            && let Some(i) = self.items.iter().position(|it| it.label.clone() + &it.detail == prev)
+        {
+            self.selected = i;
+        }
+        self.scroll = 0;
+    }
+
+    pub fn highlight(&self, item: usize) -> &[usize] {
+        self.highlights.get(item).map(Vec::as_slice).unwrap_or(&[])
+    }
+    /// Fuzzy filter over label (and detail as a fallback), best first.
     pub fn refilter(&mut self) {
-        let q = self.input.text.to_lowercase();
-        let words: Vec<&str> = q.split_whitespace().collect();
-        let mut scored: Vec<(usize, usize)> = self
+        if self.kind == PickerKind::Dynamic {
+            return;
+        }
+        let q = yace_search::fuzzy::Query::new(&self.input.text);
+        let mut scored: Vec<(i32, usize, Vec<usize>)> = self
             .items
             .iter()
             .enumerate()
-            .filter_map(|(i, it)| {
-                let label = it.label.to_lowercase();
-                let detail = it.detail.to_lowercase();
-                let mut score = 0;
-                for w in &words {
-                    match (label.find(w), detail.find(w)) {
-                        (Some(p), _) => score += p,
-                        (None, Some(p)) => score += 1000 + p,
-                        (None, None) => return None,
-                    }
-                }
-                Some((score, i))
+            .filter_map(|(i, it)| match yace_search::fuzzy::match_label(&q, &it.label) {
+                Some(m) => Some((m.score, i, m.indices)),
+                None => yace_search::fuzzy::match_label(&q, &it.detail).map(|m| (m.score - 1000, i, Vec::new())),
             })
             .collect();
-        scored.sort_by_key(|(s, i)| (*s, *i));
-        self.filtered = scored.into_iter().map(|(_, i)| i).collect();
+        // Stable: equal scores keep the original (e.g. recently used) order.
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        self.highlights = vec![Vec::new(); self.items.len()];
+        self.filtered = scored
+            .into_iter()
+            .map(|(_, i, idx)| {
+                self.highlights[i] = idx;
+                i
+            })
+            .collect();
         self.selected = 0;
         self.scroll = 0;
     }
@@ -217,6 +268,10 @@ pub enum OverlayOutcome {
     SubmitPrompt(String),
     Confirm(ConfirmAction),
     Pick(usize),
+    /// The input of a dynamic picker changed; the app must refresh items.
+    QueryChanged,
+    /// Quick Open: toggle including ignored files (Alt+I).
+    ToggleIgnored,
 }
 
 impl Overlay {
@@ -289,10 +344,16 @@ impl Overlay {
                     p.selected = (p.selected + 10).min(p.filtered.len().saturating_sub(1));
                     OverlayOutcome::Consumed
                 }
+                KeyCode::Char('i') if key.mods == Mods::ALT && p.kind == PickerKind::Dynamic => {
+                    OverlayOutcome::ToggleIgnored
+                }
                 _ => {
                     let before = p.input.text.clone();
                     p.input.handle(key, ch);
                     if p.input.text != before {
+                        if p.kind == PickerKind::Dynamic {
+                            return OverlayOutcome::QueryChanged;
+                        }
                         p.refilter();
                     }
                     OverlayOutcome::Consumed

@@ -215,13 +215,32 @@ pub fn match_label(query: &Query, label: &str) -> Option<FuzzyMatch> {
     Some(FuzzyMatch { score: score - (chars.len() as i32) / 8, indices })
 }
 
+/// Per-token fallback scores for tokens that match the *root name* in a
+/// multi-root workspace (e.g. `api index` finds `src/index.ts` in "Global
+/// API"). `None` = the token must match the path.
+pub fn root_fallbacks(query: &Query, root_name: &str) -> Vec<Option<i32>> {
+    let chars: Vec<char> = root_name.chars().collect();
+    query
+        .tokens()
+        .iter()
+        .map(|t| if is_subsequence(t, root_name) { align(t, &chars).map(|(s, _)| s / 2) } else { None })
+        .collect()
+}
+
 /// Match a relative path. File-name matches are preferred.
 pub fn match_path(query: &Query, path: &str) -> Option<FuzzyMatch> {
+    match_path_in_root(query, path, &[])
+}
+
+/// Like [`match_path`]; tokens with a fallback may match the root name
+/// instead of the path.
+pub fn match_path_in_root(query: &Query, path: &str, fallbacks: &[Option<i32>]) -> Option<FuzzyMatch> {
     if query.is_empty() {
         return Some(FuzzyMatch { score: 0, indices: Vec::new() });
     }
-    // Prefilter on the whole path for every token.
-    if !query.tokens().iter().all(|t| is_subsequence(t, path)) {
+    let fb = |i: usize| fallbacks.get(i).copied().flatten();
+    // Prefilter on the whole path for every required token.
+    if !query.tokens().iter().enumerate().all(|(i, t)| fb(i).is_some() || is_subsequence(t, path)) {
         return None;
     }
     let all: Vec<char> = path.chars().collect();
@@ -232,7 +251,13 @@ pub fn match_path(query: &Query, path: &str) -> Option<FuzzyMatch> {
     let depth = chars.iter().filter(|c| **c == '/').count() as i32;
     let mut total = 0;
     let mut indices = Vec::new();
-    for t in query.tokens() {
+    for (ti, t) in query.tokens().iter().enumerate() {
+        if let Some(root_score) = fb(ti)
+            && !is_subsequence(t, path)
+        {
+            total += root_score;
+            continue;
+        }
         let has_sep = t.contains(&'/');
         let in_name = if has_sep || !is_subsequence_chars(t, name) { None } else { align(t, name) };
         // The full path is only aligned when the name alone doesn't match.
@@ -312,6 +337,10 @@ mod tests {
         let files = ["web/src/index.ts", "api/src/index.ts", "api/test/index.spec.ts"];
         assert_eq!(rank("api index", &files)[0], "api/src/index.ts");
         assert_eq!(rank("web/index", &files)[0], "web/src/index.ts");
+        let q = Query::new("api index");
+        let fb = root_fallbacks(&q, "Global API");
+        assert!(match_path_in_root(&q, "src/index.ts", &fb).is_some(), "api matched the root name");
+        assert!(match_path(&q, "src/index.ts").is_none());
         let m = match_path(&Query::new("idx"), "api/src/index.ts").unwrap();
         assert_eq!(m.indices, vec![8, 10, 12]);
     }

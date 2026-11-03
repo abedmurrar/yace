@@ -20,7 +20,7 @@ use yace_buffer::{
 use yace_config::LineNumbers;
 
 use crate::{
-    app::{App, Focus, Severity},
+    app::{App, Focus, Severity, SidebarView},
     editor::{Group, GroupId, SplitHandle},
     explorer::RowKind,
     overlay::Overlay,
@@ -204,8 +204,15 @@ pub fn draw(app: &App, f: &mut Frame) {
     }
     draw_status(app, buf, wl.status);
     let mut cursor = None;
-    if app.overlays.is_empty() && app.focus == Focus::Editor {
-        cursor = editor_cursor(app, &wl);
+    if app.overlays.is_empty() {
+        cursor = match app.focus {
+            Focus::Editor => editor_cursor(app, &wl),
+            Focus::Find => wl.groups.iter().find(|g| g.id == app.layout.active).and_then(|g| find_bar_cursor(app, g)),
+            Focus::Explorer if app.sidebar_view == SidebarView::Search => {
+                wl.explorer_list.and_then(|l| search_view_cursor(app, l))
+            }
+            Focus::Explorer => None,
+        };
     }
     if let Some(o) = app.overlays.last() {
         cursor = draw_overlay(app, buf, area, o);
@@ -263,6 +270,19 @@ fn draw_sidebar(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
     let t = &app.theme;
     let focused = app.focus == Focus::Explorer && app.overlays.is_empty();
     fill(buf, sb, t.sidebar());
+    if app.sidebar_view == SidebarView::Search {
+        put(buf, title.x, title.y, " SEARCH", title.width, t.title(focused));
+        if let Some(b) = wl.sidebar_border {
+            fill_with(
+                buf,
+                b,
+                app.glyphs.vbar,
+                Style::new().fg(if focused { t.focus_border } else { t.border }).bg(t.bg),
+            );
+        }
+        draw_search_view(app, buf, list, focused);
+        return;
+    }
     let mut head = String::from(" EXPLORER");
     if !app.workspace.roots().is_empty() {
         head.push_str(": ");
@@ -435,6 +455,14 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         draw_empty_group(app, buf, gl.content, gl.id == app.layout.active);
         return;
     };
+    if app.docs.is_loading(view.doc) {
+        fill(buf, gl.content, Style::new().bg(t.bg));
+        let msg = format!("Loading {}…", app.docs.name(view.doc));
+        let y = gl.content.y + gl.content.height / 3;
+        let x = gl.content.x + gl.content.width.saturating_sub(UnicodeWidthStr::width(msg.as_str()) as u16) / 2;
+        put(buf, x, y, &msg, gl.content.width, Style::new().fg(t.muted).bg(t.bg));
+        return;
+    }
     let Some(doc) = app.docs.doc(view.doc) else { return };
     let rope = doc.rope();
     let settings = app.settings_for(doc.path());
@@ -448,6 +476,23 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
     let heads: Vec<usize> = view.sel.ranges().iter().map(|r| r.head).collect();
     let sel_bg = if group_focused { t.selection_bg } else { t.selection_inactive_bg };
     let len_lines = rope.len_lines();
+    // Find matches intersecting the viewport (spec §22.3: visible lines only).
+    let find_active = app.find.visible && app.find.doc == Some(view.doc) && gl.id == app.layout.active;
+    let vis_start = rope.line_to_char(view.scroll_line.min(len_lines.saturating_sub(1)));
+    let vis_end = if view.scroll_line + height < len_lines {
+        rope.line_to_char(view.scroll_line + height)
+    } else {
+        rope.len_chars()
+    };
+    let find_matches: &[(usize, usize)] = if find_active {
+        let m = &app.find.matches;
+        let a = m.partition_point(|(_, e)| *e <= vis_start);
+        let b = m.partition_point(|(st, _)| *st < vis_end);
+        &m[a..b.max(a)]
+    } else {
+        &[]
+    };
+    let current_match = app.find.current.and_then(|i| app.find.matches.get(i)).copied();
     for row in 0..height {
         let line = view.scroll_line + row;
         let y = gl.content.y + row as u16;
@@ -492,7 +537,13 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             let n = g.chars().count();
             if col + w > view.scroll_col {
                 let selected = active_ranges.iter().any(|(a, b)| ci >= *a && ci < *b);
-                let mut style = Style::new().fg(t.fg).bg(if selected { sel_bg } else { line_bg });
+                let mut style = Style::new().fg(t.fg).bg(line_bg);
+                if let Some(m) = find_matches.iter().find(|(a, b)| ci >= *a && ci < *b) {
+                    style = style.bg(if Some(*m) == current_match { t.find_current_bg } else { t.find_match_bg });
+                }
+                if selected {
+                    style = style.bg(sel_bg);
+                }
                 if bracket.is_some_and(|(a, b)| ci == a || ci == b) {
                     style = style.bg(t.bracket_match_bg);
                 }
@@ -539,6 +590,9 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             let yy = gl.content.y + (thumb_y + i).min(height - 1) as u16;
             put(buf, x, yy, app.glyphs.scroll_thumb, 1, Style::new().fg(t.scrollbar).bg(t.bg));
         }
+    }
+    if find_active {
+        draw_find_bar(app, buf, gl);
     }
 }
 
@@ -814,7 +868,16 @@ fn draw_overlay(app: &App, buf: &mut Buffer, area: Rect, o: &Overlay) -> Option<
                 let hint_w = UnicodeWidthStr::width(it.hint.as_str()) as u16;
                 let room = list.width.saturating_sub(hint_w + 3);
                 let mut x = list.x + 1;
-                x += put(buf, x, y, &ellipsize(&it.label, room as usize, app.glyphs.ellipsis), room, style);
+                x += put_highlighted(
+                    buf,
+                    x,
+                    y,
+                    &ellipsize(&it.label, room as usize, app.glyphs.ellipsis),
+                    room,
+                    style,
+                    style.fg(t.match_fg).add_modifier(Modifier::BOLD),
+                    p.highlight(*idx),
+                );
                 if !it.detail.is_empty() {
                     let left = room.saturating_sub(x - list.x);
                     if left > 4 {
@@ -909,4 +972,272 @@ fn draw_overlay(app: &App, buf: &mut Buffer, area: Rect, o: &Overlay) -> Option<
             None
         }
     }
+}
+
+/// Like `put`, but chars at `indices` (char positions in `text`) use `hl`.
+#[allow(clippy::too_many_arguments)]
+fn put_highlighted(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    text: &str,
+    max: u16,
+    style: Style,
+    hl: Style,
+    indices: &[usize],
+) -> u16 {
+    if indices.is_empty() {
+        return put(buf, x, y, text, max, style);
+    }
+    let mut used = 0u16;
+    for (ci, c) in text.chars().enumerate() {
+        let w = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16;
+        if used + w > max {
+            break;
+        }
+        let st = if indices.binary_search(&ci).is_ok() { hl } else { style };
+        used += put(buf, x + used, y, c.encode_utf8(&mut [0; 4]), w.max(1), st);
+    }
+    used
+}
+
+// ---------------------------------------------------------------------------
+// Find bar
+
+/// Rows of the find bar: (query row, replace row).
+pub fn find_bar_rects(app: &App, gl: &GroupLayout) -> Option<(Rect, Option<Rect>)> {
+    if gl.content.width < 20 || gl.content.height < 2 {
+        return None;
+    }
+    let w = gl.content.width.saturating_sub(2).min(64);
+    let x = gl.content.right().saturating_sub(w + 1);
+    let q = Rect { x, y: gl.content.y, width: w, height: 1 };
+    let r = app.find.replace_visible.then_some(Rect { y: gl.content.y + 1, ..q });
+    Some((q, r))
+}
+
+fn find_input_rect(row: Rect) -> Rect {
+    Rect { x: row.x + 1, width: row.width.saturating_sub(26).max(6), ..row }
+}
+
+fn draw_find_bar(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
+    let Some((qrow, rrow)) = find_bar_rects(app, gl) else { return };
+    let t = &app.theme;
+    let bar = Style::new().fg(t.overlay_fg).bg(t.overlay_bg);
+    let focused = app.focus == Focus::Find && app.overlays.is_empty();
+    for r in std::iter::once(qrow).chain(rrow) {
+        fill(buf, r, bar);
+        put(buf, r.x, r.y, if focused { "▌" } else { " " }, 1, Style::new().fg(t.focus_border).bg(t.overlay_bg));
+    }
+    let f = &app.find;
+    let qi = find_input_rect(qrow);
+    draw_input(app, buf, qi, &f.query, "Find");
+    let mut x = qi.right() + 1;
+    let status = f.status();
+    let st_style = if f.error.is_some() || (status == "No results" && !f.query.text.is_empty()) {
+        bar.fg(t.error)
+    } else {
+        bar.fg(t.muted)
+    };
+    x += put(buf, x, qrow.y, &format!("{status:<11}"), 11, st_style);
+    let toggles =
+        [("Aa", f.opts.case_sensitive), ("ab", f.opts.whole_word), (".*", f.opts.regex), ("≡", f.within.is_some())];
+    for (label, on) in toggles {
+        let s = if on { Style::new().fg(t.list_active_fg).bg(t.focus_border) } else { bar.fg(t.muted) };
+        x += put(buf, x, qrow.y, label, qrow.right().saturating_sub(x), s);
+        x += put(buf, x, qrow.y, " ", qrow.right().saturating_sub(x), bar);
+    }
+    if let Some(r) = rrow {
+        let ri = find_input_rect(r);
+        draw_input(app, buf, ri, &f.replace, "Replace");
+        put(buf, ri.right() + 1, r.y, "⇧^1 one · ^⌥⏎ all", r.right().saturating_sub(ri.right() + 1), bar.fg(t.muted));
+    }
+}
+
+fn find_bar_cursor(app: &App, gl: &GroupLayout) -> Option<(u16, u16)> {
+    let (q, r) = find_bar_rects(app, gl)?;
+    let (row, input) = match app.find.field {
+        crate::app::FindField::Query => (q, &app.find.query),
+        crate::app::FindField::Replace => (r?, &app.find.replace),
+    };
+    let ir = find_input_rect(row);
+    let cells = input.cursor_cells() as u16;
+    let scroll = cells.saturating_sub(ir.width.saturating_sub(2));
+    Some((ir.x + 1 + cells - scroll, ir.y))
+}
+
+// ---------------------------------------------------------------------------
+// Search view
+
+#[derive(Debug, Clone)]
+pub struct SearchLayout {
+    pub fields: Vec<(crate::app::SearchField, Rect)>,
+    pub toggles: Rect,
+    pub status: Rect,
+    pub results: Rect,
+}
+
+pub fn search_layout(app: &App, list: Rect) -> SearchLayout {
+    use crate::app::SearchField;
+    let mut y = list.y;
+    let mut fields = Vec::new();
+    let input_w = list.width.saturating_sub(12).max(4);
+    let toggles = Rect { x: list.x + 1 + input_w + 1, y, width: list.width.saturating_sub(input_w + 2), height: 1 };
+    for f in app.search.fields() {
+        if f == SearchField::Results {
+            continue;
+        }
+        let w = if f == SearchField::Query { input_w } else { list.width.saturating_sub(2) };
+        fields.push((f, Rect { x: list.x + 1, y, width: w, height: 1 }));
+        y += 1;
+    }
+    let status = Rect { x: list.x + 1, y, width: list.width.saturating_sub(2), height: 1 };
+    let results = Rect { x: list.x, y: y + 1, width: list.width, height: list.bottom().saturating_sub(y + 1) };
+    SearchLayout { fields, toggles, status, results }
+}
+
+/// First visible results row for the current selection.
+pub fn search_scroll(app: &App, height: usize) -> usize {
+    let sel = app.search.selected;
+    if height == 0 || sel < height { 0 } else { sel + 1 - height }
+}
+
+fn draw_search_view(app: &App, buf: &mut Buffer, list: Rect, focused: bool) {
+    use crate::app::{SearchField, SearchRow};
+    let t = &app.theme;
+    let s = &app.search;
+    let lay = search_layout(app, list);
+    for (f, r) in &lay.fields {
+        let (input, ph) = match f {
+            SearchField::Query => (&s.query, "Search"),
+            SearchField::Replace => (&s.replace, "Replace"),
+            SearchField::Include => (&s.include, "files to include (e.g. *.ts, ./Root Name/src)"),
+            SearchField::Exclude => (&s.exclude, "files to exclude"),
+            SearchField::Results => continue,
+        };
+        draw_input(app, buf, *r, input, ph);
+        if focused && s.field == *f {
+            put(buf, r.x.saturating_sub(1), r.y, "▌", 1, Style::new().fg(t.focus_border).bg(t.sidebar_bg));
+        }
+    }
+    let mut x = lay.toggles.x;
+    for (label, on) in [("Aa", s.opts.case_sensitive), ("ab", s.opts.whole_word), (".*", s.opts.regex)] {
+        let st = if on {
+            Style::new().fg(t.list_active_fg).bg(t.focus_border)
+        } else {
+            Style::new().fg(t.muted).bg(t.sidebar_bg)
+        };
+        x += put(buf, x, lay.toggles.y, label, lay.toggles.right().saturating_sub(x), st);
+        x += put(buf, x, lay.toggles.y, " ", lay.toggles.right().saturating_sub(x), t.sidebar());
+    }
+    let status = app.search_status();
+    let st = if s.error.is_some() {
+        Style::new().fg(t.error).bg(t.sidebar_bg)
+    } else {
+        Style::new().fg(t.muted).bg(t.sidebar_bg)
+    };
+    put(
+        buf,
+        lay.status.x,
+        lay.status.y,
+        &ellipsize(&status, lay.status.width as usize, app.glyphs.ellipsis),
+        lay.status.width,
+        st,
+    );
+
+    let rows = s.rows();
+    let height = lay.results.height as usize;
+    let scroll = search_scroll(app, height);
+    let results_focused = focused && s.field == SearchField::Results;
+    let g = &app.glyphs;
+    for (i, row) in rows.iter().enumerate().skip(scroll).take(height) {
+        let y = lay.results.y + (i - scroll) as u16;
+        let selected = i == s.selected && s.field == SearchField::Results;
+        let base = if selected && results_focused {
+            Style::new().fg(t.list_active_fg).bg(t.list_active_bg)
+        } else if selected {
+            Style::new().fg(t.sidebar_fg).bg(t.list_inactive_selection_bg)
+        } else {
+            t.sidebar()
+        };
+        let line = Rect { x: lay.results.x, y, width: lay.results.width, height: 1 };
+        fill(buf, line, base);
+        let right = line.right();
+        match *row {
+            SearchRow::Root(r) => {
+                let name = app.search_root_name(r).to_uppercase();
+                put(
+                    buf,
+                    line.x + 1,
+                    y,
+                    &ellipsize(&name, (line.width - 1) as usize, g.ellipsis),
+                    line.width - 1,
+                    base.add_modifier(Modifier::BOLD),
+                );
+            }
+            SearchRow::File(fi) => {
+                let f = &s.files[fi];
+                let (dir, name) = match f.rel.rfind('/') {
+                    Some(p) => (&f.rel[..p], &f.rel[p + 1..]),
+                    None => ("", f.rel.as_str()),
+                };
+                let mut x = line.x + 2;
+                x += put(buf, x, y, if f.expanded { g.expanded } else { g.collapsed }, right.saturating_sub(x), base);
+                x += put(buf, x, y, " ", right.saturating_sub(x), base);
+                let mut ns = base;
+                if f.file_excluded {
+                    ns = ns.add_modifier(Modifier::CROSSED_OUT).fg(t.muted);
+                }
+                x += put(buf, x, y, name, right.saturating_sub(x), ns);
+                let count = f.matches.iter().map(|m| m.ranges.len().max(1)).sum::<usize>();
+                let tail = format!(" {dir}  ({count})");
+                put(
+                    buf,
+                    x,
+                    y,
+                    &ellipsize(&tail, right.saturating_sub(x) as usize, g.ellipsis),
+                    right.saturating_sub(x),
+                    base.fg(t.muted),
+                );
+            }
+            SearchRow::Match(fi, mi) => {
+                let f = &s.files[fi];
+                let m = &f.matches[mi];
+                let excluded = f.file_excluded || f.excluded.contains(&mi);
+                let num = format!("{:>4} ", m.line + 1);
+                let mut x = line.x + 4;
+                x += put(buf, x, y, &num, right.saturating_sub(x), base.fg(t.line_number));
+                // Trim leading whitespace, keeping match columns aligned.
+                let lead = m.text.chars().take_while(|c| c.is_whitespace()).count();
+                let shown: String = m.text.chars().skip(lead).collect();
+                let hl: Vec<usize> = m
+                    .ranges
+                    .iter()
+                    .flat_map(|(a, b)| (a.saturating_sub(lead)..b.saturating_sub(lead)).collect::<Vec<_>>())
+                    .collect();
+                let mut ts = base;
+                let mut hs = base.bg(t.find_match_bg);
+                if excluded {
+                    ts = ts.add_modifier(Modifier::CROSSED_OUT).fg(t.muted);
+                    hs = ts;
+                }
+                put_highlighted(buf, x, y, &shown, right.saturating_sub(x), ts, hs, &hl);
+            }
+        }
+    }
+}
+
+fn search_view_cursor(app: &App, list: Rect) -> Option<(u16, u16)> {
+    let lay = search_layout(app, list);
+    let (_, r) = lay.fields.iter().find(|(f, _)| *f == app.search.field)?;
+    let input = match app.search.field {
+        crate::app::SearchField::Query => &app.search.query,
+        crate::app::SearchField::Replace => &app.search.replace,
+        crate::app::SearchField::Include => &app.search.include,
+        crate::app::SearchField::Exclude => &app.search.exclude,
+        crate::app::SearchField::Results => return None,
+    };
+    let cells = input.cursor_cells() as u16;
+    let scroll = cells.saturating_sub(r.width.saturating_sub(2));
+    Some((r.x + 1 + cells - scroll, r.y))
 }

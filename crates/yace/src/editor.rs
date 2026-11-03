@@ -22,6 +22,10 @@ pub struct DocEntry {
     pub untitled: Option<u32>,
     /// Key used for lookup by path (canonical when possible).
     pub key: Option<PathBuf>,
+    /// Being loaded in the background (large file); read-only until done.
+    pub loading: bool,
+    /// Cursor (line, column) to apply once loading finishes.
+    pub pending_cursor: Option<(usize, usize)>,
 }
 
 #[derive(Debug, Default)]
@@ -51,7 +55,7 @@ impl DocumentStore {
         if let Some(k) = &key {
             self.by_key.insert(k.clone(), id);
         }
-        self.docs.insert(id, DocEntry { doc, untitled, key });
+        self.docs.insert(id, DocEntry { doc, untitled, key, loading: false, pending_cursor: None });
         id
     }
     pub fn get(&self, id: DocId) -> Option<&DocEntry> {
@@ -64,7 +68,10 @@ impl DocumentStore {
         self.docs.get(&id).map(|e| &e.doc)
     }
     pub fn doc_mut(&mut self, id: DocId) -> Option<&mut Document> {
-        self.docs.get_mut(&id).map(|e| &mut e.doc)
+        self.docs.get_mut(&id).filter(|e| !e.loading).map(|e| &mut e.doc)
+    }
+    pub fn is_loading(&self, id: DocId) -> bool {
+        self.docs.get(&id).is_some_and(|e| e.loading)
     }
     pub fn find_by_path(&self, p: &Path) -> Option<DocId> {
         self.by_key.get(&path_key(p)).copied()

@@ -110,6 +110,9 @@ pub struct Runtime {
     pool: FsPool,
     watcher: FsWatcher,
     watch_errors_reported: bool,
+    index: Sender<crate::workers::IndexCmd>,
+    search: crate::workers::SearchRunner,
+    find: Sender<crate::workers::FindJob>,
 }
 
 impl Runtime {
@@ -121,7 +124,9 @@ impl Runtime {
         if let Some(e) = err {
             app.notify(Severity::Warning, e);
         }
-        Self { tx, rx, pool, watcher, watch_errors_reported: false }
+        let index = crate::workers::spawn_index_actor(tx.clone());
+        let find = crate::workers::spawn_find_worker(tx.clone());
+        Self { tx, rx, pool, watcher, watch_errors_reported: false, index, search: Default::default(), find }
     }
 
     pub fn spawn_input_thread(&self) {
@@ -170,6 +175,21 @@ impl Runtime {
                 }
                 Effect::Unwatch(d) => self.watcher.unwatch(&d),
                 Effect::Write(bytes) => write_raw(&bytes),
+                Effect::Index(cmd) => {
+                    let _ = self.index.send(cmd);
+                }
+                Effect::Search(job) => self.search.start(*job, self.tx.clone()),
+                Effect::SearchCancel => self.search.cancel(),
+                Effect::Find(job) => {
+                    let _ = self.find.send(*job);
+                }
+                Effect::LoadFile { doc, path, eol } => {
+                    let tx = self.tx.clone();
+                    thread::Builder::new()
+                        .name("yace-load".into())
+                        .spawn(move || drop(tx.send(crate::workers::load_file(doc, path, eol))))
+                        .ok();
+                }
             }
         }
     }

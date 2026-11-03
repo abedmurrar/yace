@@ -51,6 +51,9 @@ pub struct Theme {
     pub missing_root: Color,
     pub scrollbar: Color,
     pub whitespace: Color,
+    pub find_match_bg: Color,
+    pub find_current_bg: Color,
+    pub match_fg: Color,
 }
 
 impl Theme {
@@ -100,6 +103,9 @@ impl Theme {
             missing_root: Color::Rgb(0xc7, 0x4e, 0x39),
             scrollbar: Color::Rgb(0x42, 0x45, 0x4f),
             whitespace: Color::Rgb(0x45, 0x48, 0x52),
+            find_match_bg: Color::Rgb(0x62, 0x33, 0x15),
+            find_current_bg: Color::Rgb(0x9e, 0x6a, 0x03),
+            match_fg: Color::Rgb(0x3d, 0xa9, 0xfc),
         }
     }
 
@@ -154,7 +160,10 @@ impl Theme {
             dirty,
             missing_root,
             scrollbar,
-            whitespace
+            whitespace,
+            find_match_bg,
+            find_current_bg,
+            match_fg
         );
         self
     }

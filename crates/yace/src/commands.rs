@@ -73,26 +73,7 @@ fn ed(app: &mut App) -> bool {
 }
 
 fn show_commands(app: &mut App, _: Option<&Value>) {
-    let ctx = app.context();
-    let items = app
-        .commands
-        .palette_ids()
-        .iter()
-        .enumerate()
-        .filter_map(|(i, id)| {
-            let c = app.commands.get(id)?;
-            let keys = app.keymap.keys_for(id, Some(&ctx)).or_else(|| app.keymap.keys_for(id, None));
-            Some(PickerItem {
-                label: format!("{}: {}", c.category, c.title),
-                detail: String::new(),
-                hint: keys.map(|k| k.to_string()).unwrap_or_default(),
-                data: i,
-            })
-        })
-        .collect();
-    let mut p = Picker::new("Command Palette", items, PickerAction::RunCommand);
-    p.empty_text = "No matching commands".into();
-    app.open_overlay(Overlay::Picker(p));
+    app.open_quick_open(">");
 }
 
 fn show_info(app: &mut App, title: &str, lines: Vec<String>) {
@@ -297,16 +278,15 @@ fn builtin_commands() -> Vec<Command> {
     vec![
         // --- Workbench -------------------------------------------------------
         c!("workbench.action.showCommands", "View", "Show All Commands", show_commands),
-        c!("workbench.action.quickOpen", "Go", "Go to File (Quick Open)", |a, _| {
-            a.prompt(
-                "Open File",
-                "Path of the file to open (fuzzy Quick Open arrives in M4)",
-                a.cwd_with_slash(),
-                PromptAction::OpenFile,
-                true,
-            )
+        c!("workbench.action.quickOpen", "Go", "Go to File…", |a, _| a.open_quick_open("")),
+        c!("workbench.action.quickOpenHelp", "Help", "Quick Open Help", |a, _| a.open_quick_open("?")),
+        c!("workbench.action.navigateBack", "Go", "Go Back", |a, _| a.navigate_back()),
+        c!("workbench.action.navigateForward", "Go", "Go Forward", |a, _| a.navigate_forward()),
+        c!("workbench.view.explorer", "View", "Show Explorer", |a, _| {
+            a.sidebar_view = crate::app::SidebarView::Explorer;
+            a.focus_explorer()
         }),
-        c!("workbench.view.explorer", "View", "Show Explorer", |a, _| a.focus_explorer()),
+        c!("workbench.view.search", "View", "Show Search", |a, _| a.search_open(false)),
         c!("workbench.action.toggleSidebarVisibility", "View", "Toggle Primary Side Bar Visibility", |a, _| {
             a.sidebar_visible = !a.sidebar_visible;
             if !a.sidebar_visible && a.focus == Focus::Explorer {
@@ -321,11 +301,29 @@ fn builtin_commands() -> Vec<Command> {
             .not_available("The bottom panel", "M5 (integrated terminal)")),
         c!("workbench.action.terminal.toggleTerminal", "View", "Toggle Terminal", |a, _| a
             .not_available("The integrated terminal", "M5")),
-        c!("workbench.action.findInFiles", "Search", "Search: Find in Files", |a, _| a
-            .not_available("Workspace search", "M4")),
-        c!("actions.find", "Editor", "Find", |a, _| a.not_available("Find in file", "M4")),
-        c!("editor.action.startFindReplaceAction", "Editor", "Replace", |a, _| a
-            .not_available("Find and replace", "M4")),
+        c!("workbench.action.findInFiles", "Search", "Find in Files", |a, _| a.search_open(false)),
+        c!("workbench.action.replaceInFiles", "Search", "Replace in Files", |a, _| a.search_open(true)),
+        c!("search.action.clearSearchResults", "Search", "Clear Search Results", |a, _| a.search_clear()),
+        c!("workbench.action.search.toggleQueryDetails", "Search", "Toggle Search Details", |a, _| {
+            a.search.show_details = !a.search.show_details;
+            a.search_open(false)
+        }),
+        c!("search.action.replaceAll", "Search", "Replace All in Files", |a, _| a.search_replace_all_confirm()),
+        c!("filesExplorer.findInFolder", "Search", "Find in Folder…", |a, _| a.search_in_folder()),
+        c!("actions.find", "Editor", "Find", |a, _| a.find_open(false)),
+        c!("editor.action.startFindReplaceAction", "Editor", "Replace", |a, _| a.find_open(true)),
+        c!("editor.action.nextMatchFindAction", "Editor", "Find Next", |a, _| a.find_next(true)),
+        c!("editor.action.previousMatchFindAction", "Editor", "Find Previous", |a, _| a.find_next(false)),
+        c!("editor.action.selectAllMatches", "Editor", "Select All Occurrences of Find Match", |a, _| a
+            .find_select_all()),
+        c!("editor.action.replaceOne", "Editor", "Replace", |a, _| a.replace_one()),
+        c!("editor.action.replaceAll", "Editor", "Replace All", |a, _| a.replace_all()),
+        c!("closeFindWidget", "Editor", "Close Find", |a, _| a.find_close()),
+        c!(hidden "toggleFindCaseSensitive", "Editor", "Toggle Match Case", |a, _| a.find_toggle('c')),
+        c!(hidden "toggleFindWholeWord", "Editor", "Toggle Match Whole Word", |a, _| a.find_toggle('w')),
+        c!(hidden "toggleFindRegex", "Editor", "Toggle Use Regular Expression", |a, _| a.find_toggle('r')),
+        c!(hidden "toggleFindInSelection", "Editor", "Toggle Find in Selection", |a, _| a.find_toggle('l')),
+        c!(hidden "yace.find.toggleField", "Editor", "Switch Find/Replace Field", |a, _| a.find_toggle_field()),
         c!("workbench.action.gotoSymbol", "Go", "Go to Symbol in Editor", |a, _| a
             .not_available("Symbol navigation", "M7")),
         c!("workbench.action.showAllSymbols", "Go", "Go to Symbol in Workspace", |a, _| a

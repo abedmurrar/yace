@@ -3000,6 +3000,7 @@ dependencies = [
  "yace-buffer",
  "yace-config",
  "yace-keymap",
+ "yace-search",
  "yace-workspace",
 ]
 

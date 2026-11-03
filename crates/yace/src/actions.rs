@@ -42,9 +42,20 @@ pub enum ConfirmAction {
     ReloadFromDisk(DocId),
     KeepMine(DocId),
     RemoveRoot(RootId),
-    OpenLarge { path: PathBuf, preview: bool },
-    OverwriteExisting { doc: DocId, path: PathBuf },
-    CreateParentAndSave { doc: DocId, path: PathBuf },
+    OpenLarge {
+        path: PathBuf,
+        preview: bool,
+    },
+    OverwriteExisting {
+        doc: DocId,
+        path: PathBuf,
+    },
+    CreateParentAndSave {
+        doc: DocId,
+        path: PathBuf,
+    },
+    /// Workspace search: apply the previewed replacement.
+    ReplaceInFiles,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +70,8 @@ pub enum RootAction {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PickerAction {
     RunCommand,
+    /// Quick Open (files, `>` commands, `:` line, `?` help).
+    QuickOpen,
     OpenRecent,
     Root(RootAction),
     ChangeEol,

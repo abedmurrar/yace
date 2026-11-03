@@ -16,6 +16,9 @@ use crate::{
     overlay::{Confirm, LineInput, Overlay, Prompt},
 };
 
+/// Files above this size load on a background thread.
+pub const ASYNC_LOAD_BYTES: u64 = 1024 * 1024;
+
 /// Result of trying to save one document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveOutcome {
@@ -86,6 +89,20 @@ impl App {
             }));
             return;
         }
+        // Big files load on a worker so the UI never blocks (spec §9.8).
+        if path.exists() && size > ASYNC_LOAD_BYTES {
+            let eol = self.default_eol(Some(&path));
+            let mut placeholder = Document::new_untitled(eol);
+            placeholder.set_path(Some(path.clone()));
+            let id = self.docs.insert(placeholder);
+            if let Some(e) = self.docs.get_mut(id) {
+                e.loading = true;
+            }
+            self.emit(Effect::LoadFile { doc: id, path: path.clone(), eol });
+            self.place_new_view(id, preview, gid);
+            self.after_open(&path);
+            return;
+        }
         let doc = if path.exists() {
             match Document::open(&path, self.default_eol(Some(&path))) {
                 Ok(mut d) => {
@@ -105,6 +122,11 @@ impl App {
             d
         };
         let id = self.docs.insert(doc);
+        self.place_new_view(id, preview, gid);
+        self.after_open(&path);
+    }
+
+    fn place_new_view(&mut self, id: DocId, preview: bool, gid: GroupId) {
         // Replace the preview tab if there is one (never a dirty one).
         let replace = if preview { self.layout.active_group().preview_index() } else { None };
         match replace {
@@ -117,7 +139,42 @@ impl App {
             }
             None => self.add_view(gid, View { preview, ..View::new(id) }),
         }
-        self.after_open(&path);
+    }
+
+    /// A background load finished.
+    pub(crate) fn on_file_loaded(&mut self, doc: DocId, path: PathBuf, result: Result<Box<Document>, String>) {
+        let threshold = self.settings.files.large_file_threshold_mb.saturating_mul(1024 * 1024);
+        let Some(entry) = self.docs.get_mut(doc) else { return };
+        if !entry.loading {
+            return;
+        }
+        match result {
+            Ok(mut d) => {
+                d.large_file = threshold > 0 && io::file_size(&path).unwrap_or(0) > threshold;
+                entry.doc = *d;
+                entry.loading = false;
+                let pending = entry.pending_cursor.take();
+                if let Some((line, col)) = pending
+                    && let Some((g, _, active_doc)) = self.active()
+                    && active_doc == doc
+                    && self.layout.group(g).is_some()
+                {
+                    self.set_cursor_line_col(line, col);
+                }
+            }
+            Err(e) => {
+                self.notify(Severity::Error, e);
+                for (g, _) in self.layout.views_of(doc) {
+                    if let Some(group) = self.layout.group_mut(g)
+                        && let Some(i) = group.find(doc)
+                    {
+                        group.remove(i);
+                    }
+                }
+                self.release_doc_if_unused(doc);
+            }
+        }
+        self.needs_render = true;
     }
 
     fn add_view(&mut self, gid: GroupId, view: View) {
@@ -586,6 +643,7 @@ impl App {
         for d in &dirs {
             self.explorer.refresh_dir(d);
         }
+        self.index_fs_changes(&paths);
         self.check_open_docs_on_disk();
         self.needs_render = true;
     }
@@ -594,6 +652,9 @@ impl App {
     pub(crate) fn check_open_docs_on_disk(&mut self) {
         let ids = self.docs.ids();
         for id in ids {
+            if self.docs.is_loading(id) {
+                continue;
+            }
             let Some(doc) = self.docs.doc(id) else { continue };
             let Some(path) = doc.path().map(Path::to_path_buf) else { continue };
             if doc.disk.is_none() && !path.exists() {

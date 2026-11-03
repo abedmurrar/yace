@@ -14,7 +14,7 @@ use std::{
     time::Instant,
 };
 
-use crate::fuzzy::{Query, match_path};
+use crate::fuzzy::{Query, match_path_in_root, root_fallbacks};
 
 pub type RootKey = u32;
 
@@ -230,6 +230,8 @@ impl FileIndex {
             return out;
         }
         // Score in parallel chunks (each keeps its own top-K), then merge.
+        let fallbacks: HashMap<RootKey, Vec<Option<i32>>> =
+            self.roots.iter().map(|r| (r.root, root_fallbacks(&q, &r.name))).collect();
         let work: Vec<(RootKey, i32, &[Box<str>])> = self
             .roots
             .iter()
@@ -242,8 +244,9 @@ impl FileIndex {
         let score_chunks = |chunks: &[(RootKey, i32, &[Box<str>])]| -> Vec<Ranked> {
             let mut heap: BinaryHeap<Ranked> = BinaryHeap::with_capacity(limit + 1);
             for (root, root_bonus, files) in chunks {
+                let fb = fallbacks.get(root).map(Vec::as_slice).unwrap_or(&[]);
                 for f in files.iter() {
-                    let Some(m) = match_path(&q, f) else { continue };
+                    let Some(m) = match_path_in_root(&q, f, fb) else { continue };
                     let score = m.score + root_bonus + recent_bonus.get(&(*root, &**f)).copied().unwrap_or(0);
                     let cand = Ranked(Hit { root: *root, rel: f.clone(), score, indices: m.indices }, 0);
                     if heap.len() < limit {

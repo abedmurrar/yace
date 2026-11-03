@@ -7,6 +7,7 @@
 | `yace-buffer` | Rope documents (Ropey), multi-range selections, change sets (apply / invert / map), undo history, VS Code-style movement and edit operations, Unicode helpers, UTF-8 loading and atomic saving | — |
 | `yace-keymap` | Key and chord parsing (`ctrl+k ctrl+t`), `when` clauses, layered keymaps (default < plugin < user, `-command` removal, conflict detection), chord resolver, VS Code default table | — |
 | `yace-config` | Settings schema, per-key validated layering, scopes (application / window / resource), VS Code settings mapping, JSONC parsing, XDG paths, atomic writes | `yace-keymap` |
+| `yace-search` | Fuzzy scorer, parallel ignore-aware walker, Quick Open file index (top-K, warm cache), ripgrep-based content search and safe replace, in-document find | `yace-buffer`, `yace-config` |
 | `yace-workspace` | Multi-root model (roots, status, duplicates, nesting, path → root), `.code-workspace` parsing and non-destructive CST editing, session state, recent list | `yace-config` |
 | `yace` | The application: state machine (`App`), command registry, Explorer, editor groups and layout, overlays, rendering, event loop, terminal lifecycle, CLI | all of the above |
 
@@ -37,6 +38,26 @@ isolation.
   parents of open files. Events are coalesced over ~100 ms.
 - **No Tokio.** Threads plus one channel are enough for M1–M3. The choice
   will be revisited with benchmarks when language servers arrive (M7).
+
+### Workers (M4)
+
+| Worker | Owns | Fed by | Emits |
+|---|---|---|---|
+| index actor (`workers::spawn_index_actor`) | the `FileIndex`; spawns walker threads | `Effect::Index(Sync/Query/FsChange)` | `IndexProgress` (throttled), `QuickOpenResults` |
+| search runner | one cancel flag per search | `Effect::Search` / `SearchCancel` | `SearchFile` per file, `SearchDone` |
+| find worker | — | `Effect::Find` (rope snapshot, O(1) clone) | `FindDone` |
+| file loader | — | `Effect::LoadFile` (files > 1 MiB) | `FileLoaded` |
+
+Every request carries a sequence number, and the app ignores results whose
+number is out of date. The index actor coalesces bursts of queries and
+only answers the latest one. Indexing is **lazy**: it starts on the first
+Quick Open, never at startup. Roots are re-walked when Quick Open opens and
+their index is more than 30 s old. In between, filesystem events patch the
+index. Cached name lists (`search.cacheIndex`) make the first Quick Open
+instant and are always refreshed in the background.
+
+`IndexEngine` contains all the index logic and is used both by the actor
+and, synchronously, by the test harness.
 
 ## `App` is terminal-agnostic
 

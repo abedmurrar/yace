@@ -30,6 +30,10 @@ pub struct WorkspaceState {
     pub focus_explorer: bool,
     /// Most recent first.
     pub recent_files: Vec<PathBuf>,
+    /// Quick Open picks as (root path, relative path), most recent first.
+    pub quick_open_picked: Vec<(String, String)>,
+    /// Recently used command ids, most recent first.
+    pub recent_commands: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

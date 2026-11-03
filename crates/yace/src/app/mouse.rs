@@ -65,7 +65,11 @@ impl App {
                 if let Some(list) = wl.explorer_list
                     && hit(list, x, y)
                 {
-                    self.mouse_explorer(list, y, count, button);
+                    if self.sidebar_view == super::SidebarView::Search {
+                        self.mouse_search(list, x, y, count);
+                    } else {
+                        self.mouse_explorer(list, y, count, button);
+                    }
                     return;
                 }
                 if let Some(t) = wl.explorer_title
@@ -183,6 +187,22 @@ impl App {
             } else {
                 self.open_file(&row.path, true);
                 self.focus = Focus::Explorer;
+            }
+        }
+    }
+
+    fn mouse_search(&mut self, list: Rect, x: u16, y: u16, count: u8) {
+        self.focus_changed(Focus::Explorer);
+        let lay = ui::search_layout(self, list);
+        if let Some((f, _)) = lay.fields.iter().find(|(_, r)| hit(*r, x, y)) {
+            self.search.field = *f;
+            return;
+        }
+        if hit(lay.results, x, y) {
+            let scroll = ui::search_scroll(self, lay.results.height as usize);
+            let row = scroll + (y - lay.results.y) as usize;
+            if row < self.search.rows().len() {
+                self.search_click_row(row, count >= 2);
             }
         }
     }

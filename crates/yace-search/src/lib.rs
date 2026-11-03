@@ -13,6 +13,8 @@ pub mod fuzzy;
 pub mod index;
 pub mod walk;
 
+pub use regex;
+
 pub use content::{ContentQuery, FileMatches, LineMatch, SearchRoot, SearchSummary};
 pub use find::{FindOptions, FindResult};
 pub use index::{FileIndex, Hit, QueryContext, RootKey};

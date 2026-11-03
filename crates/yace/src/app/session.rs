@@ -65,6 +65,16 @@ impl App {
             })
         }));
         st.active_group = self.layout.order().iter().position(|g| *g == self.layout.active).unwrap_or(0);
+        st.quick_open_picked = self
+            .quick_open
+            .picked
+            .iter()
+            .filter_map(|(root, rel)| {
+                let r = self.workspace.root(yace_workspace::RootId(*root))?;
+                Some((r.path.display().to_string(), rel.clone()))
+            })
+            .collect();
+        st.recent_commands = self.quick_open.recent_commands.iter().map(|c| c.to_string()).collect();
         if let Err(e) = session::save(&self.state_path(), &st) {
             tracing::warn!("could not save session: {e}");
         }
@@ -97,6 +107,17 @@ impl App {
         }
         self.explorer.scroll = st.explorer_scroll;
         self.recent_files = st.recent_files.into_iter().filter(|p| p.exists()).collect();
+        self.quick_open.picked = st
+            .quick_open_picked
+            .iter()
+            .filter_map(|(root, rel)| {
+                let r = self.workspace.roots().iter().find(|r| r.path == Path::new(root))?;
+                Some((r.id.0, rel.clone()))
+            })
+            .collect();
+        let ids: Vec<&'static str> = self.commands.all().iter().map(|c| c.id).collect();
+        self.quick_open.recent_commands =
+            st.recent_commands.iter().filter_map(|c| ids.iter().find(|id| **id == c.as_str()).copied()).collect();
 
         let mut missing = Vec::new();
         if let Some(layout_state) = &st.editor {

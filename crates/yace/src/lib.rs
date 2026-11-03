@@ -15,6 +15,7 @@ pub mod run;
 pub mod terminal;
 pub mod theme;
 pub mod ui;
+pub mod workers;
 
 use std::path::Path;
 
