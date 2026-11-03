@@ -1004,63 +1004,87 @@ fn put_highlighted(
 // ---------------------------------------------------------------------------
 // Find bar
 
-/// Rows of the find bar: (query row, replace row).
-pub fn find_bar_rects(app: &App, gl: &GroupLayout) -> Option<(Rect, Option<Rect>)> {
-    if gl.content.width < 20 || gl.content.height < 2 {
-        return None;
-    }
-    let w = gl.content.width.saturating_sub(2).min(64);
-    let x = gl.content.right().saturating_sub(w + 1);
-    let q = Rect { x, y: gl.content.y, width: w, height: 1 };
-    let r = app.find.replace_visible.then_some(Rect { y: gl.content.y + 1, ..q });
-    Some((q, r))
+/// Clickable parts of the find bar (shared by drawing and mouse handling).
+#[derive(Debug, Clone)]
+pub struct FindBarLayout {
+    pub row: Rect,
+    pub replace_row: Option<Rect>,
+    pub query: Rect,
+    pub replace: Option<Rect>,
+    pub status: Rect,
+    /// ('c' | 'w' | 'r' | 'l', rect)
+    pub toggles: Vec<(char, Rect)>,
+    pub close: Rect,
 }
 
-fn find_input_rect(row: Rect) -> Rect {
-    Rect { x: row.x + 1, width: row.width.saturating_sub(26).max(6), ..row }
+pub fn find_bar_layout(app: &App, gl: &GroupLayout) -> Option<FindBarLayout> {
+    if gl.content.width < 24 || gl.content.height < 2 {
+        return None;
+    }
+    let w = gl.content.width.saturating_sub(3).min(50);
+    let x = gl.content.right().saturating_sub(w + 1);
+    let row = Rect { x, y: gl.content.y, width: w, height: 1 };
+    let replace_row = app.find.replace_visible.then_some(Rect { y: gl.content.y + 1, ..row });
+    // [▌][input][status 9][Aa ab .* ≡][ ×]
+    let right_part = 9 + 12 + 2;
+    let input_w = w.saturating_sub(right_part + 1).max(6);
+    let query = Rect { x: row.x + 1, width: input_w, ..row };
+    let status = Rect { x: query.right(), width: 9, ..row };
+    let mut tx = status.right();
+    let mut toggles = Vec::new();
+    for (c, label_w) in [('c', 2u16), ('w', 2), ('r', 2), ('l', 1)] {
+        toggles.push((c, Rect { x: tx, width: label_w, ..row }));
+        tx += label_w + 1;
+    }
+    let close = Rect { x: row.right().saturating_sub(2), width: 2, ..row };
+    let replace = replace_row.map(|r| Rect { x: r.x + 1, width: input_w, ..r });
+    Some(FindBarLayout { row, replace_row, query, replace, status, toggles, close })
 }
 
 fn draw_find_bar(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
-    let Some((qrow, rrow)) = find_bar_rects(app, gl) else { return };
+    let Some(lay) = find_bar_layout(app, gl) else { return };
     let t = &app.theme;
     let bar = Style::new().fg(t.overlay_fg).bg(t.overlay_bg);
     let focused = app.focus == Focus::Find && app.overlays.is_empty();
-    for r in std::iter::once(qrow).chain(rrow) {
+    for r in std::iter::once(lay.row).chain(lay.replace_row) {
         fill(buf, r, bar);
         put(buf, r.x, r.y, if focused { "▌" } else { " " }, 1, Style::new().fg(t.focus_border).bg(t.overlay_bg));
     }
     let f = &app.find;
-    let qi = find_input_rect(qrow);
-    draw_input(app, buf, qi, &f.query, "Find");
-    let mut x = qi.right() + 1;
-    let status = f.status();
-    let st_style = if f.error.is_some() || (status == "No results" && !f.query.text.is_empty()) {
-        bar.fg(t.error)
-    } else {
-        bar.fg(t.muted)
+    draw_input(app, buf, lay.query, &f.query, "Find");
+    let status = if f.query.text.is_empty() { "Esc closes".to_string() } else { f.status() };
+    let st_style = if f.error.is_some() || status == "No results" { bar.fg(t.error) } else { bar.fg(t.muted) };
+    put(buf, lay.status.x + 1, lay.status.y, &ellipsize(&status, 8, app.glyphs.ellipsis), 8, st_style);
+    let on = |c: char| match c {
+        'c' => f.opts.case_sensitive,
+        'w' => f.opts.whole_word,
+        'r' => f.opts.regex,
+        _ => f.within.is_some(),
     };
-    x += put(buf, x, qrow.y, &format!("{status:<11}"), 11, st_style);
-    let toggles =
-        [("Aa", f.opts.case_sensitive), ("ab", f.opts.whole_word), (".*", f.opts.regex), ("≡", f.within.is_some())];
-    for (label, on) in toggles {
-        let s = if on { Style::new().fg(t.list_active_fg).bg(t.focus_border) } else { bar.fg(t.muted) };
-        x += put(buf, x, qrow.y, label, qrow.right().saturating_sub(x), s);
-        x += put(buf, x, qrow.y, " ", qrow.right().saturating_sub(x), bar);
+    for (c, r) in &lay.toggles {
+        let label = match c {
+            'c' => "Aa",
+            'w' => "ab",
+            'r' => ".*",
+            _ => "≡",
+        };
+        let s = if on(*c) { Style::new().fg(t.list_active_fg).bg(t.focus_border) } else { bar.fg(t.muted) };
+        put(buf, r.x, r.y, label, r.width, s);
     }
-    if let Some(r) = rrow {
-        let ri = find_input_rect(r);
+    put(buf, lay.close.x, lay.close.y, &format!(" {}", app.glyphs.close), 2, bar);
+    if let (Some(rr), Some(ri)) = (lay.replace_row, lay.replace) {
         draw_input(app, buf, ri, &f.replace, "Replace");
-        put(buf, ri.right() + 1, r.y, "⇧^1 one · ^⌥⏎ all", r.right().saturating_sub(ri.right() + 1), bar.fg(t.muted));
+        let hint = "⇧^1 one · ^⌥⏎ all";
+        put(buf, ri.right() + 1, rr.y, hint, rr.right().saturating_sub(ri.right() + 1), bar.fg(t.muted));
     }
 }
 
 fn find_bar_cursor(app: &App, gl: &GroupLayout) -> Option<(u16, u16)> {
-    let (q, r) = find_bar_rects(app, gl)?;
-    let (row, input) = match app.find.field {
-        crate::app::FindField::Query => (q, &app.find.query),
-        crate::app::FindField::Replace => (r?, &app.find.replace),
+    let lay = find_bar_layout(app, gl)?;
+    let (ir, input) = match app.find.field {
+        crate::app::FindField::Query => (lay.query, &app.find.query),
+        crate::app::FindField::Replace => (lay.replace?, &app.find.replace),
     };
-    let ir = find_input_rect(row);
     let cells = input.cursor_cells() as u16;
     let scroll = cells.saturating_sub(ir.width.saturating_sub(2));
     Some((ir.x + 1 + cells - scroll, ir.y))

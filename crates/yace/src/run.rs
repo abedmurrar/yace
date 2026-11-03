@@ -183,6 +183,7 @@ impl Runtime {
                 Effect::Find(job) => {
                     let _ = self.find.send(*job);
                 }
+                Effect::TrimMemory => crate::mem::trim(),
                 Effect::LoadFile { doc, path, eol } => {
                     let tx = self.tx.clone();
                     thread::Builder::new()

@@ -51,6 +51,7 @@ Legend:
 | D16 | Reloading a file from disk keeps cursors at their offsets (clamped); the reload is undoable | cursors must not jump; a reload must not lose work | §9.10 |
 | D17 | Search engine is pure Rust: `ignore` + `grep-searcher`/`grep-regex` (ripgrep's crates) in the new `yace-search` crate; no external `rg` | portable, no runtime dependency, same ignore semantics as ripgrep | §14.2, §34.5 |
 | D18 | Own VS Code-style fuzzy scorer (DP alignment, filename-first, word/segment/camel bonuses, deterministic tie-break) instead of nucleo-matcher (MPL-2.0) | no extra licence; fully unit-tested; 200k paths in 9–19 ms using parallel chunks | §6.3 |
+| D20 | glibc tuning: `M_ARENA_MAX=2` at startup and `malloc_trim(0)` after indexing, searches and closing large files (`crates/yace/src/mem.rs`, the only `unsafe`); `YACE_MALLOC_TRIM=0` disables it | per-thread arenas kept freed memory after parallel walks; ~30% lower steady-state RSS measured | §23.6 |
 | D13 | State files live under `$XDG_STATE_HOME/yace`, config under `$XDG_CONFIG_HOME/yace`, cache under `$XDG_CACHE_HOME/yace`. Every state write is atomic (temp + rename) | §17.2, §26.2 | §17.2 |
 
 ### Open questions (spec §34, user decisions pending)
@@ -613,6 +614,8 @@ Legend:
 - [ ] [M10] Terminal compatibility matrix: GNOME Terminal, Kitty, Alacritty, WezTerm, Foot, Konsole, tmux (§22.5)
 
 ### Measured results vs §23.1 targets
+
+Memory after Quick Open + a workspace search on a real 9-folder workspace (`scripts/bench_memory.py`, 2026-11-03): v0.2.1 defaults 20.0 MiB (peak 21.5 MiB) with search-as-you-type; with `.claude/worktrees` included 23.9 MiB; without heap trimming (`YACE_MALLOC_TRIM=0`, ≈ v0.2.0) 33.2 MiB. A 108 MiB report from an interactive v0.2.0 session was not reproduced.
 
 Search benchmarks (`cargo bench -p yace-search`, 2026-11-03, i5-1135G7): Quick Open query over 200k paths 9–19 ms (parallel, top-200); walk of this repo 1.5 ms; content search of this repo 3.5 ms. After M4, startup 5.4 ms median and 6.4 MiB at first frame (indexing is lazy).
 

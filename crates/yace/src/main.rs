@@ -26,6 +26,7 @@ fn init_logging(paths: &Paths) {
 
 fn main() -> ExitCode {
     let process_start = Instant::now();
+    yace_app::mem::limit_arenas();
     let args = Args::parse();
     let launch = match cli::plan(&args) {
         Ok(l) => l,

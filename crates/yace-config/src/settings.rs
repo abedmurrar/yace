@@ -212,7 +212,13 @@ pub struct SearchSettings {
 impl Default for SearchSettings {
     fn default() -> Self {
         Self {
-            exclude: vec!["**/node_modules".into(), "**/bower_components".into(), "**/*.code-search".into()],
+            exclude: vec![
+                "**/node_modules".into(),
+                "**/bower_components".into(),
+                "**/*.code-search".into(),
+                // Claude Code worktrees: full copies of the repository.
+                "**/.claude/worktrees".into(),
+            ],
             use_ignore_files: true,
             quick_open_include_ignored: false,
             cache_index: true,

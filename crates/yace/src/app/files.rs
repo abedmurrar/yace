@@ -196,8 +196,12 @@ impl App {
     /// Drop a document if no view shows it any more.
     pub(crate) fn release_doc_if_unused(&mut self, doc: DocId) {
         if self.layout.views_of(doc).is_empty() {
+            let big = self.docs.doc(doc).is_some_and(|d| d.len_chars() > 1 << 20);
             self.docs.remove(doc);
             self.conflict_prompted.remove(&doc);
+            if big {
+                self.request_trim();
+            }
         }
     }
 

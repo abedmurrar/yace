@@ -78,6 +78,15 @@ impl App {
                     self.focus_explorer();
                     return;
                 }
+                // The find bar sits on top of the active group's text.
+                if self.find.visible
+                    && let Some(g) = wl.groups.iter().find(|g| g.id == self.layout.active)
+                    && let Some(fb) = ui::find_bar_layout(self, g)
+                    && (hit(fb.row, x, y) || fb.replace_row.is_some_and(|r| hit(r, x, y)))
+                {
+                    self.mouse_find_bar(&fb, x, y);
+                    return;
+                }
                 for g in &wl.groups {
                     if hit(g.tabs, x, y) {
                         self.mouse_tabs(g.id, g.tabs, x, button, count);
@@ -189,6 +198,23 @@ impl App {
                 self.focus = Focus::Explorer;
             }
         }
+    }
+
+    fn mouse_find_bar(&mut self, fb: &ui::FindBarLayout, x: u16, y: u16) {
+        if hit(fb.close, x, y) {
+            self.find_close();
+            return;
+        }
+        if let Some((c, _)) = fb.toggles.iter().find(|(_, r)| hit(*r, x, y)) {
+            self.find_toggle(*c);
+            return;
+        }
+        self.find.field = if fb.replace_row.is_some_and(|r| hit(r, x, y)) {
+            super::FindField::Replace
+        } else {
+            super::FindField::Query
+        };
+        self.focus_changed(Focus::Find);
     }
 
     fn mouse_search(&mut self, list: Rect, x: u16, y: u16, count: u8) {

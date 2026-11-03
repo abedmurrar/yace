@@ -108,6 +108,8 @@ pub enum Effect {
         path: PathBuf,
         eol: yace_buffer::LineEnding,
     },
+    /// Return freed heap memory to the OS (after background work).
+    TrimMemory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +211,7 @@ pub struct App {
     pub search: search_view::SearchState,
     /// Back/forward navigation history.
     pub nav: history::NavHistory,
+    last_trim: Option<Instant>,
 }
 
 const FS_COALESCE: Duration = Duration::from_millis(100);
@@ -265,6 +268,7 @@ impl App {
             find: Default::default(),
             search: Default::default(),
             nav: Default::default(),
+            last_trim: None,
             settings,
             paths: opts.paths,
         };
@@ -288,6 +292,15 @@ impl App {
 
     pub(crate) fn emit(&mut self, e: Effect) {
         self.effects.push(e);
+    }
+
+    /// Ask the runtime to trim the heap, at most every 2 s.
+    pub(crate) fn request_trim(&mut self) {
+        let now = Instant::now();
+        if self.last_trim.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(2)) {
+            self.last_trim = Some(now);
+            self.effects.push(Effect::TrimMemory);
+        }
     }
 
     /// The earliest moment `on_tick` has work to do.
@@ -495,12 +508,20 @@ impl App {
                 self.save_session();
                 self.quit = true;
             }
-            AppEvent::IndexProgress { files, complete } => self.on_index_progress(files, complete),
+            AppEvent::IndexProgress { files, complete } => {
+                self.on_index_progress(files, complete);
+                if complete {
+                    self.request_trim();
+                }
+            }
             AppEvent::QuickOpenResults { seq, hits, indexed, complete, truncated } => {
                 self.on_quick_open_results(seq, hits, indexed, complete, truncated)
             }
             AppEvent::SearchFile { seq, file } => self.on_search_file(seq, *file),
-            AppEvent::SearchDone { seq, summary, error } => self.on_search_done(seq, summary, error),
+            AppEvent::SearchDone { seq, summary, error } => {
+                self.on_search_done(seq, summary, error);
+                self.request_trim();
+            }
             AppEvent::FindDone { seq, result } => self.on_find_done(seq, result),
             AppEvent::FileLoaded { doc, path, result } => self.on_file_loaded(doc, path, result),
         }

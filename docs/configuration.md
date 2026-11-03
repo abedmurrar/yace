@@ -88,7 +88,7 @@ in "Developer: Show Configuration Errors".
 
 | Key | Default | Meaning | VS Code key |
 |---|---|---|---|
-| `exclude` | `**/node_modules`, `**/bower_components`, `**/*.code-search` | globs left out of Quick Open and search, on top of `files.exclude`. **Additive**; `"!glob"` removes one | `search.exclude` |
+| `exclude` | `**/node_modules`, `**/bower_components`, `**/*.code-search`, `**/.claude/worktrees` | globs left out of Quick Open and search, on top of `files.exclude`. **Additive**; `"!glob"` removes one (e.g. `"!**/.claude/worktrees"` to search Claude Code worktrees) | `search.exclude` |
 | `useIgnoreFiles` | `true` | honour `.gitignore`, `.ignore` and global git excludes | `search.useIgnoreFiles` |
 | `quickOpenIncludeIgnored` | `false` | Quick Open also lists ignored files (toggle per session with `Alt+I`) | — |
 | `cacheIndex` | `true` | cache file **names** in `~/.cache/yace/index/` so Quick Open is instant on the next launch; always refreshed in the background, never trusted blindly | — |

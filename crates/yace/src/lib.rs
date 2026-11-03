@@ -9,6 +9,7 @@ pub mod clipboard;
 pub mod commands;
 pub mod editor;
 pub mod explorer;
+pub mod mem;
 pub mod metrics;
 pub mod overlay;
 pub mod run;

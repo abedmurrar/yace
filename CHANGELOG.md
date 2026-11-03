@@ -13,6 +13,24 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Changed
+
+- Claude Code worktrees (`**/.claude/worktrees`) are excluded from Quick
+  Open and search by default. They are full copies of the repository and
+  flooded results with duplicates. Add `"!**/.claude/worktrees"` to
+  `search.exclude` to include them.
+- The find bar is narrower and has a clickable `×`. Its toggles (`Aa`,
+  `ab`, `.*`, `≡`) are clickable too, and it shows "Esc closes" while the
+  query is empty.
+
+### Performance
+
+- Freed memory is returned to the OS after indexing, searches and closing
+  large files: glibc arenas are capped at 2, with `malloc_trim` after
+  background work. Measured on a 9-folder workspace after Quick Open and a
+  search-as-you-type: 20 MiB, down from 33 MiB. Peak was 21.5 MiB.
+  Reproduce with `scripts/bench_memory.py`.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added

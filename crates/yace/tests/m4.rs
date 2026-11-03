@@ -304,3 +304,37 @@ fn open_folder(h: &mut Harness, dir: &std::path::Path) {
     initial_workspace(&mut h.app, &launch);
     h.settle();
 }
+
+#[test]
+fn find_bar_close_button_and_toggles_are_clickable() {
+    use ratatui::crossterm::event::KeyModifiers;
+    let d = tempfile::tempdir().unwrap();
+    let f = d.path().join("a.txt");
+    fs::write(&f, "foo Foo\n").unwrap();
+    let mut h = Harness::new();
+    initial_workspace(
+        &mut h.app,
+        &Launch {
+            target: Target::File { path: f, line: None, col: None },
+            add_roots: vec![],
+            goto: None,
+            restore: false,
+        },
+    );
+    h.settle();
+    h.key("ctrl+f");
+    h.type_text("foo");
+    assert!(h.screen().contains("Aa"));
+    let wl = yace_app::ui::workbench_layout(&h.app);
+    let g = wl.groups.iter().find(|g| g.id == h.app.layout.active).unwrap().clone();
+    let fb = yace_app::ui::find_bar_layout(&h.app, &g).unwrap();
+    assert!(fb.row.width <= 50, "narrow bar");
+    let (_, case) = fb.toggles[0];
+    h.click(case.x, case.y, KeyModifiers::NONE);
+    assert!(h.app.find.opts.case_sensitive);
+    assert_eq!(h.app.find.matches.len(), 1);
+    h.click(fb.close.x + 1, fb.close.y, KeyModifiers::NONE);
+    assert!(!h.app.find.visible, "× closes the find bar");
+    assert_eq!(h.app.focus, Focus::Editor);
+    assert!(!h.screen().contains("Aa ab"));
+}

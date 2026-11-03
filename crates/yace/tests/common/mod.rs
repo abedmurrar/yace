@@ -145,7 +145,11 @@ impl Harness {
                             events.push(ev);
                         }
                     }
-                    Effect::SearchCancel | Effect::Watch(_) | Effect::Unwatch(_) | Effect::Write(_) => {}
+                    Effect::SearchCancel
+                    | Effect::Watch(_)
+                    | Effect::Unwatch(_)
+                    | Effect::Write(_)
+                    | Effect::TrimMemory => {}
                 }
             }
             for ev in events {
