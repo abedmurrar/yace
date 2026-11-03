@@ -13,6 +13,13 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Fixed
+
+- With an untracked or git-ignored file open in a repository, YACE used a
+  full CPU core while idle (since 0.7.0): a gutter-diff due time that
+  could never run kept the event loop awake. Only runnable git work now
+  sets a deadline.
+
 ## [0.8.0] - 2026-11-03
 
 ### Added

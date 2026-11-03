@@ -293,12 +293,24 @@ impl App {
 
     /// When git work is next due (status debounces, gutter diffs, the
     /// Source Control view's periodic refresh), for the event loop.
+    /// The next due git work (tests).
+    pub fn git_deadline_for_tests(&self) -> Option<Instant> {
+        self.git_deadline()
+    }
+
     pub(crate) fn git_deadline(&self) -> Option<Instant> {
         if !self.git_on() || !self.git.detected {
             return None;
         }
         let repos = self.git.repos.iter().filter(|r| !r.in_flight).filter_map(|r| r.due);
-        let docs = self.git.docs.values().filter(|d| !d.diff_pending).filter_map(|d| d.diff_due);
+        // Only diffs that can run count; a due time that never fires would
+        // make the event loop spin.
+        let docs = self
+            .git
+            .docs
+            .values()
+            .filter(|d| !d.diff_pending && !d.base_pending && d.base.is_some())
+            .filter_map(|d| d.diff_due);
         let poll =
             (self.sidebar_visible && self.sidebar_view == super::SidebarView::Git && self.settings.git.auto_refresh)
                 .then(|| self.git.last_poll.map_or_else(Instant::now, |t| t + POLL));
@@ -362,8 +374,15 @@ impl App {
                 jobs.push(GitJob::Base { doc: d, rel: rel.clone(), toplevel, generation });
                 continue;
             }
-            let Some(base) = entry.base.clone() else { continue };
+            let Some(base) = entry.base.clone() else {
+                // Untracked or ignored: nothing to compare with, so no diff
+                // is due (a stale due time here kept the event loop awake).
+                entry.diff_due = None;
+                entry.hunks_version = version;
+                continue;
+            };
             if entry.hunks_version == version || entry.diff_pending {
+                entry.diff_due = None;
                 continue;
             }
             let due = *entry.diff_due.get_or_insert(now + DIFF_DEBOUNCE);

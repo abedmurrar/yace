@@ -86,6 +86,30 @@ fn fg_of(h: &mut Harness, needle: &str) -> Option<Color> {
     None
 }
 
+/// An untracked file has no base to diff against: no git deadline may stay
+/// pending, or the event loop wakes up forever (100% CPU, v0.7.0 bug).
+#[test]
+fn untracked_files_leave_no_pending_deadline() {
+    let r = repo("main", &[("tracked.txt", "a\n")]);
+    std::fs::write(r.path().join("untracked.txt"), "new\n").unwrap();
+    std::fs::write(r.path().join(".gitignore"), "ignored.txt\n").unwrap();
+    std::fs::write(r.path().join("ignored.txt"), "secret\n").unwrap();
+    let mut h = Harness::new();
+    let _ws = open_ws(&mut h, &[r.path()]);
+    for f in ["untracked.txt", "ignored.txt", "tracked.txt"] {
+        h.app.open_file(&r.path().join(f), false);
+        h.settle();
+        settle_git(&mut h);
+        h.type_text("x");
+        settle_git(&mut h);
+        let now = std::time::Instant::now();
+        assert!(
+            h.app.git_deadline_for_tests().is_none_or(|d| d > now),
+            "{f}: a git deadline in the past keeps the loop spinning"
+        );
+    }
+}
+
 #[test]
 fn each_root_has_its_own_repository_branch_and_decorations() {
     let api = repo("main", &[("src/index.ts", "export const a = 1;\n"), ("README.md", "api\n")]);
