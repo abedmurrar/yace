@@ -69,12 +69,12 @@ Legend:
 - [x] Licence (§34.12) — **MIT OR Apache-2.0** (`LICENSE-MIT`, `LICENSE-APACHE`), decided 2026-11-03
 - [~] Contribution guidelines, maintainers, security reporting, plugin API governance (§34.12) — `CONTRIBUTING.md` and `SECURITY.md` written; maintainers, code of conduct and plugin API governance still open
 - [x] Policy for external Node-based language servers such as the TypeScript one (§2.2, §13.4, §34.7) — allowed as external tools, never bundled or installed, memory reported separately (D23)
-- [ ] Plugin execution model: in-process vs out-of-process vs hybrid (§18.9, §34.3)
-- [ ] Plugin ABI scope for v1 (§34.4)
+- [x] Plugin execution model: in-process C ABI; out-of-process left as an option (D28) (§18.9, §34.3)
+- [x] Plugin ABI scope for v1: `docs/plugins.md` → ABI reference (§34.4)
 - [x] Search engine: pure Rust (`ignore` + `grep-searcher`) vs an external `rg` (§34.5) — pure Rust (D17)
 - [x] Integrated terminal emulator library choice (§11.3, §34.2) — `alacritty_terminal` (D19)
 - [ ] Platform scope beyond Linux (§34.8)
-- [ ] Policy for importing VS Code themes (§16.7, §34.9)
+- [x] Policy for importing VS Code themes: colour data only, no extension code (`docs/themes.md`) (§16.7, §34.9)
 
 ---
 
@@ -267,7 +267,7 @@ Legend:
 - [~] [M2] Watches added on expand and removed on collapse; shared per canonical directory — partial: keyed by path, not canonical path
 - [x] [M2] Coalescing window ~100 ms → one refresh per directory
 - [x] [M2] Watch failure → notification plus a manual `Refresh Explorer` command; no polling
-- [~] [M9] Git decorations in the Explorer (§8.5)
+- [x] [M9] Git decorations in the Explorer (§8.5)
 
 ### Session persistence, part 1 (§4.9)
 - [x] [M2] State file per workspace: `$XDG_STATE_HOME/yace/workspaces/<hash>.json` (atomic write)
@@ -348,10 +348,10 @@ Legend:
 - [x] [M3] Insert line below / above (`Ctrl+Enter` / `Ctrl+Shift+Enter`)
 - [x] [M3] Toggle line comment (`Ctrl+/`) via an extension → comment-token table (replaced in M7)
 - [x] [M3] Trim trailing whitespace on save / insert final newline on save (settings)
-- [~] [M3+] Toggle block comment (`Shift+Alt+A`)
-- [~] [M7] Format document / selection (via LSP or formatter)
-- [~] [M7] Code folding
-- [~] [M7] Word wrap (§9.6)
+- [x] [M7] Toggle block comment (`Shift+Alt+A`)
+- [x] [M7] Format document / selection (via LSP)
+- [x] [M7] Code folding
+- [x] [M7] Word wrap (§9.6)
 
 ### Safe saving (§9.9)
 - [x] [M3] Write a temp file in the target's real directory, fsync, rename, fsync the directory
@@ -367,7 +367,7 @@ Legend:
 - [x] [M3] Clean buffer → silent reload, cursor clamped
 - [x] [M3] Dirty buffer → sticky notification: Reload (discard mine) / Keep mine; keeping marks it conflicted
 - [x] [M3] Deleted on disk → tab marked "(deleted)"; buffer stays editable and can be saved again
-- [~] [M4+] Compare (diff view) for conflicts
+- [~] [M9+] Compare (diff view) for conflicts — conflicts are listed in Source Control; a side-by-side/merge view is not built
 
 ### Tabs (§10.1)
 - [x] [M3] Open in a tab; switch; close (`Ctrl+W`, prompts if dirty)
@@ -404,13 +404,13 @@ Legend:
 - [x] [M3] Root name, relative path, `Ln x, Col y` (grapheme columns), selection count
 - [x] [M3] Language (by extension), EOL (LF / CRLF / Mixed), encoding (UTF-8 / UTF-8 BOM), indent (Spaces: 4 / Tab)
 - [x] [M3] Chord pending, notifications
-- [~] [M9] Git branch
+- [x] [M9] Git branch
 
 ### Unsaved-change management
 - [x] [M3] Close tab, close group, close workspace, quit → per-file Save / Don't Save / Cancel; "Save All" option
 - [x] [M3] Quit (`Ctrl+Q`, `workbench.action.quit`)
 - [x] [M3] SIGTERM / SIGHUP: persist the session; never discard silently
-- [~] [M10] Hot-exit backups of dirty buffers for crash recovery (§26.1)
+- [ ] [M10] Hot-exit backups of dirty buffers for crash recovery (§26.1)
 
 ### Session persistence, part 2 (§4.9, Workflow G)
 - [x] [M3] Open tabs per group, tab order, active group and tab, preview state
@@ -447,7 +447,7 @@ Legend:
 - [~] [M4] Result rows: filename, parent dir, ROOT NAME, file-type glyph, match highlighting (§4.5, §6.7) — filename (fuzzy-highlighted), parent dir and ROOT NAME shown; file-type glyphs arrive with M6 icon themes
 - [x] [M4] Collisions clearly disambiguated (§6.7)
 - [x] [M4] Exclusions: `files.exclude`, `search.exclude`, `.gitignore`; toggle to include ignored or hidden (§6.6)
-- [~] [M4] Mode prefixes: `>` commands, `@` symbols in file, `#` workspace symbols, `:N` go to line, `file:L`, `file:L:C`, `?` help (§6.4) — `>`, `:N`, `file:L[:C]`, `?` done; `@`/`#` show a notice until language support (M7)
+- [x] [M4] Mode prefixes: `>` commands, `@` symbols in file, `#` workspace symbols, `:N` go to line, `file:L`, `file:L:C`, `?` help, plus plugin prefixes (§6.4)
 - [x] [M4] Cancellation of outdated queries (§21.3, §32.4)
 - [x] [M4] Lightweight cached index metadata for faster warm start; never treated as authoritative (§23.4)
 - [~] [M4] Index freshness via fs events / bounded refresh — re-walk when Quick Open opens and the index is >30 s old; fs events patch it in between (only for watched dirs)
