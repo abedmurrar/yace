@@ -47,11 +47,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p yace
+      - name: Third-party licences for this target
+        run: python3 scripts/third_party.py ${{ matrix.target }}
       - name: Package
         run: |
           name="yace-${{ needs.verify.outputs.version }}-${{ matrix.target }}"
           mkdir -p "dist/$name"
-          cp target/release/yace README.md CHANGELOG.md LICENSE-MIT LICENSE-APACHE "dist/$name/"
+          cp target/release/yace README.md CHANGELOG.md CREDITS.md THIRD_PARTY_LICENSES.md LICENSE-MIT LICENSE-APACHE "dist/$name/"
           cp -r docs "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")

@@ -13,6 +13,13 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- `CREDITS.md` acknowledges the projects YACE is built on, and
+  `THIRD_PARTY_LICENSES.md` (generated) lists every bundled crate with its
+  licence texts. Both are shipped in release archives and referenced from
+  the About dialog.
+
 ## [0.2.1] - 2026-11-03
 
 ### Changed

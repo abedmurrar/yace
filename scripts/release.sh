@@ -36,7 +36,8 @@ if m:
 open("CHANGELOG.md", "w").write(c)
 PY
 cargo update --workspace --quiet
-git add Cargo.toml Cargo.lock CHANGELOG.md
+python3 scripts/third_party.py >/dev/null
+git add Cargo.toml Cargo.lock CHANGELOG.md THIRD_PARTY_LICENSES.md
 git commit -q -m "chore(release): v$v"
 scripts/changelog-section.sh "$v" > /tmp/yace-tag-msg.$$
 { echo "YACE v$v"; echo; cat /tmp/yace-tag-msg.$$; } | git tag -a "v$v" -F -

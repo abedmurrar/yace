@@ -48,6 +48,13 @@ with first-class multi-root workspaces. A few rules keep it that way.
   `common::multi_root()` sets these up.
 - `tests/pty_smoke.rs` runs the real binary in a pseudo-terminal.
 
+## Dependencies and credit
+
+Adding a dependency? Prefer permissive licences (MIT, Apache-2.0, BSD,
+Unlicense, Zlib, CC0). Regenerate `THIRD_PARTY_LICENSES.md` with
+`scripts/third_party.py`; `scripts/release.sh` does this too. Add
+significant ones to `CREDITS.md`.
+
 ## Licence
 
 YACE is dual-licensed under [MIT](LICENSE-MIT) or

@@ -268,6 +268,9 @@ fn about(app: &mut App, _: Option<&Value>) {
         vec![
             format!("YACE — Yet Another Code Editor {}", env!("CARGO_PKG_VERSION")),
             "A native, terminal-based, multi-root code editor.".into(),
+            "Built on alacritty_terminal, ripgrep's crates, Ratatui, crossterm, Ropey and more;".into(),
+            "keyboard shortcuts and workspaces follow VS Code. See CREDITS.md.".into(),
+            "Licence: MIT OR Apache-2.0; third-party licences in THIRD_PARTY_LICENSES.md.".into(),
             format!("Config: {}", app.paths.config_dir.display()),
             format!("State:  {}", app.paths.state_dir.display()),
         ],

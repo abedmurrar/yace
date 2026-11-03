@@ -82,6 +82,14 @@ scripts/bench_interactive.py 300              # idle CPU and typing latency
 YACE_LOG=debug yace .                         # log to ~/.local/state/yace/yace.log
 ```
 
+## Acknowledgements
+
+YACE is built on excellent open-source work: alacritty_terminal (the integrated
+terminal), ripgrep's crates (search), Ratatui and crossterm (UI), Ropey (text
+buffer) and many more. It follows VS Code's keyboard shortcuts and its
+`.code-workspace` format. See [`CREDITS.md`](CREDITS.md) and the full
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
+
 ## Licence
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
