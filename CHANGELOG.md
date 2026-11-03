@@ -13,6 +13,8 @@ Security, Performance.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-03
+
 ### Added
 
 - **Git** (M9), per repository: every workspace folder uses its own
@@ -548,7 +550,8 @@ Reproduce with `scripts/bench.sh` and `scripts/bench_interactive.py`.
 - Very large files are read on the main thread.
 - There's no crash recovery for unsaved edits yet.
 
-[Unreleased]: https://github.com/OWNER/yace/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/OWNER/yace/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/OWNER/yace/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/OWNER/yace/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/OWNER/yace/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/OWNER/yace/compare/v0.4.1...v0.4.2
