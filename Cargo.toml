@@ -17,6 +17,7 @@ yace-buffer = { path = "crates/yace-buffer" }
 yace-workspace = { path = "crates/yace-workspace" }
 yace-keymap = { path = "crates/yace-keymap" }
 yace-config = { path = "crates/yace-config" }
+yace-search = { path = "crates/yace-search" }
 
 ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "underline-color", "layout-cache"] }
 crossterm = "0.29"

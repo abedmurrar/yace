@@ -1,0 +1,29 @@
+[package]
+name = "yace-search"
+description = "YACE search engine: fuzzy file matching, workspace file index, content search and replace, in-file find"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+ignore = "0.4"
+grep-searcher = "0.1"
+grep-regex = "0.1"
+grep-matcher = "0.1"
+regex = "1"
+globset.workspace = true
+yace-buffer.workspace = true
+yace-config.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "search"
+harness = false
+
+[lints]
+workspace = true

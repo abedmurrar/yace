@@ -15,7 +15,7 @@ Legend:
 | | |
 |---|---|
 | Current pass | **M1–M3** (foundation → multi-root workspace + Explorer → usable editor) — released as **v0.1.0** |
-| Current step | M1–M3 implemented and tested; awaiting manual testing in real terminals before starting M4 |
+| Current step | **M4** in progress — step 1/6 done (`yace-search` engine) |
 | Toolchain | rustc 1.99.1 stable (rustup) |
 | Last updated | 2026-11-03 (M1–M3 complete) |
 
@@ -49,6 +49,8 @@ Legend:
 | D14 | `Ctrl+P` opens a path prompt with Tab completion until fuzzy Quick Open lands (M4); other M4–M7 shortcuts show a "not available yet" notice | a shortcut should never silently do nothing | §5.1, §33.8 |
 | D15 | Go to Line (`Ctrl+G`) pulled forward from M4 | trivial with the Prompt overlay | §6.4 |
 | D16 | Reloading a file from disk keeps cursors at their offsets (clamped); the reload is undoable | cursors must not jump; a reload must not lose work | §9.10 |
+| D17 | Search engine is pure Rust: `ignore` + `grep-searcher`/`grep-regex` (ripgrep's crates) in the new `yace-search` crate; no external `rg` | portable, no runtime dependency, same ignore semantics as ripgrep | §14.2, §34.5 |
+| D18 | Own VS Code-style fuzzy scorer (DP alignment, filename-first, word/segment/camel bonuses, deterministic tie-break) instead of nucleo-matcher (MPL-2.0) | no extra licence; fully unit-tested; 200k paths in 9–19 ms using parallel chunks | §6.3 |
 | D13 | State files live under `$XDG_STATE_HOME/yace`, config under `$XDG_CONFIG_HOME/yace`, cache under `$XDG_CACHE_HOME/yace`. Every state write is atomic (temp + rename) | §17.2, §26.2 | §17.2 |
 
 ### Open questions (spec §34, user decisions pending)
@@ -57,7 +59,7 @@ Legend:
 - [ ] Policy for external Node-based language servers such as the TypeScript one (§2.2, §13.4, §34.7)
 - [ ] Plugin execution model: in-process vs out-of-process vs hybrid (§18.9, §34.3)
 - [ ] Plugin ABI scope for v1 (§34.4)
-- [ ] Search engine: pure Rust (`ignore` + `grep-searcher`) vs an external `rg` (§34.5)
+- [x] Search engine: pure Rust (`ignore` + `grep-searcher`) vs an external `rg` (§34.5) — pure Rust (D17)
 - [ ] Integrated terminal emulator library choice, e.g. `alacritty_terminal` / `vt100` / `wezterm-term` (§11.3, §34.2)
 - [ ] Platform scope beyond Linux (§34.8)
 - [ ] Policy for importing VS Code themes (§16.7, §34.9)
