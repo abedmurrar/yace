@@ -13,6 +13,14 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Fixed
+
+- In terminals without the enhanced keyboard protocol (e.g. GNOME
+  Terminal), `` Ctrl+` `` arrives as `Ctrl+Space` and showed "Completion
+  is not available yet". There, `Ctrl+Space` now toggles the integrated
+  terminal, so `` Ctrl+` `` works as expected. `Ctrl+J` works too.
+  (`` Alt+` `` is taken by GNOME's window switcher on Ubuntu.)
+
 ## [0.3.0] - 2026-11-03
 
 ### Added

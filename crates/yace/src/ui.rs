@@ -1379,7 +1379,7 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
             buf,
             content.x + 2,
             content.y,
-            "No terminals. Press Ctrl+` (or Alt+`) to open one.",
+            "No terminals. Press Ctrl+` or Ctrl+J to open one.",
             content.width,
             Style::new().fg(t.muted).bg(t.terminal_bg),
         );

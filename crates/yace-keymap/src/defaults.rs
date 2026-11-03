@@ -221,6 +221,8 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("alt+t", "workbench.action.reopenClosedEditor", "!keyboardEnhanced"),
     ("alt+z", "redo", "editorFocus && !keyboardEnhanced"),
     ("alt+`", "workbench.action.terminal.toggleTerminal", "!keyboardEnhanced"),
+    // Legacy terminals send Ctrl+` as Ctrl+Space (NUL); the two can't be told apart.
+    ("ctrl+space", "workbench.action.terminal.toggleTerminal", "!keyboardEnhanced"),
     // --- Terminal (only these and the skip-shell list bypass the shell) ----
     ("ctrl+shift+c", "workbench.action.terminal.copySelection", "terminalFocus"),
     ("ctrl+shift+v", "workbench.action.terminal.paste", "terminalFocus"),
@@ -270,6 +272,27 @@ mod tests {
         );
         let plain = ContextSet::new().with(ctx::EDITOR_FOCUS);
         assert_eq!(r.feed(&km, key, &plain), Resolution::Unbound);
+    }
+
+    #[test]
+    fn legacy_ctrl_backtick_arrives_as_ctrl_space() {
+        let km = default_keymap();
+        let mut r = Resolver::default();
+        let k = "ctrl+space".parse().unwrap();
+        let legacy = ContextSet::new().with(ctx::EDITOR_FOCUS);
+        assert!(
+            matches!(r.feed(&km, k, &legacy), Resolution::Command { command, .. } if command == "workbench.action.terminal.toggleTerminal")
+        );
+        let enhanced = ContextSet::new().with(ctx::EDITOR_FOCUS).with(ctx::KEYBOARD_ENHANCED);
+        assert!(
+            matches!(r.feed(&km, k, &enhanced), Resolution::Command { command, .. } if command == "editor.action.triggerSuggest")
+        );
+        let t = ContextSet::new().with(ctx::TERMINAL_FOCUS);
+        assert_eq!(
+            km.lookup_single(k, &t).map(|b| b.command.as_str()),
+            Some("workbench.action.terminal.toggleTerminal"),
+            "toggles back out of the terminal"
+        );
     }
 
     #[test]

@@ -66,7 +66,7 @@ fn terminal_runs_commands_and_leaves_no_orphans() {
     std::thread::sleep(Duration::from_millis(300));
     w.write_all(b"\x1b[?62c").unwrap(); // answer the capability probe (legacy keyboard)
     assert!(wait_for(Duration::from_secs(10), || screen().contains("EXPLORER")), "editor drawn");
-    w.write_all(b"\x1b`").unwrap(); // Alt+` (legacy fallback for Ctrl+`)
+    w.write_all(b"\x00").unwrap(); // Ctrl+` as legacy terminals send it (NUL = Ctrl+Space)
     w.flush().unwrap();
     assert!(
         wait_for(Duration::from_secs(10), || screen().contains("TERMINAL") && screen().contains("$ ")),

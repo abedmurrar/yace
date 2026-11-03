@@ -16,7 +16,8 @@ Performance Metrics" to see which mode is active.
 |---|---|---|
 | `Ctrl+<letter>`, `Alt+<letter>`, `F1`–`F12`, arrows with modifiers, `Ctrl+PgUp/PgDn` | ✅ | ✅ |
 | `Ctrl+Shift+<letter>` (e.g. `Ctrl+Shift+P`) | ❌ arrives as `Ctrl+<letter>` | ✅ |
-| `` Ctrl+` ``, `Ctrl+Tab`, `Ctrl+Enter`, `Ctrl+Shift+Enter` | ❌ | ✅ |
+| `Ctrl+Tab`, `Ctrl+Enter`, `Ctrl+Shift+Enter` | ❌ | ✅ |
+| `` Ctrl+` `` | arrives as `Ctrl+Space`; YACE treats that as `` Ctrl+` `` | ✅ |
 | `Ctrl+\` | arrives as `Ctrl+4` | ✅ |
 | `Ctrl+/` | arrives as `Ctrl+7` | ✅ |
 | `Ctrl+Backspace` | arrives as `Ctrl+H` | ✅ |
@@ -40,7 +41,7 @@ Rebind those in the terminal, or use the fallbacks below.
 | `Alt+T` | Reopen Closed Editor | `Ctrl+Shift+T` |
 | `Alt+Shift+F` | Search across the workspace | `Ctrl+Shift+F` |
 | `Alt+Shift+H` | Replace across the workspace | `Ctrl+Shift+H` |
-| `` Alt+` `` | Toggle terminal | `` Ctrl+` `` (legacy terminals send it as `Ctrl+Space`) |
+| `Ctrl+Space` (what `` Ctrl+` `` arrives as), `Ctrl+J`, `` Alt+` `` | Toggle terminal / panel | `` Ctrl+` `` — just press `` Ctrl+` ``; `` Alt+` `` is taken by GNOME's window switcher on Ubuntu |
 | `Alt+Z` | Redo | `Ctrl+Shift+Z` (`Ctrl+Y` also works) |
 | `Ctrl+PgDn` / `Ctrl+PgUp` | Next / previous editor | `Ctrl+Tab` |
 
@@ -92,7 +93,7 @@ yet" notice: `Ctrl+K Ctrl+T` (themes, M6), and `Ctrl+Shift+O`, `Ctrl+T`,
 
 | Keys | Action |
 |---|---|
-| `` Ctrl+` `` (legacy terminals: `` Alt+` ``) | show and focus the terminal; again to hide it |
+| `` Ctrl+` `` | show and focus the terminal; again to hide it (works in GNOME Terminal too) |
 | `` Ctrl+Shift+` `` | new terminal in the active file's workspace folder |
 | `Ctrl+J` | show / hide the bottom panel |
 | `Ctrl+PgDn` / `Ctrl+PgUp` (terminal focused) | next / previous terminal |
