@@ -54,10 +54,12 @@ Legend:
 | D20 | glibc tuning: `M_ARENA_MAX=2` at startup and `malloc_trim(0)` after indexing, searches and closing large files (`crates/yace/src/mem.rs`, the only `unsafe`); `YACE_MALLOC_TRIM=0` disables it | per-thread arenas kept freed memory after parallel walks; ~30% lower steady-state RSS measured | §23.6 |
 | D19 | Integrated terminal on `alacritty_terminal` 0.26 (Apache-2.0): complete VT emulation, bounded grid, selection, its own PTY + event loop; `portable-pty` only in tests | mature (Alacritty, Zed), small dependency tree; vt100 lacks a PTY and full-screen fidelity; termwiz is large | §11.2, §11.3, §34.2 |
 | D21 | Terminal settings are user-scope only | a workspace must never choose which program runs | §4.12, §27.3 |
-| D22 | Tree-sitter grammars compiled into the binary (user's choice), constructed and their queries compiled only when a file of that language opens | no runtime downloads; unused grammars cost disk (+17 MB) but no RAM (read-only pages). Revisit at M8 (ask the user about downloadable grammars) | §12.2 |
+| D22 | Tree-sitter grammars compiled into the binary, constructed and their queries compiled only when a file of that language opens | no runtime downloads; unused grammars cost disk but no RAM. Superseded in part by D29 (M8) | §12.2 |
 | D23 | External language servers allowed, including Node-based ones (user's choice); YACE never bundles or installs them and reports their memory separately | best-in-class TypeScript support needs tsserver; YACE itself stays JS-free | §2.2, §13.4, §34.7 |
 | D24 | Own minimal LSP types + typed decoding on the reader thread, instead of `lsp-types` | smaller binary; large replies (completion lists) never parsed on the UI thread; lenient parsing of the shapes servers really send | §13, §21.4 |
 | D25 | One server instance per (server, workspace root), `workspaceFolders` = that root | never share server state across unrelated repositories; simple and correct for every server | §13.3 |
+| D28 | Plugins are in-process native libraries behind a versioned C ABI (`yace-plugin-api`), with JSON for structured data; out-of-process host left for later (user's choice) | fastest calls (76 ns) and no per-plugin process memory; honest that they are not sandboxed; JSON keeps the ABI small and append-only | §18.1, §18.8, §18.9 |
+| D29 | Hybrid grammars (user's choice): Rust, JS/TS/TSX, JSON, YAML, TOML, HTML, CSS, Markdown, Python, Bash built in; C, C++, Go, Java, Ruby, SCSS, SQL, Dockerfile in the installable `yace-grammars` package, loaded on first use; `all-grammars` feature compiles all in | binary 25.4 → 17.6 MB; the package is 1.0 MB compressed | §12.2, §18.3 |
 | D27 | Theme files use VS Code colour ids for UI keys and tree-sitter scope names for syntax; built-ins compiled from their TOML at build time via a generated, test-checked module | one mapping table serves themes, overrides and VS Code import; startup parses no theme (measured 40–90 µs warm / ≤0.3 ms cold → 0.8 µs) | §16.2, §23.1 |
 | D26 | Syntax reparse placement predicted from a per-document cost estimate (inline < 0.5 ms, else worker) instead of "try inline with a budget" | a budget that runs out wastes its time on every keystroke (measured p50 2.2 ms → 0.074 ms) | §12.1, §21.4 |
 | D13 | State files live under `$XDG_STATE_HOME/yace`, config under `$XDG_CONFIG_HOME/yace`, cache under `$XDG_CACHE_HOME/yace`. Every state write is atomic (temp + rename) | §17.2, §26.2 | §17.2 |
@@ -182,7 +184,7 @@ Legend:
 - [x] [M1] `--workspace <file>`, `--add-root <path>` (repeatable), `--goto path:line[:col]`
 - [x] [M1] `--no-restore`, `--version`, `--help`
 - [x] [M1] Clear errors: missing path, invalid workspace file, invalid line/col, unsupported flag, no TTY (§24.3)
-- [~] [M8] `--safe-mode`, `--no-plugins`
+- [x] [M8] `--safe-mode`, `--no-plugins`
 - [~] [M10] Shell completions (§24.4)
 
 ---
@@ -584,25 +586,32 @@ Legend:
 
 ## M8 — Native plugin system (§18)
 
-- [ ] [M8] Decide in-process vs out-of-process (open question)
-- [ ] [M8] **Ask the user first:** switch tree-sitter grammars from built into the binary (M7) to downloadable/installable grammars (shared libraries, possibly as plugins)? Bring the measured binary-size cost from M7.
-- [ ] [M8] `yace-plugin-api`: C ABI, versioned function tables, struct sizes, optional capabilities, error codes, allocation ownership, UTF-8 strings, lifetimes, threading rules, cancellation (§18.8)
-- [ ] [M8] `yace-plugin-host`: discovery, manifest validation (before loading code), ABI checking, `dlopen`, activation, cleanup (§18.5)
-- [ ] [M8] Manifest format (TOML): id, name, version, description, author, OS/arch, min YACE version, ABI version, entry library, commands, keybindings, config schema, activation events, capabilities, dependencies (§18.7)
-- [ ] [M8] Lazy activation triggers: command, file type, view, event (§18.6)
-- [ ] [M8] Contributions: commands, keybindings, themes, status bar items, panels, explorer decorations, Quick Open providers, settings (§18.3)
-- [ ] [M8] Event API with coalescing / rate limiting (§18.4)
-- [ ] [M8] Non-blocking callbacks; time budget measured; background job API (§18.10)
-- [ ] [M8] Controlled UI model; no raw ANSI from plugins (§18.12)
-- [ ] [M8] Plugin settings with validation and defaults (§18.11)
-- [ ] [M8] Enable / disable globally and per workspace; safe mode (`--safe-mode`, `--no-plugins`) (§18.11)
-- [ ] [M8] Plugin manager: install from local package or directory, remove, enable, disable, inspect, diagnose (§18.13)
-- [ ] [M8] Commands: Extensions: Install / Uninstall / Enable / Disable / Update / Reload / List Installed / Show Dependencies / Show Performance / Open Plugin Settings (§18.14)
-- [ ] [M8] Trust UI: identity, publisher, source, version, capabilities, hashes; explicit confirmation (§18.9, §27.2)
-- [ ] [M8] Docs state honestly that in-process plugins are not sandboxed (§33.11)
-- [ ] [M8] SDK: Rust bindings, example plugin, packaging tool, test harness, API reference, release checklist (§18.15)
-- [ ] [M8] Tests: valid load, invalid manifest, unsupported ABI, missing library, activation, deactivation, registration, settings, failure, performance, safe mode, malformed ABI inputs (§28.6)
+- [x] [M8] Decide in-process vs out-of-process → in-process C ABI (D28)
+- [x] [M8] Asked the user about downloadable grammars → hybrid (D29)
+- [x] [M8] `yace-plugin-api`: C ABI v1, versioned append-only tables with sizes, optional callbacks, status codes, buffer ownership, UTF-8 strings, borrowed lifetimes, threading rules, jobs with cancellation; C header kept in sync by a layout test (§18.8)
+- [x] [M8] `yace-plugin-host`: discovery (worker thread), manifest validation before any code loads, OS/arch/YACE/ABI checks, SHA-256 approval record, `dlopen` (RTLD_NOW), table validation, timed calls, job pool (§18.5)
+- [x] [M8] Manifest format (TOML, every §18.7 field; every problem reported) — `docs/plugins.md`
+- [x] [M8] Lazy activation: command, language, view, workspace contents, event, Quick Open prefix, startup; contributions implicitly activate (§18.6)
+- [x] [M8] Contributions: commands, keybindings, themes, status bar items, sidebar views (tree), Explorer decorations, Quick Open providers, settings, languages, grammars (§18.3)
+- [~] [M8] Contributions: bottom-panel views, Git integrations (with M9), LSP servers from plugins (manifest key parsed, not wired yet)
+- [x] [M8] Event API: workspace opened/closed, roots, documents opened/closed/saved/changed, active document, selection, theme, terminals, configuration; selection/document changes coalesced (50 ms) (§18.4)
+- [x] [M8] Callbacks on the UI thread, every call timed, one-time warning above 100 ms, background jobs with cancellation (§18.10)
+- [x] [M8] Controlled UI model: plugins provide data, the editor renders with the theme; control characters stripped (§18.12)
+- [x] [M8] Plugin settings `[plugin."<id>"]` validated against the manifest, defaults, errors reported (§18.11)
+- [x] [M8] Enable/disable globally (`plugins.disabled`) and per workspace (session state, workspace file untouched); `--safe-mode` / `--no-plugins` (§18.11)
+- [x] [M8] Plugin manager: install from folder or `.tar.gz` (safe extraction), uninstall, enable, disable, approve, details, log, settings, reload; update = install a newer package (§18.13)
+- [x] [M8] Commands: Extensions: Install from Package/Directory, Uninstall, Enable, Disable, Reload, List Installed, Show Performance, Show Plugin Views, and per plugin: Show Details (dependencies), Open Plugin Settings, Show Plugin Log (§18.14)
+- [x] [M8] Trust UI: identity, publisher, source, version, capabilities, external programs, code hashes, "not sandboxed"; explicit confirmation; changed or hand-copied code not loaded until approved (§18.9, §27.2)
+- [x] [M8] Docs say plainly that in-process plugins are not sandboxed (`docs/plugins.md`) (§33.11)
+- [x] [M8] SDK: `yace-plugin` (Plugin trait, Host, `export_plugin!` catching panics, `MockHost`), examples `plugins/hello` and `plugins/tasks` (Task Runner), `scripts/build_plugin.sh`, `yace --package-plugin`, API reference, release checklist (§18.15, §18.16)
+- [x] [M8] CLI: `--install-plugin [--yes]`, `--list-plugins`, `--package-plugin [-o]`, `--safe-mode`
+- [x] [M8] Crash diagnosis: per-process marker of active plugins; an abnormal exit is reported at the next start
+- [x] [M8] Hybrid grammars: `all-grammars` feature, runtime grammar/language registries in `yace-syntax`, `scripts/build_grammars.py` (package + licences), lazy load with hash check, re-highlighting of open files, one-time hint when missing; release workflow publishes the package
+- [x] [M8] Tests: valid load, invalid manifest, unsupported ABI (manifest and init), init failure, short table, wrong ABI answer, changed code, hand-copied code, incompatible version, activation (command, workspace contents, event), deactivation (disable), registration, settings validation, slow and failing callbacks, safe mode, malformed ABI input (null/invalid UTF-8/oversized strings, null outputs, unknown handles, undeclared ids, missing capabilities, bad JSON), crash markers, data-only theme package, packaging, grammar package (load, tamper), C header layout, PTY install + run (§28.6)
+- [ ] [M8] Load and hash-check grammar libraries on a worker (C++: 8.8 ms hash + query compile on first open)
+- [ ] [M8] Status item click runs its command; plugin view context actions
 - [~] [M8+] Install from Git or release artifact; registry (optional) (§18.13, §34.10)
+- [~] [M8+] Out-of-process plugin host for stronger isolation (§18.9)
 
 ---
 
@@ -652,6 +661,8 @@ Legend:
 - [ ] [M10] Terminal compatibility matrix: GNOME Terminal, Kitty, Alacritty, WezTerm, Foot, Konsole, tmux (§22.5)
 
 ### Measured results vs §23.1 targets
+
+Plugins (M8, 2026-11-03, i5-1135G7, release). `cargo run --release --example bench_m8`: load + init of a plugin 0.07 ms; editor → plugin call 76 ns; event delivery (JSON) 0.36 µs; a command making three host calls with JSON both ways 0.58 µs. First frame, 40 interleaved runs: v0.4.2 median 4.69 ms, M8 4.48 ms; with 20 installed plugins 4.77 ms vs 4.75 ms with none (manifests are read on a worker). Heap at idle identical to v0.4.2 (1,152 kB `RssAnon`); one more thread (plugin message forwarder). Binary 25.35 MB (v0.4.2) → 17.63 MB with hybrid grammars; the grammar package is 9.6 MB of libraries, 1.0 MB compressed. C++ grammar on first `.cpp` open: SHA-256 check 8.8 ms, `dlopen` 0.07 ms, query compilation 29.5 ms (the built-in grammar paid the same compilation).
 
 Themes and customisation (M6, 2026-11-03, i5-1135G7). `cargo run --release --example bench_m6`: loading a built-in theme (compiled) 0.8–0.9 µs (parsed from TOML it was 38 µs for a root theme, 88–91 µs for one on top of a root; up to 0.3 ms cold at startup); keybinding-editor filtering over the whole default keymap (222 bindings) median 44 µs, worst 0.11 ms per keystroke. First frame (`--startup-time`, 3×30 runs, same machine, back to back): v0.4.2 median 5.03–5.44 ms, M6 5.43–5.64 ms (within run-to-run noise; min 3.19–3.40 vs 3.27–3.33). Idle RSS: heap (`RssAnon`) identical at 1,152 kB; +0.35 MiB of clean, shared binary pages (`RssFile`). Binary 25.35 → 25.92 MB (`toml_edit`, generated themes).
 

@@ -34,6 +34,30 @@ pub struct Args {
     /// Print the time to the first rendered frame and exit (benchmarking).
     #[arg(long, hide = true)]
     pub startup_time: bool,
+
+    /// Start without loading any plugin code or plugin grammars.
+    #[arg(long, visible_alias = "no-plugins")]
+    pub safe_mode: bool,
+
+    /// Install a plugin from a folder or a `.tar.gz` package, then exit.
+    #[arg(long, value_name = "PATH")]
+    pub install_plugin: Option<PathBuf>,
+
+    /// With --install-plugin: don't ask for confirmation.
+    #[arg(long)]
+    pub yes: bool,
+
+    /// List installed plugins, then exit.
+    #[arg(long)]
+    pub list_plugins: bool,
+
+    /// Validate a plugin folder and build a `.tar.gz` package, then exit.
+    #[arg(long, value_name = "DIR")]
+    pub package_plugin: Option<PathBuf>,
+
+    /// With --package-plugin: where to write the package.
+    #[arg(long, short = 'o', value_name = "FILE")]
+    pub output: Option<PathBuf>,
 }
 
 /// What to open, after validating paths.

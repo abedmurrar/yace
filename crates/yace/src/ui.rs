@@ -314,11 +314,89 @@ fn ellipsize(s: &str, max: usize, ell: &str) -> String {
     out
 }
 
+/// A theme colour named by a plugin (`error`, `warning`, `info`, `muted`,
+/// `gitModified`, …); unknown names use the normal text colour.
+fn token_color(t: &crate::theme::Theme, name: &str) -> ratatui::style::Color {
+    match name {
+        "error" => t.error,
+        "warning" => t.warning,
+        "info" => t.info,
+        "muted" | "description" => t.muted,
+        "gitModified" | "modified" => t.git_modified,
+        "gitAdded" | "added" => t.git_added,
+        "gitDeleted" | "deleted" => t.git_deleted,
+        "accent" | "focus" => t.focus_border,
+        _ => t.sidebar_fg,
+    }
+}
+
+/// A plugin's tree view, drawn by the editor (spec §18.12: plugins never
+/// write to the screen themselves).
+fn draw_plugin_view(app: &App, buf: &mut Buffer, list: Rect, focused: bool) {
+    let t = &app.theme;
+    let rows = app.plugin_view_rows();
+    if rows.is_empty() {
+        let s = Style::new().fg(t.muted).bg(t.sidebar_bg).add_modifier(Modifier::ITALIC);
+        put(
+            buf,
+            list.x + 2,
+            list.y,
+            &ellipsize(&app.plugin_view_empty_text(), list.width.saturating_sub(3) as usize, app.glyphs.ellipsis),
+            list.width.saturating_sub(2),
+            s,
+        );
+        return;
+    }
+    let ui = app.plugin_view_ui();
+    let height = list.height as usize;
+    let sel = ui.selected.min(rows.len() - 1);
+    let scroll = if sel >= height { sel + 1 - height } else { 0 };
+    let g = &app.glyphs;
+    for (i, (depth, node, has, open)) in rows.iter().enumerate().skip(scroll).take(height) {
+        let y = list.y + (i - scroll) as u16;
+        let mut style = t.sidebar();
+        if i == sel {
+            style = t.sidebar().patch(t.list_selected(focused));
+            fill(buf, Rect { x: list.x, y, width: list.width, height: 1 }, style);
+        }
+        let avail = |x: u16| list.right().saturating_sub(x);
+        let mut x = list.x + 1 + ((*depth as u16) * 2).min(list.width.saturating_sub(4));
+        let marker = if *has { if *open { g.expanded } else { g.collapsed } } else { " " };
+        x += put(buf, x, y, marker, avail(x), style);
+        x += put(buf, x, y, " ", avail(x), style);
+        if !node.icon.is_empty() {
+            let icon: String = node.icon.chars().filter(|c| !c.is_control()).take(2).collect();
+            x += put(buf, x, y, &icon, avail(x), style.fg(token_color(t, &node.color)));
+            x += put(buf, x, y, " ", avail(x), style);
+        }
+        let label: String = node.label.chars().filter(|c| !c.is_control()).collect();
+        let lstyle = if node.color.is_empty() || i == sel { style } else { style.fg(token_color(t, &node.color)) };
+        x += put(buf, x, y, &ellipsize(&label, avail(x) as usize, g.ellipsis), avail(x), lstyle);
+        if !node.description.is_empty() && avail(x) > 4 {
+            let d: String = node.description.chars().filter(|c| !c.is_control()).collect();
+            put(buf, x + 1, y, &ellipsize(&d, avail(x + 1) as usize, g.ellipsis), avail(x + 1), style.fg(t.muted));
+        }
+    }
+}
+
 fn draw_sidebar(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
     let (Some(sb), Some(title), Some(list)) = (wl.sidebar, wl.explorer_title, wl.explorer_list) else { return };
     let t = &app.theme;
     let focused = app.focus == Focus::Explorer && app.overlays.is_empty();
     fill(buf, sb, t.sidebar());
+    if app.sidebar_view == SidebarView::Plugin && app.plugins.active_view.is_some() {
+        put(buf, title.x, title.y, &format!(" {}", app.plugin_view_title()), title.width, t.title(focused));
+        if let Some(b) = wl.sidebar_border {
+            fill_with(
+                buf,
+                b,
+                app.glyphs.vbar,
+                Style::new().fg(if focused { t.focus_border } else { t.border }).bg(t.bg),
+            );
+        }
+        draw_plugin_view(app, buf, list, focused);
+        return;
+    }
     if app.sidebar_view == SidebarView::Search {
         put(buf, title.x, title.y, " SEARCH", title.width, t.title(focused));
         if let Some(b) = wl.sidebar_border {
@@ -427,10 +505,16 @@ fn draw_sidebar(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
                 if matches!(kind, RowKind::SymlinkDir | RowKind::SymlinkFile) {
                     label = format!("{label} {}", g.symlink);
                 }
-                let room = avail(x).saturating_sub(if dirty { 2 } else { 0 });
+                let badge = app.plugin_decorations.get(&crate::editor::path_key(&row.path));
+                let badge_w = badge.map(|(b, _)| UnicodeWidthStr::width(b.as_str()) as u16 + 1).unwrap_or(0);
+                let room = avail(x).saturating_sub(if dirty { 2 } else { 0 } + badge_w);
                 x += put(buf, x, y, &ellipsize(&label, room as usize, g.ellipsis), room, s);
                 if dirty {
                     put(buf, x + 1, y, g.dirty, avail(x + 1), style.fg(t.dirty));
+                }
+                if let Some((b, color)) = badge {
+                    let bx = list.right().saturating_sub(badge_w + 1);
+                    put(buf, bx, y, b, badge_w, style.fg(token_color(t, color)));
                 }
             }
         }
@@ -982,6 +1066,13 @@ fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {
             Severity::Warning => Style::new().fg(t.bg).bg(t.warning),
             Severity::Info => base,
         };
+    }
+    let (pl, pr) = app.plugin_status_texts();
+    if !pl.is_empty() {
+        left = format!("{left}   {}", pl.join("   "));
+    }
+    for (i, item) in pr.into_iter().enumerate() {
+        right.insert(i, item);
     }
     let right_text = format!("{}  ", right.join("   "));
     let rw = UnicodeWidthStr::width(right_text.as_str()) as u16;

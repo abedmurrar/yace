@@ -147,6 +147,12 @@ fn input_edits(e: &DocEdit) -> Vec<InputEdit> {
 }
 
 impl SyntaxStore {
+    /// Forget documents of a language so the next sync attaches them again
+    /// (its grammar was just registered).
+    pub fn reattach(&mut self, lang: &str) {
+        self.docs.retain(|_, s| s.lang.id != lang);
+    }
+
     pub fn language(&self, d: DocId) -> &'static LanguageConfig {
         self.docs.get(&d).map(|s| s.lang).unwrap_or_else(yace_syntax::plain_text)
     }

@@ -57,6 +57,8 @@ pub struct TermTab {
     pub exited: Option<Option<i32>>,
     /// Restored from a previous session: starts when first shown.
     pub not_started: bool,
+    /// Typed into the shell once it starts (plugin tasks).
+    pub startup: Option<String>,
 }
 
 impl TermTab {
@@ -161,7 +163,7 @@ impl App {
     }
 
     /// Root and directory for a new terminal, per `terminal.cwd`.
-    fn terminal_target(&self) -> (Option<RootId>, PathBuf) {
+    pub(crate) fn terminal_target(&self) -> (Option<RootId>, PathBuf) {
         let active_file = self.active().and_then(|(_, _, d)| self.docs.doc(d)?.path().map(Path::to_path_buf));
         let first = self.workspace.roots().iter().find(|r| r.status == RootStatus::Available);
         let active_root = active_file.as_deref().and_then(|p| self.workspace.root_for_path(p));
@@ -262,6 +264,7 @@ impl App {
             profile,
             exited: None,
             not_started: false,
+            startup: None,
         });
         self.panel.active = self.panel.tabs.len() - 1;
         self.panel.visible = true;
@@ -270,6 +273,28 @@ impl App {
         self.spawn_into(idx);
         self.sync_terminal_size();
         self.focus_changed(Focus::Terminal);
+    }
+
+    /// A terminal opened for a plugin: a name, and a command typed into the
+    /// user's shell once it starts (the shell stays usable afterwards).
+    pub(crate) fn new_terminal_with(
+        &mut self,
+        root: Option<RootId>,
+        cwd: PathBuf,
+        name: Option<String>,
+        startup: Option<String>,
+    ) -> SessionId {
+        self.new_terminal(root, cwd, None);
+        let idx = self.panel.tabs.len() - 1;
+        let t = &mut self.panel.tabs[idx];
+        if let Some(n) = name {
+            t.name = n;
+        }
+        if let (Some(cmd), Some(sess)) = (startup.as_ref(), t.session.as_mut()) {
+            sess.write(format!("{cmd}\r").as_bytes());
+        }
+        t.startup = startup;
+        t.id
     }
 
     pub(crate) fn new_terminal_default(&mut self) {
@@ -442,7 +467,7 @@ impl App {
         self.request_trim();
     }
 
-    pub(crate) fn kill_all_terminals(&mut self) {
+    pub fn kill_all_terminals(&mut self) {
         for t in &mut self.panel.tabs {
             if let Some(s) = t.session.as_mut() {
                 s.kill();
@@ -620,6 +645,7 @@ impl App {
                 profile: t.profile,
                 exited: None,
                 not_started: true,
+                startup: None,
             });
         }
         self.panel.active = active.min(self.panel.tabs.len().saturating_sub(1));

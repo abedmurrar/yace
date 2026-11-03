@@ -40,6 +40,8 @@ pub enum PromptAction {
     },
     /// Import a VS Code colour theme JSON file.
     ImportThemeFile,
+    /// Extensions: Install from Directory / Package.
+    InstallPlugin,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +57,11 @@ pub enum ConfirmAction {
     Nothing,
     /// Move keybindings.toml aside and use the defaults.
     RestoreDefaultKeybindings,
+    /// Install `App::pending_install`.
+    InstallPlugin,
+    UninstallPlugin(String),
+    /// Approve a plugin folder already in the plugins folder.
+    TrustPlugin(PathBuf),
     Close(CloseChoice),
     Trash(PathBuf),
     DeletePermanently(PathBuf),
@@ -112,6 +119,15 @@ pub enum PickerAction {
     ImportVsCodeTheme,
     /// Open user theme file `data` (0 = create a new one).
     EditUserTheme,
+    /// Extensions: List Installed (data → `App::plugin_pick`).
+    PluginList,
+    /// An operation on the plugin with this id (data → `PluginOp`).
+    PluginOp(String),
+    PluginEnable,
+    PluginDisable,
+    PluginUninstall,
+    /// Show `PluginHost::views()[data]`.
+    PluginView,
 }
 
 #[derive(Debug, Clone, PartialEq)]

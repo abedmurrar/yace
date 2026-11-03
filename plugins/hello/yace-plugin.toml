@@ -1,0 +1,55 @@
+# Example YACE plugin. Build and install it with:
+#   scripts/build_plugin.sh plugins/hello
+# then "Extensions: Install from Package…" (or yace --install-plugin).
+id = "dev.yace.hello"
+name = "Hello"
+version = "1.0.0"
+description = "Example plugin: greets you, counts saves, inserts the date."
+publisher = "YACE"
+license = "MIT OR Apache-2.0"
+yace = ">=0.5"
+abi = 1
+library = "lib/libyace_plugin_hello.so"
+# Activates when one of its commands runs or a document is saved.
+activation = ["onEvent:documentSaved"]
+capabilities = ["workspace.read", "documents.read", "documents.write"]
+events = ["documentSaved"]
+
+[[commands]]
+id = "hello.greet"
+title = "Say Hello"
+category = "Hello"
+
+[[commands]]
+id = "hello.wordCount"
+title = "Count Words in Active Editor"
+category = "Hello"
+
+[[commands]]
+id = "hello.insertDate"
+title = "Insert Today's Date"
+category = "Hello"
+
+[[commands]]
+id = "hello.slowCount"
+title = "Count to a Million in the Background"
+category = "Hello"
+
+[[keybindings]]
+key = "ctrl+alt+h"
+command = "hello.greet"
+
+[[status_items]]
+id = "hello.saves"
+alignment = "right"
+priority = 5
+
+[settings.greeting]
+type = "string"
+default = "Hello"
+description = "What Say Hello says."
+
+[settings.exclaim]
+type = "boolean"
+default = true
+description = "End the greeting with an exclamation mark."

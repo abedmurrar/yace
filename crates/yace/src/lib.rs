@@ -15,6 +15,8 @@ pub mod lsp;
 pub mod mem;
 pub mod metrics;
 pub mod overlay;
+pub mod plugin_cli;
+pub mod plugins;
 pub mod run;
 pub mod syntax;
 pub mod terminal;

@@ -14,6 +14,19 @@ pub struct Settings {
     pub search: SearchSettings,
     pub terminal: TerminalSettings,
     pub lsp: LspSettings,
+    pub plugins: PluginsSettings,
+    /// Each plugin's own settings: `[plugin."dev.example.hello"]`, keys as
+    /// declared in its manifest (validated when the plugin reads them).
+    pub plugin: std::collections::BTreeMap<String, toml::Table>,
+}
+
+/// Plugin enablement (spec §18.11). User scope; per-workspace overrides
+/// live in the workspace's session state, never in the workspace file.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginsSettings {
+    /// Plugin ids that are not loaded.
+    pub disabled: Vec<String>,
 }
 
 /// Language servers (spec §13). User scope only: a workspace must never
@@ -439,6 +452,9 @@ pub fn scope_of(section: &str, key: &str) -> Scope {
         // A workspace must never choose which program runs (spec §4.12).
         ("terminal", _) => Scope::Application,
         ("lsp", _) => Scope::Application,
+        // Which native code runs is the user's decision only (§18.9).
+        ("plugins", _) => Scope::Application,
+        ("plugin", _) => Scope::Window,
         ("search", "exclude" | "useIgnoreFiles") => Scope::Resource,
         ("workbench", "restoreWorkspace" | "colorDepth" | "glyphs") => Scope::Application,
         _ => Scope::Window,

@@ -175,6 +175,8 @@ fn real_binary_highlights_rust() {
 }
 
 struct Running {
+    /// State/cache folder of the run (removed when the run is dropped).
+    _state: Option<tempfile::TempDir>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
     parser: Arc<Mutex<vt100::Parser>>,
     writer: Box<dyn Write + Send>,
@@ -185,6 +187,16 @@ fn spawn_yace(file: &std::path::Path, config: &str, env: &[(&str, &str)]) -> (Ru
     let state = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(state.path().join("config")).unwrap();
     std::fs::write(state.path().join("config/config.toml"), config).unwrap();
+    let cfg = state.path().join("config");
+    let (mut r, run_state) = spawn_yace_in(file, &cfg, env);
+    r._state = Some(run_state);
+    (r, state)
+}
+
+/// Start the real binary with an existing config folder (state and cache in
+/// a new temporary folder).
+fn spawn_yace_in(file: &std::path::Path, cfg: &std::path::Path, env: &[(&str, &str)]) -> (Running, tempfile::TempDir) {
+    let state = tempfile::tempdir().unwrap();
     let pty = native_pty_system();
     let pair = pty.openpty(PtySize { rows: 20, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_yace"));
@@ -196,7 +208,7 @@ fn spawn_yace(file: &std::path::Path, config: &str, env: &[(&str, &str)]) -> (Ru
     for (k, v) in env {
         cmd.env(k, v);
     }
-    cmd.env("YACE_CONFIG_DIR", state.path().join("config"));
+    cmd.env("YACE_CONFIG_DIR", cfg);
     cmd.env("YACE_STATE_DIR", state.path().join("state"));
     cmd.env("YACE_CACHE_DIR", state.path().join("cache"));
     cmd.env_remove("DISPLAY");
@@ -222,7 +234,7 @@ fn spawn_yace(file: &std::path::Path, config: &str, env: &[(&str, &str)]) -> (Ru
         writer.write_all(b"\x1b[?62c").unwrap();
         writer.flush().unwrap();
     }
-    (Running { child, parser, writer }, state)
+    (Running { _state: None, child, parser, writer }, state)
 }
 
 fn cell_at(parser: &Mutex<vt100::Parser>, needle: &str) -> Option<vt100::Cell> {
@@ -271,5 +283,68 @@ fn real_binary_themes_and_monochrome() {
     );
     let c = cell_at(&r.parser, "fn main").unwrap();
     assert_eq!(c.bgcolor(), vt100::Color::Default, "no colours under NO_COLOR");
+    quit(r);
+}
+
+/// The real binary: `--install-plugin`, `--list-plugins`, then the plugin's
+/// command run from the palette (it loads on first use).
+#[test]
+fn real_binary_installs_and_runs_a_plugin() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let st = std::process::Command::new(env!("CARGO"))
+        .args(["build", "-p", "yace-plugin-hello"])
+        .current_dir(&root)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let staged = tempfile::tempdir().unwrap();
+    std::fs::copy(root.join("plugins/hello/yace-plugin.toml"), staged.path().join("yace-plugin.toml")).unwrap();
+    std::fs::create_dir_all(staged.path().join("lib")).unwrap();
+    let target =
+        std::env::var_os("CARGO_TARGET_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| root.join("target"));
+    std::fs::copy(target.join("debug/libyace_plugin_hello.so"), staged.path().join("lib/libyace_plugin_hello.so"))
+        .unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a.txt");
+    std::fs::write(&file, "hello\n").unwrap();
+    let (r, state) = spawn_yace(&file, "", &[]);
+    quit(r);
+    let cfg = state.path().join("config");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_yace"))
+        .arg("--install-plugin")
+        .arg(staged.path())
+        .arg("--yes")
+        .env("YACE_CONFIG_DIR", &cfg)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{text}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(text.contains("NOT sandboxed") && text.contains("Installed dev.yace.hello 1.0.0"), "{text}");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_yace"))
+        .arg("--list-plugins")
+        .env("YACE_CONFIG_DIR", &cfg)
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains("dev.yace.hello  1.0.0  Hello  [installed]"));
+
+    // Same config, now with the plugin installed.
+    std::fs::write(cfg.join("config.toml"), "[plugin.\"dev.yace.hello\"]\ngreeting = \"Howdy\"\n").unwrap();
+    let (mut r, s2) = spawn_yace_in(&file, &cfg, &[]);
+    r._state = Some(s2);
+    assert!(wait_for(Duration::from_secs(10), || cell_at(&r.parser, "hello").is_some()));
+    r.writer.write_all(b"\x1bOP").unwrap(); // F1: command palette
+    r.writer.flush().unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    r.writer.write_all(b"say hello").unwrap();
+    r.writer.flush().unwrap();
+    assert!(wait_for(Duration::from_secs(5), || cell_at(&r.parser, "Hello: Say Hello").is_some()));
+    r.writer.write_all(b"\r").unwrap();
+    r.writer.flush().unwrap();
+    assert!(
+        wait_for(Duration::from_secs(10), || cell_at(&r.parser, "Howdy!").is_some()),
+        "{}",
+        r.parser.lock().unwrap().screen().contents()
+    );
     quit(r);
 }

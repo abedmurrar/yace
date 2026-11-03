@@ -18,19 +18,34 @@ tree-sitter-toml-ng = "0.7"
 tree-sitter-yaml = "0.7"
 tree-sitter-html = "0.23"
 tree-sitter-css = "0.25"
-tree-sitter-scss = "1"
+tree-sitter-scss = { version = "1", optional = true }
 tree-sitter-md = "0.5"
 tree-sitter-python = "0.25"
-tree-sitter-go = "0.25"
+tree-sitter-go = { version = "0.25", optional = true }
 tree-sitter-bash = "0.25"
-tree-sitter-sequel = "0.3"
-tree-sitter-containerfile = "0.9"
-tree-sitter-c = "0.24"
-tree-sitter-cpp = "0.23"
-tree-sitter-java = "0.23"
-tree-sitter-ruby = "0.23"
+tree-sitter-sequel = { version = "0.3", optional = true }
+tree-sitter-containerfile = { version = "0.9", optional = true }
+tree-sitter-c = { version = "0.24", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-java = { version = "0.23", optional = true }
+tree-sitter-ruby = { version = "0.23", optional = true }
 ropey = { version = "1.6", default-features = false, features = ["cr_lines", "simd"] }
 globset.workspace = true
+
+[features]
+# Compile every grammar into the binary. Release builds leave these out:
+# C, C++, Go, Java, Ruby, SCSS, SQL and Dockerfile ship as the installable
+# `yace-grammars` package (scripts/build_grammars.py), loaded on first use.
+all-grammars = [
+    "dep:tree-sitter-c",
+    "dep:tree-sitter-cpp",
+    "dep:tree-sitter-go",
+    "dep:tree-sitter-java",
+    "dep:tree-sitter-ruby",
+    "dep:tree-sitter-scss",
+    "dep:tree-sitter-sequel",
+    "dep:tree-sitter-containerfile",
+]
 
 [lints]
 workspace = true

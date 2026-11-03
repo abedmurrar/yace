@@ -76,6 +76,8 @@ impl App {
             })
             .collect();
         st.recent_commands = self.quick_open.recent_commands.iter().map(|c| c.to_string()).collect();
+        st.plugins_enabled = self.plugin_ws_enabled.clone();
+        st.plugins_disabled = self.plugin_ws_disabled.clone();
         st.panel_visible = self.panel.visible;
         st.panel_height = Some(self.panel.height);
         st.panel_maximized = self.panel.maximized;
@@ -107,6 +109,13 @@ impl App {
         };
         if let Some(v) = st.sidebar_visible {
             self.sidebar_visible = v;
+        }
+        if st.plugins_enabled != self.plugin_ws_enabled || st.plugins_disabled != self.plugin_ws_disabled {
+            self.plugin_ws_enabled = st.plugins_enabled.clone();
+            self.plugin_ws_disabled = st.plugins_disabled.clone();
+            if self.plugins.discovered {
+                self.discover_plugins();
+            }
         }
         if let Some(w) = st.sidebar_width {
             self.sidebar_width = w.max(10);

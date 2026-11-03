@@ -287,6 +287,7 @@ impl App {
 
     fn after_save(&mut self, doc: DocId, path: &Path) {
         self.conflict_prompted.remove(&doc);
+        self.plugin_event("documentSaved", serde_json::json!({ "doc": doc, "path": path.display().to_string() }));
         self.lsp_did_save(doc);
         if let Some(parent) = path.parent() {
             self.explorer.refresh_dir(parent);

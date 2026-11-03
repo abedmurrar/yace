@@ -69,12 +69,17 @@ impl Harness {
     }
 
     pub fn with_state(state: tempfile::TempDir) -> Self {
+        Self::with_state_mode(state, false)
+    }
+
+    pub fn with_state_mode(state: tempfile::TempDir, safe_mode: bool) -> Self {
         let paths = Paths::in_dir(state.path());
         let mut app = App::new(AppOptions {
             paths,
             system_clipboard: false,
             keyboard_enhanced: true,
             process_start: Instant::now(),
+            safe_mode,
         });
         app.resize(120, 40);
         let term = Terminal::new(TestBackend::new(120, 40)).unwrap();
@@ -97,6 +102,7 @@ impl Harness {
             system_clipboard: false,
             keyboard_enhanced: true,
             process_start: Instant::now(),
+            safe_mode: false,
         })
     }
 
@@ -125,6 +131,7 @@ impl Harness {
         use yace_app::workers::{self, IndexCmd};
         self.app.drain_terminal_notices();
         self.app.drain_lsp_events();
+        self.app.drain_plugin_messages();
         self.app.sync_documents();
         for _ in 0..200 {
             let effects = self.app.take_effects();
@@ -174,6 +181,9 @@ impl Harness {
                         } else {
                             events.push(ev);
                         }
+                    }
+                    Effect::DiscoverPlugins(dir) => {
+                        events.push(AppEvent::PluginsDiscovered(yace_plugin_host::store::discover(&dir)))
                     }
                     Effect::SearchCancel
                     | Effect::Watch(_)

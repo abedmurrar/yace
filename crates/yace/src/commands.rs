@@ -32,11 +32,43 @@ impl std::fmt::Debug for Command {
     }
 }
 
+/// Who handles a command contributed by a plugin.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PluginCmd {
+    /// The plugin's `on_command` (activating it first if needed).
+    Plugin(usize),
+    /// Show one of the plugin's views (handled by the editor).
+    ShowView(usize, String),
+}
+
 pub struct Registry {
     list: Vec<Command>,
     index: HashMap<&'static str, usize>,
     palette: Vec<&'static str>,
+    /// Commands contributed by plugins (also in `list`).
+    plugin: HashMap<&'static str, PluginCmd>,
+    builtin_len: usize,
 }
+
+/// Plugin command ids and titles live as long as the process: they are
+/// leaked once per id (bounded by the installed plugins).
+pub(crate) fn intern(s: &str) -> &'static str {
+    leak(s)
+}
+
+fn leak(s: &str) -> &'static str {
+    use std::sync::{Mutex, OnceLock};
+    static INTERNED: OnceLock<Mutex<std::collections::HashSet<&'static str>>> = OnceLock::new();
+    let mut set = INTERNED.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(v) = set.get(s) {
+        return v;
+    }
+    let v: &'static str = Box::leak(s.to_string().into_boxed_str());
+    set.insert(v);
+    v
+}
+
+fn plugin_handler(_: &mut App, _: Option<&Value>) {}
 
 impl Registry {
     pub fn builtin() -> Self {
@@ -50,10 +82,47 @@ impl Registry {
             "duplicate command id"
         );
         let index = list.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
-        let mut palette: Vec<&Command> = list.iter().filter(|c| c.palette).collect();
+        let builtin_len = list.len();
+        let mut r = Self { list, index, palette: Vec::new(), plugin: HashMap::new(), builtin_len };
+        r.rebuild_palette();
+        r
+    }
+
+    fn rebuild_palette(&mut self) {
+        let mut palette: Vec<&Command> = self.list.iter().filter(|c| c.palette).collect();
         palette.sort_by(|a, b| (a.category, a.title).cmp(&(b.category, b.title)));
-        let palette = palette.into_iter().map(|c| c.id).collect();
-        Self { list, index, palette }
+        self.palette = palette.into_iter().map(|c| c.id).collect();
+    }
+
+    /// Replace every plugin-contributed command. Ids that clash with a
+    /// built-in command are skipped and returned.
+    pub fn set_plugin_commands(&mut self, cmds: Vec<(String, String, String, bool, PluginCmd)>) -> Vec<String> {
+        self.list.truncate(self.builtin_len);
+        self.index = self.list.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
+        self.plugin.clear();
+        let mut clashes = Vec::new();
+        for (id, category, title, palette, kind) in cmds {
+            if self.index.contains_key(id.as_str()) {
+                clashes.push(id);
+                continue;
+            }
+            let id = leak(&id);
+            self.list.push(Command {
+                id,
+                category: leak(&category),
+                title: leak(&title),
+                handler: plugin_handler,
+                palette,
+            });
+            self.index.insert(id, self.list.len() - 1);
+            self.plugin.insert(id, kind);
+        }
+        self.rebuild_palette();
+        clashes
+    }
+
+    pub fn plugin_command(&self, id: &str) -> Option<&PluginCmd> {
+        self.plugin.get(id)
     }
     pub fn get(&self, id: &str) -> Option<&Command> {
         self.index.get(id).map(|i| &self.list[*i])
@@ -520,6 +589,18 @@ fn builtin_commands() -> Vec<Command> {
             a.layout.even_sizes();
             a.notify(Severity::Info, "Layout reset (sidebar, panel and editor group sizes)");
         }),
+        // --- Extensions (spec §18.14) -------------------------------------------
+        c!("workbench.extensions.action.listInstalled", "Extensions", "List Installed", |a, _| a.plugins_list()),
+        c!("yace.extensions.installFromDirectory", "Extensions", "Install from Directory…", |a, _| a
+            .plugins_install_prompt(false)),
+        c!("yace.extensions.installFromPackage", "Extensions", "Install from Package…", |a, _| a
+            .plugins_install_prompt(true)),
+        c!("yace.extensions.uninstall", "Extensions", "Uninstall…", |a, _| a.plugins_uninstall_picker()),
+        c!("yace.extensions.enable", "Extensions", "Enable…", |a, _| a.plugins_enable_picker()),
+        c!("yace.extensions.disable", "Extensions", "Disable…", |a, _| a.plugins_disable_picker()),
+        c!("yace.extensions.reload", "Extensions", "Reload", |a, _| a.plugins_reload()),
+        c!("yace.extensions.showPerformance", "Extensions", "Show Performance", |a, _| a.plugins_performance()),
+        c!("yace.extensions.showViews", "Extensions", "Show Plugin Views…", |a, _| a.plugin_views_picker()),
         c!("workbench.action.openWorkspaceSettings", "Preferences", "Open Workspace Settings", open_workspace_settings),
         c!("workbench.action.openRawDefaultSettings", "Preferences", "Open Default Settings (Read-only)", |a, _| {
             let text = format!(

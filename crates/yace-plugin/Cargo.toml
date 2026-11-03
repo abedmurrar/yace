@@ -1,0 +1,16 @@
+[package]
+name = "yace-plugin"
+description = "Rust SDK for YACE native plugins: a safe Plugin trait, host API wrappers, export macro and a mock host for tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+yace-plugin-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

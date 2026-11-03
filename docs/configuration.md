@@ -7,6 +7,7 @@
 | User settings | `~/.config/yace/config.toml` | `YACE_CONFIG_DIR` |
 | User keybindings | `~/.config/yace/keybindings.toml` | `YACE_CONFIG_DIR` |
 | User themes | `~/.config/yace/themes/*.toml` ([themes.md](themes.md)) | `YACE_CONFIG_DIR` |
+| Plugins and their approval record | `~/.config/yace/plugins/` ([plugins.md](plugins.md)) | `YACE_CONFIG_DIR` |
 | Session state, recent list, untitled workspaces, log | `~/.local/state/yace/` | `YACE_STATE_DIR` |
 | Cache | `~/.cache/yace/` | `YACE_CACHE_DIR` |
 
@@ -194,6 +195,25 @@ Built-in servers (used when found on `PATH`; YACE never installs them):
 Node.js servers are external tools like any other: their memory is not
 YACE's and is shown separately by "Developer: Show Running Language
 Servers". Restart, stop and output commands are under "Developer:".
+
+### `[plugins]` (user settings only) and `[plugin."<id>"]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `plugins.disabled` | `[]` | plugin ids that are not loaded ("Extensions: Disable" edits it) |
+| `plugin."<id>".<key>` | the plugin's default | a plugin's own settings, as declared in its manifest and validated against it |
+
+Which native code runs is decided in user settings only; a workspace
+cannot enable a plugin. Enabling or disabling a plugin for one workspace is
+kept in that workspace's session state ([plugins.md](plugins.md)).
+
+```toml
+[plugins]
+disabled = ["dev.example.noisy"]
+
+[plugin."dev.yace.hello"]
+greeting = "Howdy"
+```
 
 ### `[keyboard]`
 

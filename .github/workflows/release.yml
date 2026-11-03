@@ -57,6 +57,10 @@ jobs:
           cp -r docs "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+      - name: Grammar package (C, C++, Go, Java, Ruby, SCSS, SQL, Dockerfile)
+        run: |
+          python3 scripts/build_grammars.py dist
+          (cd dist && for f in yace-grammars-*.tar.gz; do sha256sum "$f" > "$f.sha256"; done)
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}

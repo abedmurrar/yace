@@ -2,7 +2,11 @@
 //! editing rules. Grammars are compiled in but only *constructed* when a
 //! file of that language is opened; queries are compiled lazily too.
 
-use std::{path::Path, sync::OnceLock};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{OnceLock, RwLock},
+};
 
 use tree_sitter::{Language, Query};
 
@@ -47,10 +51,60 @@ impl std::fmt::Debug for LanguageConfig {
     }
 }
 
+/// A grammar loaded at run time (from a grammar package / plugin).
+pub struct LoadedGrammar {
+    pub language: Language,
+    pub highlights: Option<Query>,
+    pub injections: Option<Query>,
+}
+
+fn external() -> &'static RwLock<HashMap<String, &'static LoadedGrammar>> {
+    static EXTERNAL: OnceLock<RwLock<HashMap<String, &'static LoadedGrammar>>> = OnceLock::new();
+    EXTERNAL.get_or_init(Default::default)
+}
+
+fn external_for(id: &str) -> Option<&'static LoadedGrammar> {
+    external().read().unwrap_or_else(|e| e.into_inner()).get(id).copied()
+}
+
+/// Register a grammar for language `id` (built-in or plugin-declared).
+/// Checks the grammar's ABI version and compiles its queries; a broken
+/// highlight query is an error (the grammar would show no colours).
+pub fn register_grammar(id: &str, language: Language, highlights: &str, injections: &str) -> Result<(), String> {
+    let v = language.abi_version();
+    if !(tree_sitter::MIN_COMPATIBLE_LANGUAGE_VERSION..=tree_sitter::LANGUAGE_VERSION).contains(&v) {
+        return Err(format!(
+            "grammar ABI {v} is not supported (this YACE supports {}–{})",
+            tree_sitter::MIN_COMPATIBLE_LANGUAGE_VERSION,
+            tree_sitter::LANGUAGE_VERSION
+        ));
+    }
+    let compile = |src: &str, what: &str| -> Result<Option<Query>, String> {
+        if src.trim().is_empty() {
+            return Ok(None);
+        }
+        Query::new(&language, src).map(Some).map_err(|e| format!("{what} query: {e}"))
+    };
+    let highlights = compile(highlights, "highlights")?;
+    let injections = compile(injections, "injections")?;
+    let g: &'static LoadedGrammar = Box::leak(Box::new(LoadedGrammar { language, highlights, injections }));
+    external().write().unwrap_or_else(|e| e.into_inner()).insert(id.to_string(), g);
+    Ok(())
+}
+
+/// Whether a grammar for `id` was registered at run time.
+pub fn has_external_grammar(id: &str) -> bool {
+    external_for(id).is_some()
+}
+
 impl LanguageConfig {
-    /// The tree-sitter grammar (constructed on first use).
+    /// The tree-sitter grammar (constructed on first use): built in, or
+    /// registered at run time.
     pub fn language(&self) -> Option<&Language> {
-        self.language.get_or_init(|| self.grammar.map(|g| g())).as_ref()
+        if self.grammar.is_some() {
+            return self.language.get_or_init(|| self.grammar.map(|g| g())).as_ref();
+        }
+        external_for(self.id).map(|g| &g.language)
     }
 
     fn build(&self, sources: &[&str]) -> Option<Query> {
@@ -71,16 +125,98 @@ impl LanguageConfig {
     }
 
     pub fn highlight_query(&self) -> Option<&Query> {
+        if self.grammar.is_none() {
+            return external_for(self.id).and_then(|g| g.highlights.as_ref());
+        }
         self.highlight_query.get_or_init(|| self.build(self.highlights)).as_ref()
     }
 
     pub fn injection_query(&self) -> Option<&Query> {
+        if self.grammar.is_none() {
+            return external_for(self.id).and_then(|g| g.injections.as_ref());
+        }
         self.injection_query.get_or_init(|| self.build(self.injections)).as_ref()
     }
 
     pub fn has_grammar(&self) -> bool {
-        self.grammar.is_some()
+        self.grammar.is_some() || external_for(self.id).is_some()
     }
+
+    /// Built-in languages whose grammar ships in the `yace-grammars`
+    /// package rather than in the binary (hybrid grammars, decision D29).
+    pub fn grammar_is_packaged(&self) -> bool {
+        PACKAGED.contains(&self.id)
+    }
+}
+
+/// Languages whose grammars are in the `yace-grammars` package.
+pub const PACKAGED: &[&str] = &["c", "cpp", "go", "java", "ruby", "scss", "sql", "dockerfile"];
+
+/// A language declared by a plugin (`[[languages]]` in its manifest).
+#[derive(Debug, Clone, Default)]
+pub struct LanguageDef {
+    pub id: String,
+    pub name: String,
+    pub extensions: Vec<String>,
+    pub filenames: Vec<String>,
+    pub shebangs: Vec<String>,
+    pub line_comment: Option<String>,
+    pub block_comment: Option<(String, String)>,
+    pub brackets: Vec<(char, char)>,
+}
+
+fn extra() -> &'static RwLock<Vec<&'static LanguageConfig>> {
+    static EXTRA: OnceLock<RwLock<Vec<&'static LanguageConfig>>> = OnceLock::new();
+    EXTRA.get_or_init(Default::default)
+}
+
+fn leak_str(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
+}
+
+fn leak_strs(v: &[String]) -> &'static [&'static str] {
+    Box::leak(v.iter().map(|s| leak_str(s)).collect::<Vec<_>>().into_boxed_slice())
+}
+
+/// Add a language (once per id; built-in ids are ignored). Its grammar, if
+/// any, comes from `register_grammar`.
+pub fn register_language(def: &LanguageDef) -> bool {
+    if by_id(&def.id).is_some() {
+        return false;
+    }
+    let brackets: &'static [(char, char)] =
+        if def.brackets.is_empty() { BRACES } else { Box::leak(def.brackets.clone().into_boxed_slice()) };
+    let mut auto: Vec<(char, char)> = brackets.to_vec();
+    auto.extend([('"', '"'), ('\'', '\'')]);
+    let cfg = LanguageConfig {
+        id: leak_str(&def.id),
+        name: leak_str(&def.name),
+        extensions: leak_strs(&def.extensions),
+        filenames: leak_strs(&def.filenames),
+        shebangs: leak_strs(&def.shebangs),
+        rules: EditingRules {
+            line_comment: def.line_comment.as_deref().map(leak_str),
+            block_comment: def.block_comment.as_ref().map(|(a, b)| (leak_str(a), leak_str(b))),
+            brackets,
+            auto_close: Box::leak(auto.into_boxed_slice()),
+            indent_after: Box::leak(brackets.iter().map(|b| b.0).collect::<Vec<_>>().into_boxed_slice()),
+        },
+        grammar: None,
+        highlights: &[],
+        injections: &[],
+        highlight_query: OnceLock::new(),
+        injection_query: OnceLock::new(),
+        language: OnceLock::new(),
+    };
+    extra().write().unwrap_or_else(|e| e.into_inner()).push(Box::leak(Box::new(cfg)));
+    true
+}
+
+/// Built-in languages, then plugin languages.
+fn all_languages() -> Vec<&'static LanguageConfig> {
+    let mut v: Vec<&'static LanguageConfig> = LANGUAGES.iter().collect();
+    v.extend(extra().read().unwrap_or_else(|e| e.into_inner()).iter().copied());
+    v
 }
 
 fn eprintln_once(_id: &str, _err: &str) {
@@ -105,6 +241,28 @@ macro_rules! lang {
             language: OnceLock::new(),
         }
     };
+}
+
+/// A grammar compiled in only with a cargo feature.
+macro_rules! g {
+    ($feat:literal, $f:expr) => {{
+        #[cfg(feature = "all-grammars")]
+        let g: Option<fn() -> Language> = Some($f);
+        #[cfg(not(feature = "all-grammars"))]
+        let g: Option<fn() -> Language> = None;
+        g
+    }};
+}
+
+/// Queries of a feature-gated grammar.
+macro_rules! q {
+    ($($e:expr),*) => {{
+        #[cfg(feature = "all-grammars")]
+        let q: &'static [&'static str] = &[$($e),*];
+        #[cfg(not(feature = "all-grammars"))]
+        let q: &'static [&'static str] = &[];
+        q
+    }};
 }
 
 const fn rules(
@@ -168,7 +326,7 @@ pub static LANGUAGES: std::sync::LazyLock<Vec<LanguageConfig>> = std::sync::Lazy
             grammar: Some(|| tree_sitter_css::LANGUAGE.into()), hl: &[tree_sitter_css::HIGHLIGHTS_QUERY], inj: &[]),
         lang!("scss", "SCSS", ext: &["scss"], files: &[], shebang: &[],
             rules: rules(Some("//"), Some(("/*", "*/")), NO_BACKTICK, &['{', '(']),
-            grammar: Some(tree_sitter_scss::language), hl: &[tree_sitter_css::HIGHLIGHTS_QUERY, tree_sitter_scss::HIGHLIGHTS_QUERY], inj: &[]),
+            grammar: g!("all-grammars", tree_sitter_scss::language), hl: q!(tree_sitter_css::HIGHLIGHTS_QUERY, tree_sitter_scss::HIGHLIGHTS_QUERY), inj: &[]),
         lang!("markdown", "Markdown", ext: &["md", "markdown", "mdx"], files: &["README", "CHANGELOG"], shebang: &[],
             rules: EditingRules { line_comment: None, block_comment: Some(("<!--", "-->")), brackets: BRACES, auto_close: &[('(', ')'), ('[', ']'), ('{', '}'), ('`', '`')], indent_after: &[] },
             grammar: Some(|| tree_sitter_md::LANGUAGE.into()),
@@ -180,7 +338,7 @@ pub static LANGUAGES: std::sync::LazyLock<Vec<LanguageConfig>> = std::sync::Lazy
             rules: rules(Some("#"), None, NO_BACKTICK, &[':', '{', '[', '(']),
             grammar: Some(|| tree_sitter_python::LANGUAGE.into()), hl: &[tree_sitter_python::HIGHLIGHTS_QUERY], inj: &[]),
         lang!("go", "Go", ext: &["go"], files: &[], shebang: &[], rules: C_RULES,
-            grammar: Some(|| tree_sitter_go::LANGUAGE.into()), hl: &[tree_sitter_go::HIGHLIGHTS_QUERY], inj: &[]),
+            grammar: g!("all-grammars", || tree_sitter_go::LANGUAGE.into()), hl: q!(tree_sitter_go::HIGHLIGHTS_QUERY), inj: &[]),
         lang!("shellscript", "Shell Script", ext: &["sh", "bash", "zsh", "ksh", "bats", "envrc"],
             files: &[".bashrc", ".bash_profile", ".zshrc", ".profile", ".bash_aliases", ".zprofile", "PKGBUILD"],
             shebang: &["sh", "bash", "zsh", "ksh", "dash"],
@@ -188,19 +346,19 @@ pub static LANGUAGES: std::sync::LazyLock<Vec<LanguageConfig>> = std::sync::Lazy
             grammar: Some(|| tree_sitter_bash::LANGUAGE.into()), hl: &[tree_sitter_bash::HIGHLIGHT_QUERY], inj: &[]),
         lang!("sql", "SQL", ext: &["sql", "psql", "pgsql"], files: &[], shebang: &[],
             rules: rules(Some("--"), Some(("/*", "*/")), NO_BACKTICK, &['(']),
-            grammar: Some(|| tree_sitter_sequel::LANGUAGE.into()), hl: &[tree_sitter_sequel::HIGHLIGHTS_QUERY], inj: &[]),
+            grammar: g!("all-grammars", || tree_sitter_sequel::LANGUAGE.into()), hl: q!(tree_sitter_sequel::HIGHLIGHTS_QUERY), inj: &[]),
         lang!("dockerfile", "Dockerfile", ext: &["dockerfile", "containerfile"], files: &["Dockerfile", "Containerfile"], shebang: &[], rules: HASH_RULES,
-            grammar: Some(|| tree_sitter_containerfile::LANGUAGE.into()),
-            hl: &[tree_sitter_containerfile::HIGHLIGHTS_QUERY], inj: &[tree_sitter_containerfile::INJECTIONS_QUERY]),
+            grammar: g!("all-grammars", || tree_sitter_containerfile::LANGUAGE.into()),
+            hl: q!(tree_sitter_containerfile::HIGHLIGHTS_QUERY), inj: q!(tree_sitter_containerfile::INJECTIONS_QUERY)),
         lang!("c", "C", ext: &["c", "h"], files: &[], shebang: &[], rules: C_RULES,
-            grammar: Some(|| tree_sitter_c::LANGUAGE.into()), hl: &[tree_sitter_c::HIGHLIGHT_QUERY], inj: &[]),
+            grammar: g!("all-grammars", || tree_sitter_c::LANGUAGE.into()), hl: q!(tree_sitter_c::HIGHLIGHT_QUERY), inj: &[]),
         lang!("cpp", "C++", ext: &["cpp", "cc", "cxx", "hpp", "hh", "hxx", "c++", "ipp"], files: &[], shebang: &[], rules: C_RULES,
-            grammar: Some(|| tree_sitter_cpp::LANGUAGE.into()), hl: &[tree_sitter_c::HIGHLIGHT_QUERY, tree_sitter_cpp::HIGHLIGHT_QUERY], inj: &[]),
+            grammar: g!("all-grammars", || tree_sitter_cpp::LANGUAGE.into()), hl: q!(tree_sitter_c::HIGHLIGHT_QUERY, tree_sitter_cpp::HIGHLIGHT_QUERY), inj: &[]),
         lang!("java", "Java", ext: &["java"], files: &[], shebang: &[], rules: C_RULES,
-            grammar: Some(|| tree_sitter_java::LANGUAGE.into()), hl: &[tree_sitter_java::HIGHLIGHTS_QUERY], inj: &[]),
+            grammar: g!("all-grammars", || tree_sitter_java::LANGUAGE.into()), hl: q!(tree_sitter_java::HIGHLIGHTS_QUERY), inj: &[]),
         lang!("ruby", "Ruby", ext: &["rb", "rake", "gemspec", "ru"], files: &["Gemfile", "Rakefile", "Guardfile", "Vagrantfile"], shebang: &["ruby"],
             rules: rules(Some("#"), Some(("=begin", "=end")), NO_BACKTICK, &['{', '[', '(', '|']),
-            grammar: Some(|| tree_sitter_ruby::LANGUAGE.into()), hl: &[tree_sitter_ruby::HIGHLIGHTS_QUERY], inj: &[]),
+            grammar: g!("all-grammars", || tree_sitter_ruby::LANGUAGE.into()), hl: q!(tree_sitter_ruby::HIGHLIGHTS_QUERY), inj: &[]),
         // Languages without a built-in grammar: editing rules only.
         lang!("makefile", "Makefile", ext: &["mk", "mak"], files: &["Makefile", "makefile", "GNUmakefile"], shebang: &["make"], rules: HASH_RULES,
             grammar: None, hl: &[], inj: &[]),
@@ -218,7 +376,10 @@ pub static LANGUAGES: std::sync::LazyLock<Vec<LanguageConfig>> = std::sync::Lazy
 });
 
 pub fn by_id(id: &str) -> Option<&'static LanguageConfig> {
-    LANGUAGES.iter().find(|l| l.id == id)
+    LANGUAGES
+        .iter()
+        .find(|l| l.id == id)
+        .or_else(|| extra().read().unwrap_or_else(|e| e.into_inner()).iter().copied().find(|l| l.id == id))
 }
 
 pub fn plain_text() -> &'static LanguageConfig {
@@ -281,11 +442,12 @@ pub fn detect(path: Option<&Path>, first_line: &str, assoc: &Associations) -> &'
             return l;
         }
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if let Some(l) = LANGUAGES.iter().find(|l| l.filenames.contains(&name)) {
+        let langs = all_languages();
+        if let Some(l) = langs.iter().copied().find(|l| l.filenames.contains(&name)) {
             return l;
         }
         // Dockerfile.dev, Makefile.inc, …
-        if let Some(l) = LANGUAGES.iter().find(|l| {
+        if let Some(l) = langs.iter().copied().find(|l| {
             l.filenames
                 .iter()
                 .any(|f| name.starts_with(&format!("{f}.")) && f.chars().next().is_some_and(char::is_uppercase))
@@ -294,7 +456,7 @@ pub fn detect(path: Option<&Path>, first_line: &str, assoc: &Associations) -> &'
         }
         if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
             let ext = ext.to_ascii_lowercase();
-            if let Some(l) = LANGUAGES.iter().find(|l| l.extensions.contains(&ext.as_str())) {
+            if let Some(l) = langs.iter().copied().find(|l| l.extensions.contains(&ext.as_str())) {
                 return l;
             }
         }
@@ -305,7 +467,8 @@ pub fn detect(path: Option<&Path>, first_line: &str, assoc: &Associations) -> &'
         let prog = if first.ends_with("/env") { words.find(|w| !w.starts_with('-')).unwrap_or("") } else { first };
         let prog = prog.rsplit('/').next().unwrap_or(prog);
         let base = prog.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
-        if let Some(l) = LANGUAGES.iter().find(|l| l.shebangs.contains(&prog) || l.shebangs.contains(&base)) {
+        if let Some(l) = all_languages().into_iter().find(|l| l.shebangs.contains(&prog) || l.shebangs.contains(&base))
+        {
             return l;
         }
     }

@@ -151,6 +151,39 @@ selections, whether the explorer filter is active, `keyboardEnhanced` and
   turns them into `keybindings.toml` edits (`-command` entries to replace
   defaults) and reloads the keymap.
 
+## Native plugins (M8)
+
+```
+yace-plugin-api   #[repr(C)] tables only (YaceHost, YacePlugin), ABI 1, C header
+yace-plugin-host  manifest validation, discovery, trust record (SHA-256),
+                  install/uninstall/package, dlopen + ABI checks, timed calls, job pool
+yace-plugin       Rust SDK: Plugin trait, Host wrappers, export_plugin!, MockHost
+crates/yace       plugins.rs (host functions, the only unsafe plugin code),
+                  app/plugins.rs (activation, events, views, …), app/plugin_manager.rs
+```
+
+- **Discovery** reads manifests on a worker (`Effect::DiscoverPlugins`);
+  contributions (commands, keybindings, themes, languages, views, status
+  item placeholders) are registered from manifests alone. Code is loaded on
+  the first activation event, after the file hashes are checked against
+  `installed.toml`.
+- **Calls into a plugin** go through `plugins::call`: the plugin's `Loaded`
+  table is moved out of the `App` for the call and a pointer to the `App`
+  is stored in the plugin's host context, so host functions can use the
+  whole `App` without aliasing the plugin's state. Host functions outside a
+  call return `UNSUPPORTED`; commands requested during a call are deferred.
+- **Events** are derived after every input by comparing a small snapshot
+  (active document and version, selection, roots, theme, terminals, open
+  documents and languages) — no hooks scattered through the code —
+  plus explicit ones (saved, workspace opened/closed, configuration).
+  High-frequency events are coalesced (50 ms) and only computed when a
+  plugin is installed.
+- **Jobs** run on a lazily created two-thread pool; results come back as
+  `AppEvent::Plugin` through a forwarder thread, like LSP messages.
+- **Grammars**: `yace-syntax` keeps a runtime registry next to the
+  built-in table; the app loads a plugin grammar the first time a document
+  of its language is open, then re-attaches those documents.
+
 ## Documents, views, groups
 
 - `DocumentStore` owns documents, keyed by canonical path, so one file is

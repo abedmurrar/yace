@@ -1,0 +1,23 @@
+[package]
+name = "yace-plugin-host"
+description = "YACE native plugin host: manifests, discovery, trust records, install/package, loading with ABI checks, timing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+yace-plugin-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tempfile.workspace = true
+libloading = "0.8"
+sha2 = "0.10"
+semver = "1"
+tar = { version = "0.4", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[lints]
+workspace = true

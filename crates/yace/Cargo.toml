@@ -24,6 +24,8 @@ yace-search.workspace = true
 yace-terminal.workspace = true
 yace-syntax.workspace = true
 yace-lsp.workspace = true
+yace-plugin-api.workspace = true
+yace-plugin-host.workspace = true
 ratatui.workspace = true
 crossbeam-channel.workspace = true
 notify.workspace = true
@@ -44,6 +46,7 @@ unicode-segmentation.workspace = true
 libc = "0.2"
 
 [dev-dependencies]
+yace-plugin.workspace = true
 tempfile.workspace = true
 yace-search.workspace = true
 portable-pty.workspace = true

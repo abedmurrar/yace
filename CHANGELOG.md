@@ -13,6 +13,54 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- **Native plugins** (M8). Shared libraries written in Rust (with the new
+  `yace-plugin` SDK) or any language with a C ABI (`yace_plugin.h`).
+  Plugins can contribute commands, keybindings, settings, sidebar views,
+  status bar items, Explorer badges, Quick Open providers (e.g. `!`),
+  themes, languages and grammars, open terminals, read and edit
+  documents, react to editor events and run background jobs. See
+  `docs/plugins.md`.
+- Plugins load lazily: installing reads only the manifest; code loads on
+  the first command, language, view, folder content or event it declares.
+- "Extensions: …" commands: Install from Package/Directory (with a
+  confirmation showing identity, capabilities, code hashes and that native
+  plugins are not sandboxed), List Installed, Enable/Disable (also per
+  workspace), Uninstall, Reload, Show Performance, Show Plugin Views; per
+  plugin: details, log, settings, approve.
+- `yace --install-plugin`, `--list-plugins`, `--package-plugin` and
+  `--safe-mode` (`--no-plugins`).
+- Plugin code is loaded only if its SHA-256 matches what you approved;
+  slow plugins are reported; crashing plugins are stopped; after an
+  abnormal exit YACE names the plugins that were active.
+- Example plugins: `hello`, and **Task Runner**, which lists every
+  folder's npm/pnpm/yarn/bun scripts, Cargo commands and Makefile targets
+  in a sidebar view and in Quick Open (`!`) and runs them in a terminal.
+- `scripts/build_plugin.sh` and `scripts/build_grammars.py`.
+
+### Changed
+
+- **Hybrid grammars**: C, C++, Go, Java, Ruby, SCSS, SQL and Dockerfile
+  highlighting moved to the installable `yace-grammars` package (built by
+  `scripts/build_grammars.py`, published with releases), loaded the first
+  time a file of that language opens. Until it is installed those files
+  open as plain text (comments, brackets and indentation still work) and
+  YACE explains once how to get it. Build with `--features
+  yace-syntax/all-grammars` to compile every grammar in.
+- Dependencies are built without debug info in dev builds (`target/` was
+  growing past 40 GB).
+
+### Performance
+
+- Release binary 25.4 MB → 17.6 MB.
+- Calling a plugin costs 76 ns; 20 installed plugins add nothing to
+  startup; heap memory at idle is unchanged.
+
+### Plugin ABI
+
+- Version 1 (first release).
+
 ## [0.5.0] - 2026-11-03
 
 ### Added

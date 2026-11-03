@@ -36,7 +36,20 @@ pub(crate) struct ThemePreview {
 impl App {
     /// Built-in and user themes (and, from M8, plugin themes).
     pub(crate) fn theme_catalog(&self) -> (Catalog, Vec<ConfigError>) {
-        Catalog::with_user_dir(&self.paths.themes_dir())
+        let mut cat = Catalog::builtin();
+        let mut errors = Vec::new();
+        for f in self.plugin_theme_files() {
+            if let Err(e) = cat.add_file(&f) {
+                errors.push(e);
+            }
+        }
+        let (user, e) = Catalog::with_user_dir(&self.paths.themes_dir());
+        errors.extend(e);
+        for entry in user.entries.into_iter().filter(|e| matches!(e.origin, Origin::File(_))) {
+            cat.entries.retain(|x| !x.name.eq_ignore_ascii_case(&entry.name) && x.id != entry.id);
+            cat.entries.push(entry);
+        }
+        (cat, errors)
     }
 
     fn build_theme(&self, cat: &Catalog, name: &str) -> Result<(Theme, Vec<ConfigError>), ConfigError> {

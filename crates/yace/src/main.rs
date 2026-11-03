@@ -28,6 +28,9 @@ fn main() -> ExitCode {
     let process_start = Instant::now();
     yace_app::mem::limit_arenas();
     let args = Args::parse();
+    if args.install_plugin.is_some() || args.list_plugins || args.package_plugin.is_some() {
+        return yace_app::plugin_cli::run(&args, &Paths::discover());
+    }
     let launch = match cli::plan(&args) {
         Ok(l) => l,
         Err(e) => {
@@ -42,7 +45,13 @@ fn main() -> ExitCode {
     let paths = Paths::discover();
     init_logging(&paths);
 
-    let mut app = App::new(AppOptions { paths, system_clipboard: true, keyboard_enhanced: false, process_start });
+    let mut app = App::new(AppOptions {
+        paths,
+        system_clipboard: true,
+        keyboard_enhanced: false,
+        process_start,
+        safe_mode: args.safe_mode,
+    });
 
     terminal::install_panic_hook();
     let want_enhanced = app.settings.keyboard.enhanced_protocol;
@@ -63,6 +72,7 @@ fn main() -> ExitCode {
     runtime.spawn_signal_thread();
 
     let result = runtime.run(&mut app, &mut term, args.startup_time);
+    app.shutdown_plugins();
     terminal::restore();
     // Benchmarks: YACE_METRICS_FILE=<path> writes latency samples at exit.
     if let Some(path) = std::env::var_os("YACE_METRICS_FILE") {

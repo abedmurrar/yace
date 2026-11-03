@@ -20,6 +20,9 @@ use crate::{
 impl App {
     /// Install a workspace at startup or after a switch (no prompts).
     pub fn install_workspace(&mut self, ws: Workspace, restore: bool) {
+        if !self.workspace.roots().is_empty() {
+            self.plugin_event("workspaceClosed", serde_json::json!({ "name": self.workspace.name() }));
+        }
         self.kill_all_terminals();
         self.workspace = ws;
         self.docs = DocumentStore::default();
@@ -40,6 +43,7 @@ impl App {
         }
         self.touch_recent();
         self.emit_title();
+        self.plugins_workspace_changed(true);
         for r in self.workspace.roots().to_vec() {
             if let RootStatus::Missing(why) = &r.status {
                 self.notify(
@@ -239,6 +243,7 @@ impl App {
         self.explorer.sync_roots(&self.workspace);
         self.touch_recent();
         self.emit_title();
+        self.plugins_workspace_changed(false);
     }
 
     pub(crate) fn save_workspace_as(&mut self, text: &str) -> Result<(), String> {

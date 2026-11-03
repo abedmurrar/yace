@@ -34,6 +34,11 @@ pub enum Target {
     SetPrefix(&'static str),
     /// A symbol (`@` / `#` modes).
     Symbol(super::lsp::NavTarget),
+    /// A plugin provider's result: run this command.
+    Plugin {
+        command: String,
+        args: Option<serde_json::Value>,
+    },
     Nothing,
 }
 
@@ -50,6 +55,8 @@ pub struct QuickOpenState {
     pub recent_commands: Vec<&'static str>,
     /// Line/column parsed from the current file query.
     pos: (Option<usize>, Option<usize>),
+    /// Title of the plugin provider being queried.
+    pub plugin_title: String,
 }
 
 impl QuickOpenState {
@@ -155,6 +162,20 @@ impl App {
     pub(crate) fn quick_open_query_changed(&mut self) {
         let Some(text) = self.quick_open_picker().map(|p| p.input.text.clone()) else { return };
         self.quick_open.seq += 1;
+        self.plugins.quick_open = None;
+        if let Some((i, prefix)) = self.plugin_quick_open_provider(&text) {
+            let q = text[prefix.len()..].trim().to_string();
+            let title = self.plugins.entries[i]
+                .manifest
+                .as_ref()
+                .and_then(|m| m.quick_open.iter().find(|x| x.prefix == prefix))
+                .map(|x| x.title.clone())
+                .unwrap_or_default();
+            self.quick_open.plugin_title = title.clone();
+            self.set_quick_open(&title, Vec::new(), "Loading…");
+            self.plugin_quick_open(i, &prefix, &q);
+            return;
+        }
         if let Some(rest) = text.strip_prefix('>') {
             self.commands_mode(rest.trim());
         } else if let Some(rest) = text.strip_prefix(':') {
@@ -332,6 +353,26 @@ impl App {
         self.set_quick_open("Go to Line", vec![item], "");
     }
 
+    /// Results from a plugin provider (in the plugin's order).
+    pub(crate) fn set_plugin_quick_open_items(&mut self, items: Vec<crate::plugins::QuickOpenIn>) {
+        let list = items
+            .into_iter()
+            .take(RESULT_LIMIT)
+            .map(|it| {
+                let item = PickerItem::new(it.label, it.description, "", 0);
+                (item, Vec::new(), Target::Plugin { command: it.command, args: it.args })
+            })
+            .collect();
+        let title = self.quick_open.plugin_title.clone();
+        self.set_quick_open(&title, list, "No results");
+    }
+
+    /// A single informational row (e.g. the provider's plugin is disabled).
+    pub(crate) fn quick_open_plugin_note(&mut self, text: &str) {
+        let title = self.quick_open.plugin_title.clone();
+        self.set_quick_open(&title, vec![(PickerItem::new(text, "", "", 0), vec![], Target::Nothing)], "");
+    }
+
     fn help_mode(&mut self) {
         let modes: [(&'static str, &str, &str); 5] = [
             ("", "Go to File", "type a file name; add :line[:col] to jump"),
@@ -340,13 +381,17 @@ impl App {
             ("@", "Go to Symbol in Editor", ""),
             ("#", "Go to Symbol in Workspace", ""),
         ];
-        let items = modes
+        let mut items: Vec<(PickerItem, Vec<usize>, Target)> = modes
             .iter()
             .map(|(p, label, hint)| {
                 let shown = if p.is_empty() { "…".to_string() } else { p.to_string() };
                 (PickerItem::new(format!("{shown}  {label}"), "", *hint, 0), vec![], Target::SetPrefix(p))
             })
             .collect();
+        for (prefix, title) in self.plugin_quick_open_help() {
+            let p = crate::commands::intern(&prefix);
+            items.push((PickerItem::new(format!("{prefix}  {title}"), "", "plugin", 0), vec![], Target::SetPrefix(p)));
+        }
         self.set_quick_open("Quick Open Help", items, "");
     }
 
@@ -512,6 +557,7 @@ impl App {
             Target::SetPrefix(p) => self.open_quick_open(p),
             Target::Symbol(t) => self.jump_to(&t),
             Target::Nothing => {}
+            Target::Plugin { command, args } => self.execute(&command, args.as_ref()),
         }
     }
 

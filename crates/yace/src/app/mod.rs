@@ -14,6 +14,8 @@ mod keybindings;
 mod live_reload;
 mod lsp;
 mod mouse;
+mod plugin_manager;
+mod plugins;
 mod quick_open;
 mod search_view;
 mod session;
@@ -96,6 +98,10 @@ pub enum AppEvent {
     },
     /// From a terminal session (output, title, exit, bell).
     TerminalNotice(yace_terminal::Notice),
+    /// Plugin manifests were read (on a worker).
+    PluginsDiscovered(Vec<yace_plugin_host::Discovered>),
+    /// A plugin job posted a message.
+    Plugin(crate::plugins::PluginMsg),
     /// A message from a language server.
     Lsp {
         server: u32,
@@ -136,6 +142,8 @@ pub enum Effect {
     TrimMemory,
     /// Parse a document on the syntax worker.
     Parse(Box<crate::syntax::ParseJob>),
+    /// Read plugin manifests in this folder (no code is loaded).
+    DiscoverPlugins(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,6 +162,8 @@ pub enum SidebarView {
     #[default]
     Explorer,
     Search,
+    /// A plugin view (`App::plugins.active_view`).
+    Plugin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -181,6 +191,8 @@ pub struct AppOptions {
     pub system_clipboard: bool,
     pub keyboard_enhanced: bool,
     pub process_start: Instant,
+    /// `--safe-mode` / `--no-plugins`: load no plugin code.
+    pub safe_mode: bool,
 }
 
 pub struct App {
@@ -279,6 +291,21 @@ pub struct App {
     pub(crate) vscode_themes: Vec<crate::theme::vscode::VsTheme>,
     /// User theme files listed by "Edit User Theme".
     pub(crate) user_theme_files: Vec<(String, PathBuf)>,
+    /// Native plugins (spec §18).
+    pub plugins: crate::plugins::PluginHost,
+    /// Plugins enabled / disabled for this workspace only (session state).
+    pub plugin_ws_enabled: Vec<String>,
+    pub plugin_ws_disabled: Vec<String>,
+    /// Explorer badges from plugins: path key → (badge, colour token).
+    pub plugin_decorations: HashMap<PathBuf, (String, String)>,
+    /// Plugin ids listed by the last manager picker.
+    pub(crate) plugin_pick: Vec<String>,
+    /// A plugin install waiting for confirmation.
+    pub(crate) pending_install: Option<yace_plugin_host::InstallPlan>,
+    /// Plugin grammars not loaded yet: language id → (plugin, declaration).
+    pub(crate) pending_grammars: HashMap<String, (usize, yace_plugin_host::manifest::GrammarDecl)>,
+    /// Languages of open documents already handled by `check_new_languages`.
+    pub(crate) languages_seen: std::collections::HashSet<String>,
 }
 
 const FS_COALESCE: Duration = Duration::from_millis(100);
@@ -359,12 +386,23 @@ impl App {
             theme_key: None,
             vscode_themes: Vec::new(),
             user_theme_files: Vec::new(),
+            plugins: Default::default(),
+            plugin_ws_enabled: Vec::new(),
+            plugin_ws_disabled: Vec::new(),
+            plugin_decorations: HashMap::new(),
+            plugin_pick: Vec::new(),
+            pending_install: None,
+            pending_grammars: HashMap::new(),
+            languages_seen: Default::default(),
             settings,
             paths: opts.paths,
         };
         app.reload_keymap();
         config_errors.extend(app.load_theme_from_settings());
         app.report_config_errors(config_errors);
+        app.plugins.safe_mode = opts.safe_mode;
+        app.check_crash_markers();
+        app.discover_plugins();
         if let Some(e) = recent_err {
             app.notify(Severity::Warning, e);
         }
@@ -433,6 +471,8 @@ impl App {
         }
         self.lsp_on_tick(now);
         self.sync_documents();
+        self.check_new_languages();
+        self.deliver_plugin_events(now);
         self.sync_watches();
     }
 
@@ -527,6 +567,10 @@ impl App {
             }
         }
         self.remember_config_file(&path);
+        let plugin_specs = self.plugin_keybinding_specs();
+        for e in km.apply_specs(&plugin_specs, Source::Plugin) {
+            tracing::warn!("plugin keybinding: {e}");
+        }
         let binding_errors = km.apply_specs(&specs, Source::User);
         errors.extend(binding_errors.into_iter().map(|e| ConfigError {
             origin: path.display().to_string(),
@@ -591,6 +635,7 @@ impl App {
         self.explorer.set_excludes(&self.settings.files.exclude);
         self.glyphs = Glyphs::from_setting(self.settings.workbench.glyphs);
         errors.extend(self.load_theme_from_settings());
+        self.plugin_event("configurationChanged", serde_json::json!({}));
         self.config_errors.clear();
         self.report_config_errors(errors);
         self.needs_render = true;
@@ -694,6 +739,8 @@ impl App {
             AppEvent::FileLoaded { doc, path, result } => self.on_file_loaded(doc, path, result),
             AppEvent::TerminalNotice(n) => self.on_terminal_notice(n),
             AppEvent::Lsp { server, msg } => self.on_lsp(server, *msg),
+            AppEvent::PluginsDiscovered(found) => self.on_plugins_discovered(found),
+            AppEvent::Plugin(msg) => self.on_plugin_message(msg),
             AppEvent::Parsed { doc, job, tree, cost } => {
                 if let Some(job) = self.syntax.on_parsed(&self.docs, doc, job, tree.map(|t| *t), cost) {
                     self.emit(Effect::Parse(Box::new(job)));
@@ -702,6 +749,9 @@ impl App {
         }
         self.sync_documents();
         self.sync_theme_preview();
+        self.check_new_languages();
+        self.observe_for_plugins();
+        self.deliver_plugin_events(Instant::now());
         self.refresh_find_if_stale();
         self.ensure_active_started();
         self.sync_terminal_size();
@@ -743,6 +793,13 @@ impl App {
         if self.focus == Focus::Terminal && self.panel.visible {
             self.resolver.cancel();
             self.terminal_key(key, ch);
+            return;
+        }
+        if self.focus == Focus::Explorer
+            && self.sidebar_view == SidebarView::Plugin
+            && !self.resolver.is_pending()
+            && self.plugin_view_key(key)
+        {
             return;
         }
         let ctx = self.context();
@@ -805,6 +862,11 @@ impl App {
 
     /// Run a command by id.
     pub fn execute(&mut self, id: &str, args: Option<&serde_json::Value>) {
+        if let Some(kind) = self.commands.plugin_command(id).cloned() {
+            self.run_plugin_command(id, kind, args.cloned());
+            self.needs_render = true;
+            return;
+        }
         match self.commands.get(id) {
             Some(cmd) => {
                 let handler = cmd.handler;
@@ -878,6 +940,7 @@ impl App {
         let text = text.trim().to_string();
         match action {
             PromptAction::RenameSymbol { doc, pos } => self.lsp_rename(doc, pos, &text),
+            PromptAction::InstallPlugin => self.plugins_install_from(&text),
             PromptAction::ImportThemeFile => {
                 let path = yace_workspace::paths::expand_tilde(&text);
                 if !path.is_file() {
@@ -914,6 +977,9 @@ impl App {
         match action {
             ConfirmAction::Nothing => {}
             ConfirmAction::RestoreDefaultKeybindings => self.restore_default_keybindings(),
+            ConfirmAction::InstallPlugin => self.plugins_install_confirmed(),
+            ConfirmAction::UninstallPlugin(id) => self.uninstall_plugin(&id),
+            ConfirmAction::TrustPlugin(dir) => self.trust_plugin(dir),
             ConfirmAction::Close(choice) => self.on_close_choice(choice),
             ConfirmAction::Trash(p) => self.trash_entry(&p),
             ConfirmAction::DeletePermanently(p) => self.delete_permanently(&p),
@@ -964,6 +1030,12 @@ impl App {
             PickerAction::SelectTheme => self.end_theme_preview(Some(data)),
             PickerAction::ImportVsCodeTheme => self.import_vscode_theme_pick(data),
             PickerAction::EditUserTheme => self.edit_user_theme_pick(data),
+            PickerAction::PluginOp(id) => self.plugin_op_pick(id, data),
+            PickerAction::PluginView => self.plugin_view_pick(data),
+            a @ (PickerAction::PluginList
+            | PickerAction::PluginEnable
+            | PickerAction::PluginDisable
+            | PickerAction::PluginUninstall) => self.plugins_pick(a, data),
             PickerAction::NewTerminalInRoot => self.new_terminal_in_root(RootId(data as u32)),
             PickerAction::NewTerminalProfile => self.new_terminal_with_profile(data),
             PickerAction::OpenRecent => self.open_recent(data),

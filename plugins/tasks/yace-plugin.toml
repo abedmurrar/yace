@@ -1,0 +1,39 @@
+# Project Task Runner (spec §18.16). Build and install:
+#   scripts/build_plugin.sh plugins/tasks
+id = "dev.yace.tasks"
+name = "Task Runner"
+version = "1.0.0"
+description = "Lists package.json scripts (npm, pnpm, yarn, bun), Cargo commands and Makefile targets of every workspace folder; runs them in an integrated terminal."
+publisher = "YACE"
+license = "MIT OR Apache-2.0"
+yace = ">=0.5"
+abi = 1
+library = "lib/libyace_plugin_tasks.so"
+activation = ["workspaceContains:package.json", "workspaceContains:Cargo.toml", "workspaceContains:Makefile"]
+capabilities = ["workspace.read", "terminal", "filesystem"]
+events = ["rootAdded", "rootRemoved", "documentSaved"]
+external_programs = ["npm", "pnpm", "yarn", "bun", "cargo", "make"]
+
+[[commands]]
+id = "tasks.refresh"
+title = "Refresh Tasks"
+category = "Tasks"
+
+[[commands]]
+id = "tasks.run"
+title = "Run Task"
+category = "Tasks"
+palette = false
+
+[[views]]
+id = "tasks.view"
+title = "Tasks"
+empty_text = "No tasks found (package.json scripts, Cargo.toml, Makefile)"
+
+[[quick_open]]
+prefix = "!"
+title = "Run Task"
+
+[[status_items]]
+id = "tasks.count"
+alignment = "left"

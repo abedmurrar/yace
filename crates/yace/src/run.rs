@@ -152,6 +152,19 @@ impl Runtime {
                 }
             })
             .expect("spawn lsp forwarder");
+        // Messages from plugin jobs.
+        let plugin_msgs = app.plugins.messages();
+        let ptx = tx.clone();
+        thread::Builder::new()
+            .name("yace-plugin-msgs".into())
+            .spawn(move || {
+                for m in plugin_msgs {
+                    if ptx.send(AppEvent::Plugin(m)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .expect("spawn plugin forwarder");
         let index = crate::workers::spawn_index_actor(tx.clone());
         let find = crate::workers::spawn_find_worker(tx.clone());
         Self {
@@ -232,6 +245,15 @@ impl Runtime {
                     thread::Builder::new()
                         .name("yace-load".into())
                         .spawn(move || drop(tx.send(crate::workers::load_file(doc, path, eol))))
+                        .ok();
+                }
+                Effect::DiscoverPlugins(dir) => {
+                    let tx = self.tx.clone();
+                    thread::Builder::new()
+                        .name("yace-plugins".into())
+                        .spawn(move || {
+                            drop(tx.send(AppEvent::PluginsDiscovered(yace_plugin_host::store::discover(&dir))))
+                        })
                         .ok();
                 }
             }

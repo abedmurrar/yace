@@ -1,0 +1,22 @@
+# Test fixture (crates/yace/tests/m8.rs). Not an example to copy.
+id = "dev.yace.test-misbehave"
+name = "Misbehaving Test Plugin"
+version = "0.1.0"
+yace = ">=0.5"
+library = "lib/libyace_plugin_test_misbehave.so"
+capabilities = ["documents.write"]
+
+[[commands]]
+id = "misbehave.run"
+title = "Send Malformed Calls"
+
+[[commands]]
+id = "misbehave.slow"
+title = "Block the UI"
+
+[[commands]]
+id = "misbehave.fail"
+title = "Fail"
+
+[[status_items]]
+id = "misbehave.status"

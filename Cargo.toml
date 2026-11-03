@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "plugins/*"]
 
 [workspace.package]
 version = "0.5.0"
@@ -21,6 +21,9 @@ yace-search = { path = "crates/yace-search" }
 yace-terminal = { path = "crates/yace-terminal" }
 yace-syntax = { path = "crates/yace-syntax" }
 yace-lsp = { path = "crates/yace-lsp" }
+yace-plugin-api = { path = "crates/yace-plugin-api" }
+yace-plugin-host = { path = "crates/yace-plugin-host" }
+yace-plugin = { path = "crates/yace-plugin" }
 
 ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "underline-color", "layout-cache"] }
 crossterm = "0.29"
@@ -54,6 +57,11 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# Dependencies need no debug info in dev/test builds: keeps target/ an
+# order of magnitude smaller (it reached 40 GB) and links faster.
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = "thin"

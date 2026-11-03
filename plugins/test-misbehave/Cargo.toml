@@ -1,0 +1,15 @@
+[package]
+name = "yace-plugin-test-misbehave"
+description = "Test fixture: a plugin written against the raw ABI that misbehaves on purpose (host input validation tests)"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+yace-plugin-api.workspace = true

@@ -40,6 +40,10 @@ pub struct WorkspaceState {
     /// Terminal tabs (metadata only: processes never survive a restart).
     pub terminals: Vec<TerminalState>,
     pub active_terminal: usize,
+    /// Plugins enabled / disabled for this workspace only (spec §18.11);
+    /// kept here so the workspace file itself is never changed.
+    pub plugins_enabled: Vec<String>,
+    pub plugins_disabled: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

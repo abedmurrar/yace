@@ -93,7 +93,16 @@ impl App {
                 if let Some(list) = wl.explorer_list
                     && hit(list, x, y)
                 {
-                    if self.sidebar_view == super::SidebarView::Search {
+                    if self.sidebar_view == super::SidebarView::Plugin && self.plugins.active_view.is_some() {
+                        self.focus_changed(super::Focus::Explorer);
+                        let ui = self.plugin_view_ui();
+                        let height = list.height as usize;
+                        let scroll = if ui.selected >= height { ui.selected + 1 - height } else { 0 };
+                        let row = scroll + (y - list.y) as usize;
+                        if row < self.plugin_view_rows().len() {
+                            self.open_plugin_view_row(row);
+                        }
+                    } else if self.sidebar_view == super::SidebarView::Search {
                         self.mouse_search(list, x, y, count);
                     } else {
                         self.mouse_explorer(list, y, count, button);
@@ -176,6 +185,14 @@ impl App {
                     && hit(content, x, y)
                 {
                     self.mouse_terminal(content, m, 1);
+                    return;
+                }
+                if wl.sidebar.is_some_and(|s| hit(s, x, y)) && self.sidebar_view == super::SidebarView::Plugin {
+                    let n = self.plugin_view_rows().len();
+                    if let Some(key) = self.plugins.active_view.clone() {
+                        let ui = self.plugins.view_ui.entry(key).or_default();
+                        ui.selected = (ui.selected as isize + delta).clamp(0, n.saturating_sub(1) as isize) as usize;
+                    }
                     return;
                 }
                 if wl.sidebar.is_some_and(|s| hit(s, x, y)) {

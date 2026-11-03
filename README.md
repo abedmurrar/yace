@@ -8,12 +8,12 @@ work across all of them in one Explorer with VS Code keyboard shortcuts.
 No Electron, no Node.js, no JavaScript runtime, no cloud account, no
 telemetry.
 
-> **Status:** milestones M1–M7 are implemented: multi-root workspaces,
+> **Status:** milestones M1–M8 are implemented: multi-root workspaces,
 > Explorer, full editing, fuzzy Quick Open and workspace search, the
 > integrated terminal, themes and a keybinding editor, tree-sitter syntax
-> highlighting, folding, word wrap, and language servers (completion,
+> highlighting, folding, word wrap, language servers (completion,
 > diagnostics, go to definition, rename, symbols, code actions,
-> formatting). Plugins and Git are planned. See [`TODO.md`](TODO.md) for the complete, itemised status.
+> formatting) and native plugins. Git integration is next. See [`TODO.md`](TODO.md) for the complete, itemised status.
 
 ## Build and run
 
@@ -24,6 +24,8 @@ cargo build --release
 ./target/release/yace ~/work.code-workspace   # open a multi-root workspace
 ./target/release/yace --goto src/main.rs:42:8 # open a file at a position
 ./target/release/yace api --add-root ../web   # combine unrelated folders
+./target/release/yace --safe-mode             # start without loading any plugin code
+./target/release/yace --install-plugin pkg.tar.gz   # install a plugin (asks first)
 ```
 
 Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
@@ -78,9 +80,16 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
   workspace search and replace (Ctrl+Shift+F), find/replace in the editor.
 - **Integrated terminal.** Real shells per root (Ctrl+`), several tabs.
 - **Syntax.** Tree-sitter highlighting for Rust, TypeScript/TSX,
-  JavaScript/JSX, JSON, YAML, TOML, HTML, CSS/SCSS, Markdown, Python, Go,
-  Bash, SQL, Dockerfile, C/C++, Java and Ruby, with embedded languages.
+  JavaScript/JSX, JSON, YAML, TOML, HTML, CSS, Markdown, Python and Bash
+  built in, with embedded languages; C/C++, Go, Java, Ruby, SCSS, SQL and
+  Dockerfile from the installable grammar package (loaded on first use).
   Code folding and word wrap (Alt+Z).
+- **Native plugins.** Rust (or C ABI) shared libraries with commands,
+  keybindings, settings, sidebar views, status items, Explorer badges,
+  Quick Open providers, terminals, themes, grammars and background jobs.
+  Loaded lazily, code verified against what you approved, every call timed,
+  safe mode. Not sandboxed — see [`docs/plugins.md`](docs/plugins.md).
+  Example: a task runner for npm/pnpm/yarn scripts, Cargo and Makefiles.
 - **Language servers.** Completion while you type, diagnostics (Problems:
   Ctrl+Shift+M, F8), hover, parameter hints, go to definition (F12, also
   into other roots), references (Shift+F12), rename (F2), document and

@@ -14,6 +14,11 @@ pub mod language;
 pub mod syntax;
 
 pub use highlight::{InjectionCache, Scope, Span, highlight};
-pub use language::{Associations, EditingRules, LANGUAGES, LanguageConfig, by_id, detect, plain_text};
+pub use language::{
+    Associations, EditingRules, LANGUAGES, LanguageConfig, LanguageDef, LoadedGrammar, PACKAGED, by_id, detect,
+    has_external_grammar, plain_text, register_grammar, register_language,
+};
 pub use syntax::{ParseOutcome, Syntax, input_edits, parse_full};
+pub use tree_sitter::Language;
 pub use tree_sitter::{InputEdit, Tree};
+pub use tree_sitter_language::LanguageFn;
