@@ -2978,7 +2978,7 @@ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 
 [[package]]
 name = "yace"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -3006,7 +3006,7 @@ dependencies = [
 
 [[package]]
 name = "yace-buffer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "ropey",
@@ -3019,7 +3019,7 @@ dependencies = [
 
 [[package]]
 name = "yace-config"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "directories",
  "jsonc-parser",
@@ -3033,7 +3033,7 @@ dependencies = [
 
 [[package]]
 name = "yace-keymap"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3044,7 +3044,7 @@ dependencies = [
 
 [[package]]
 name = "yace-search"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "globset",
@@ -3060,7 +3060,7 @@ dependencies = [
 
 [[package]]
 name = "yace-workspace"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "jsonc-parser",
  "serde",
