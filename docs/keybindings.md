@@ -187,6 +187,14 @@ starts one in the selected folder.
 | `Ctrl+Shift+\` | jump to matching bracket |
 | `Ctrl+K Ctrl+X` | trim trailing whitespace |
 
+### Notifications
+
+| Keys | Command |
+|---|---|
+| `Esc` | dismiss the current notification |
+| `Ctrl+K Ctrl+N` | notification history: searchable, `Enter` copies the message |
+| — | "View: Open Notifications in Editor" (select and copy anything) |
+
 ### Language features (with a language server)
 
 | Keys | Command |

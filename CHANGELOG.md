@@ -60,6 +60,10 @@ Security, Performance.
   it, once, in a message that stays until you press Esc. Node-based
   servers are external tools.
 
+- Notification history (`Ctrl+K Ctrl+N`, "View: Show Notifications"):
+  every message of the session, searchable; `Enter` copies it to the
+  clipboard. "View: Open Notifications in Editor" shows them as text.
+
 ### Changed
 
 - `F6` / `Shift+F6` cycle Editor → Panel → Sidebar (skipping hidden parts),

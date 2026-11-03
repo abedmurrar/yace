@@ -433,6 +433,28 @@ impl App {
         self.needs_render = true;
     }
 
+    /// The notification history as a searchable picker (newest first).
+    pub(crate) fn show_notification_list(&mut self) {
+        if self.notification_log.is_empty() {
+            self.notify(Severity::Info, "No notifications");
+            return;
+        }
+        let items: Vec<crate::overlay::PickerItem> = self
+            .notification_log
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, (l, t))| crate::overlay::PickerItem::new(t.clone(), "", format!("{l:?}").to_lowercase(), i))
+            .collect();
+        let mut p = crate::overlay::Picker::new(
+            "Notifications — Enter copies the message",
+            items,
+            crate::actions::PickerAction::CopyNotification,
+        );
+        p.empty_text = "No matching notifications".into();
+        self.open_overlay(Overlay::Picker(p));
+    }
+
     /// A notification that stays until dismissed (one-time hints the user
     /// must be able to read, e.g. how to install a language server).
     pub fn notify_sticky(&mut self, level: Severity, text: impl Into<String>) {
@@ -869,6 +891,14 @@ impl App {
                 }
             }
             PickerAction::CodeAction => self.pick_code_action(data),
+            PickerAction::CopyNotification => {
+                if let Some((_, text)) = self.notification_log.get(data).cloned() {
+                    if let Some(bytes) = self.clipboard.set_text(text) {
+                        self.emit(Effect::Write(bytes));
+                    }
+                    self.notify(Severity::Info, "Copied to the clipboard");
+                }
+            }
             PickerAction::ChangeEol => {
                 self.change_eol(if data == 0 { yace_buffer::LineEnding::Lf } else { yace_buffer::LineEnding::CrLf })
             }

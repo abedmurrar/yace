@@ -565,6 +565,7 @@ Legend:
 - [x] [M7] Diagnostics: underline in the severity colour, line number coloured, status bar counts (⊗/⚠) and the message under the cursor, Problems picker (`Ctrl+Shift+M`), `F8`/`Shift+F8` across files; positions mapped through edits until republished
 - [x] [M7] `Ctrl+Space`, `F12`, `F2`, `Ctrl+Shift+O`, `Ctrl+T` wired (+ legacy fallbacks `Alt+O`, `Alt+M`, `Alt+I`)
 - [x] [M7] Format on save (setting)
+- [x] [M7] Notification history picker (`Ctrl+K Ctrl+N`, Enter copies) and "Open Notifications in Editor"; one-time hints stay until Esc
 - [x] [M7] "Show Language Server Output" (stderr + log in an untitled editor); status bar shows the active server and its progress
 - [x] [M7] Tests: fake JSON-RPC server (`tests/fixtures/fake_lsp.py`) covering sync, diagnostics, completion, hover, signature help, cross-root definition, references, rename, symbols, code actions, format on save, crash/restart, startup failure, missing-server hint, stale answers, 5k-item lists; real-server smoke test with typescript-language-server (`YACE_TEST_TSLS`)
 - [~] [M7] Semantic tokens — deferred: tree-sitter covers colouring

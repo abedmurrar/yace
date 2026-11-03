@@ -467,3 +467,22 @@ fn real_typescript_language_server() {
         }
     }
 }
+
+#[test]
+fn notification_history_is_searchable_and_copyable() {
+    let mut h = Harness::new();
+    h.app.notify_sticky(
+        yace_app::app::Severity::Info,
+        "No language server for TypeScript found. For completion and navigation run: npm install -g typescript typescript-language-server",
+    );
+    h.app.notify(yace_app::app::Severity::Info, "something else");
+    h.key("ctrl+k ctrl+n");
+    let Some(Overlay::Picker(p)) = h.app.overlays.last() else { panic!("history picker") };
+    assert_eq!(p.items.len(), 2);
+    h.type_text("typescript");
+    h.key("enter");
+    assert!(h.app.clipboard.get().text.contains("npm install -g typescript typescript-language-server"));
+    // The whole history can also be opened as text.
+    h.command("yace.notificationsInEditor");
+    assert!(h.active_text().contains("[info] No language server for TypeScript"));
+}

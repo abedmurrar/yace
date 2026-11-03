@@ -100,6 +100,8 @@ pub enum PickerAction {
     Navigate,
     /// Run `App::code_actions[data]`.
     CodeAction,
+    /// Copy `App::notification_log[data]` to the clipboard.
+    CopyNotification,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -256,6 +256,7 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("alt+m", "workbench.actions.view.problems", "!keyboardEnhanced"),
     ("alt+o", "workbench.action.gotoSymbol", "!keyboardEnhanced"),
     ("alt+i", "editor.action.formatDocument", "editorFocus && !keyboardEnhanced"),
+    ("ctrl+k ctrl+n", "yace.showNotifications", ""),
     // Popups (last, so they win while visible).
     ("escape", "editor.action.hideHover", "editorHoverVisible"),
     ("escape", "closeParameterHints", "parameterHintsVisible && !suggestWidgetVisible"),

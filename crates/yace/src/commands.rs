@@ -278,13 +278,24 @@ fn keybinding_conflicts(app: &mut App, _: Option<&Value>) {
     show_info(app, "Keybinding Conflicts", lines);
 }
 
+/// Every notification of this session, newest first and searchable;
+/// Enter copies the message (e.g. an install command) to the clipboard.
 fn notifications(app: &mut App, _: Option<&Value>) {
-    let mut lines: Vec<String> =
-        app.notification_log.iter().rev().take(20).map(|(l, t)| format!("[{l:?}] {t}")).collect();
-    if lines.is_empty() {
-        lines.push("No notifications.".into());
+    app.show_notification_list();
+}
+
+fn notifications_in_editor(app: &mut App, _: Option<&Value>) {
+    let text: String = app
+        .notification_log
+        .iter()
+        .rev()
+        .map(|(l, t)| format!("[{}] {t}\n", format!("{l:?}").to_lowercase()))
+        .collect();
+    if text.is_empty() {
+        app.notify(Severity::Info, "No notifications");
+        return;
     }
-    show_info(app, "Notifications", lines);
+    app.new_untitled_with(&text);
 }
 
 fn about(app: &mut App, _: Option<&Value>) {
@@ -459,6 +470,7 @@ fn builtin_commands() -> Vec<Command> {
         c!("workbench.action.quit", "File", "Quit", |a, _| a.quit_requested()),
         c!("yace.dismissNotification", "View", "Dismiss Notification", |a, _| a.dismiss_notification()),
         c!("yace.showNotifications", "View", "Show Notifications", notifications),
+        c!("yace.notificationsInEditor", "View", "Open Notifications in Editor", notifications_in_editor),
         c!("yace.developer.showPerformanceMetrics", "Developer", "Show Performance Metrics", performance),
         c!("yace.developer.showConfigurationErrors", "Developer", "Show Configuration Errors", config_errors),
         c!("yace.developer.showKeybindingConflicts", "Developer", "Show Keybinding Conflicts", keybinding_conflicts),
