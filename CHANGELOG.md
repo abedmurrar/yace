@@ -13,6 +13,8 @@ Security, Performance.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-03
+
 ### Added
 
 - **Themes** (M6). Six built-in themes: YACE Dark (default), YACE Light,
@@ -465,7 +467,8 @@ Reproduce with `scripts/bench.sh` and `scripts/bench_interactive.py`.
 - Very large files are read on the main thread.
 - There's no crash recovery for unsaved edits yet.
 
-[Unreleased]: https://github.com/OWNER/yace/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/OWNER/yace/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/OWNER/yace/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/OWNER/yace/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/OWNER/yace/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/OWNER/yace/compare/v0.3.1...v0.4.0
