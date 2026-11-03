@@ -6,12 +6,23 @@
 |---|---|---|
 | User settings | `~/.config/yace/config.toml` | `YACE_CONFIG_DIR` |
 | User keybindings | `~/.config/yace/keybindings.toml` | `YACE_CONFIG_DIR` |
+| User themes | `~/.config/yace/themes/*.toml` ([themes.md](themes.md)) | `YACE_CONFIG_DIR` |
 | Session state, recent list, untitled workspaces, log | `~/.local/state/yace/` | `YACE_STATE_DIR` |
 | Cache | `~/.cache/yace/` | `YACE_CACHE_DIR` |
 
 "Preferences: Open User Settings (TOML)" (`Ctrl+,`) creates the file from a
-commented template if it doesn't exist. Saving it inside YACE reloads the
-settings immediately.
+commented template if it doesn't exist. Other settings commands:
+"Preferences: Open Workspace Settings" (the `.code-workspace` file, or the
+folder's `.vscode/settings.json`), "Preferences: Open Default Settings
+(Read-only)" (every key with its default), "Preferences: Open Keyboard
+Shortcuts" (`Ctrl+K Ctrl+S`, see [keybindings.md](keybindings.md)) and
+"Preferences: Color Theme" (`Ctrl+K Ctrl+T`).
+
+**Live reload.** Changes to `config.toml`, `keybindings.toml`, theme files
+and `.vscode/settings.json` apply as soon as the file is saved, in YACE or
+in any other program. If a file no longer parses, YACE reports the file and
+line and **keeps the last values that worked** until it is fixed.
+`workbench.colorDepth` and `workbench.glyphs` changes apply on reload too.
 
 ## Precedence
 
@@ -35,8 +46,9 @@ in "Developer: Show Configuration Errors".
 - *application* (user only): `keyboard.*`, `workbench.restoreWorkspace`,
   `workbench.colorDepth`, `workbench.glyphs`
 - *window* (user or workspace): `files.autoSave`, `files.autoSaveDelay`,
-  `files.largeFileThresholdMb`, `explorer.*`, the other `workbench.*` keys
-- *resource* (also per repository): every `editor.*` key, `files.exclude`,
+  `files.largeFileThresholdMb`, `explorer.*`, the other `workbench.*` keys,
+  `editor.tokenColorCustomizations`
+- *resource* (also per repository): the other `editor.*` keys, `files.exclude`,
   `files.eol`, `files.insertFinalNewline`, `files.trimTrailingWhitespace`,
   `search.exclude`, `search.useIgnoreFiles`
 
@@ -62,6 +74,7 @@ in "Developer: Show Configuration Errors".
 | `quickSuggestionsDelay` | `50` | ms of typing pause before asking | `editor.quickSuggestionsDelay` |
 | `suggestOnTriggerCharacters` | `true` | bool | `editor.suggestOnTriggerCharacters` |
 | `showFoldingControls` | `"mouseover"` | `"always"`, `"mouseover"` (folded lines always; foldable ones while the mouse is over the gutter), `"never"` | `editor.showFoldingControls` |
+| `tokenColorCustomizations` | `{}` | syntax colour overrides: `comments`, `strings`, `keywords`, `numbers`, `types`, `functions`, `variables`, any scope name, `textMateRules`, and `"[Theme Name]"` sections ([themes.md](themes.md)) | `editor.tokenColorCustomizations` |
 
 ### `[files]`
 
@@ -92,6 +105,9 @@ in "Developer: Show Configuration Errors".
 | `glyphs` | `"unicode"` | `"unicode"`, `"nerdFont"`, `"ascii"`: icon and border characters | — |
 | `colorDepth` | `"auto"` | `"auto"`, `"truecolor"`, `"256"`, `"16"`, `"mono"` (`NO_COLOR` forces mono) | — |
 | `sidebarWidth` | `32` | initial side bar width in cells | — |
+| `colorTheme` | `"YACE Dark"` | theme name or file id ([themes.md](themes.md)); VS Code theme names map to the closest built-in | `workbench.colorTheme` |
+| `colorCustomizations` | `{}` | UI colour overrides by VS Code colour id, with `"[Theme Name]"` sections | `workbench.colorCustomizations` |
+| `sideBarLocation` | `"left"` | `"left"` or `"right"`; "View: Primary Side Bar Position: Left/Right" toggles it | `workbench.sideBar.location` |
 
 ### `[search]`
 
@@ -186,11 +202,21 @@ Servers". Restart, stop and output commands are under "Developer:".
 | `chordTimeoutMs` | `3000` | how long `Ctrl+K` waits for the second key |
 | `enhancedProtocol` | `true` | use the Kitty keyboard protocol when the terminal supports it |
 
+## Layout
+
+The side bar width, panel height and maximised state, and editor group
+sizes are saved per workspace. "View: Reset Layout (Sidebar, Panel, Group
+Sizes)" restores the defaults; "View: Reset Editor Group Sizes" only evens
+out the groups. On small terminals YACE adapts instead of failing: below 50
+columns the side bar covers the editor only while it has focus; below 12
+rows of editor space the panel shows only while focused or maximised; below
+3 rows the tab bar and status bar are hidden.
+
 ## Fonts
 
 YACE runs inside your terminal, so the terminal emulator controls the font
 family, size and rendering. YACE controls colours, text styles and which
-glyphs it uses (`workbench.glyphs`).
+glyphs it uses (`workbench.glyphs`). See [themes.md](themes.md#fonts-and-glyphs).
 
 ## Example
 
@@ -206,4 +232,6 @@ exclude = ["**/node_modules", "**/dist", "**/.next", "**/coverage"]
 
 [workbench]
 glyphs = "nerdFont"
+colorTheme = "Tokyo Night"
+colorCustomizations = { "statusBar.background" = "#3d59a1" }
 ```

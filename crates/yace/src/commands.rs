@@ -41,6 +41,14 @@ pub struct Registry {
 impl Registry {
     pub fn builtin() -> Self {
         let list = builtin_commands();
+        debug_assert!(
+            {
+                let mut ids: Vec<&str> = list.iter().map(|c| c.id).collect();
+                ids.sort_unstable();
+                ids.windows(2).all(|w| w[0] != w[1])
+            },
+            "duplicate command id"
+        );
         let index = list.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
         let mut palette: Vec<&Command> = list.iter().filter(|c| c.palette).collect();
         palette.sort_by(|a, b| (a.category, a.title).cmp(&(b.category, b.title)));
@@ -91,6 +99,28 @@ fn open_config_file(app: &mut App, path: std::path::PathBuf, template: &str) {
         }
     }
     app.open_file(&path, false);
+}
+
+/// The workspace file's settings, or for a folder opened on its own, its
+/// `.vscode/settings.json` (VS Code's folder settings).
+fn open_workspace_settings(app: &mut App, _: Option<&Value>) {
+    if let yace_workspace::WorkspaceKind::File(f) = &app.workspace.kind {
+        let f = f.clone();
+        app.open_file(&f, false);
+        return;
+    }
+    let active = app.active().and_then(|(_, _, d)| app.docs.doc(d)).and_then(|d| d.path().map(|p| p.to_path_buf()));
+    let root = active
+        .and_then(|p| app.workspace.root_for_path(&p).map(|r| r.path.clone()))
+        .or_else(|| app.workspace.roots().first().map(|r| r.path.clone()));
+    match root {
+        Some(r) => open_config_file(
+            app,
+            r.join(".vscode").join("settings.json"),
+            "{\n  // Folder settings (VS Code keys). YACE reads editor, files and search\n  // settings from here; see docs/configuration.md.\n}\n",
+        ),
+        None => app.notify(Severity::Info, "Open a folder or workspace first"),
+    }
 }
 
 /// With two parts (Explorer, editor groups) next and previous are the same.
@@ -452,17 +482,61 @@ fn builtin_commands() -> Vec<Command> {
         c!(hidden "editor.action.hideHover", "Editor", "Hide Hover", |a, _| {
             a.hover = None;
         }),
-        c!("workbench.action.selectTheme", "Preferences", "Color Theme", |a, _| a
-            .not_available("Theme switching", "M6 (YACE Dark is built in)")),
+        c!("workbench.action.selectTheme", "Preferences", "Color Theme", |a, _| a.open_theme_picker()),
+        c!("yace.createThemeFromCurrent", "Preferences", "Create Theme from Current", |a, _| a
+            .create_theme_from_current()),
+        c!("yace.editUserTheme", "Preferences", "Edit User Theme…", |a, _| a.edit_user_theme()),
+        c!("yace.importVSCodeTheme", "Preferences", "Import VS Code Color Theme…", |a, _| a.import_vscode_theme()),
+        c!("yace.importVSCodeThemeFile", "Preferences", "Import VS Code Color Theme from File…", |a, _| a
+            .import_vscode_theme_file_prompt()),
+        c!("editor.action.inspectTMScopes", "Developer", "Inspect Editor Tokens", |a, _| a.inspect_tokens()),
         c!("workbench.action.openSettingsJson", "Preferences", "Open User Settings (TOML)", |a, _| {
             let p = a.paths.user_settings();
             open_config_file(a, p, yace_config::DEFAULT_CONFIG_TEMPLATE)
         }),
+        c!("workbench.action.openGlobalKeybindings", "Preferences", "Open Keyboard Shortcuts", |a, _| a
+            .open_keybinding_editor()),
+        c!("yace.restoreDefaultKeybindings", "Preferences", "Restore Default Keybindings", |a, _| a
+            .restore_default_keybindings_confirm()),
+        c!("yace.exportKeybindings", "Preferences", "Export Keybindings", |a, _| a.export_keybindings()),
         c!("workbench.action.openGlobalKeybindingsFile", "Preferences", "Open Keyboard Shortcuts (TOML)", |a, _| {
             let p = a.paths.keybindings();
             open_config_file(a, p, yace_config::DEFAULT_KEYBINDINGS_TEMPLATE)
         }),
+        c!("workbench.action.toggleSidebarPosition", "View", "Primary Side Bar Position: Left/Right", |a, _| {
+            let right = a.settings.workbench.side_bar_location == yace_config::SideBarLocation::Right;
+            let v = if right { "left" } else { "right" };
+            match yace_config::edit_setting(&a.paths.user_settings(), "workbench", "sideBarLocation", Some(v.into())) {
+                Ok(()) => a.reload_settings(),
+                Err(e) => a.notify(Severity::Error, format!("Could not save the setting: {e}")),
+            }
+        }),
+        c!("workbench.action.evenEditorWidths", "View", "Reset Editor Group Sizes", |a, _| a.layout.even_sizes()),
+        c!("yace.resetWorkbenchLayout", "View", "Reset Layout (Sidebar, Panel, Group Sizes)", |a, _| {
+            a.sidebar_visible = true;
+            a.sidebar_width = a.settings.workbench.sidebar_width;
+            a.panel.height = crate::app::DEFAULT_PANEL_HEIGHT;
+            a.panel.maximized = false;
+            a.layout.even_sizes();
+            a.notify(Severity::Info, "Layout reset (sidebar, panel and editor group sizes)");
+        }),
+        c!("workbench.action.openWorkspaceSettings", "Preferences", "Open Workspace Settings", open_workspace_settings),
+        c!("workbench.action.openRawDefaultSettings", "Preferences", "Open Default Settings (Read-only)", |a, _| {
+            let text = format!(
+                "# YACE default settings — a generated, read-only reference.\n\
+                 # Copy what you want to change into your user settings\n\
+                 # (Preferences: Open User Settings) or workspace settings.\n\
+                 # Every key is documented in docs/configuration.md.\n\n{}",
+                toml::to_string(&yace_config::Settings::default()).unwrap_or_default()
+            );
+            let path = a.paths.cache_dir.join("default-settings.toml");
+            match yace_config::atomic_write(&path, text.as_bytes()) {
+                Ok(()) => a.open_file(&path, false),
+                Err(e) => a.notify(Severity::Error, format!("Could not write {}: {e}", path.display())),
+            }
+        }),
         c!("yace.reloadConfiguration", "Preferences", "Reload Settings and Keybindings", |a, _| {
+            a.invalidate_theme();
             a.reload_settings();
             a.reload_keymap();
             a.notify(Severity::Info, "Settings and keybindings reloaded");

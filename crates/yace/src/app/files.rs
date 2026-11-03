@@ -292,13 +292,8 @@ impl App {
             self.explorer.refresh_dir(parent);
         }
         let key = path_key(path);
-        if key == path_key(&self.paths.user_settings()) {
-            self.reload_settings();
-            self.reload_keymap();
-            self.notify(Severity::Info, "Settings reloaded");
-        } else if key == path_key(&self.paths.keybindings()) {
-            self.reload_keymap();
-            self.notify(Severity::Info, "Keybindings reloaded");
+        if self.on_config_files_changed(std::slice::from_ref(&path.to_path_buf())) {
+            // Settings, keybindings or a theme: applied already.
         } else if self.workspace.file().is_some_and(|f| path_key(f) == key) {
             self.notify(Severity::Info, "Workspace file saved; reopen the workspace to apply folder changes");
         }
@@ -649,6 +644,7 @@ impl App {
     // External modification (spec §9.10)
 
     pub(crate) fn process_fs_changes(&mut self, paths: Vec<PathBuf>) {
+        self.on_config_files_changed(&paths);
         let mut dirs: Vec<PathBuf> = Vec::new();
         for p in &paths {
             if let Some(parent) = p.parent() {

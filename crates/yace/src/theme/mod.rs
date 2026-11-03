@@ -1,14 +1,34 @@
 //! The design system (spec §3.4, §16): semantic colour tokens and glyph
-//! sets shared by every component. M1–M3 ship a built-in "YACE Dark";
-//! loading themes from TOML arrives in M6 without changing widgets.
+//! sets shared by every component. Themes are TOML files (`schema.rs`):
+//! built-in ones are embedded, user ones live in `~/.config/yace/themes/`.
+
+mod builtin_gen;
+mod schema;
+pub mod vscode;
+
+use std::sync::Arc;
 
 use ratatui::style::{Color, Modifier, Style};
+pub use schema::{
+    BUILTIN, COLOR_KEYS, Catalog, Origin, Overrides, ThemeSource, color_to_string, load_theme, parse_color,
+};
 use yace_config::{ColorDepth, Glyphs as GlyphSetting};
 use yace_syntax::Scope;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ThemeKind {
+    #[default]
+    Dark,
+    Light,
+}
+
 #[derive(Clone, Debug)]
 pub struct Theme {
-    pub name: &'static str,
+    /// Display name (`name = …` in the file).
+    pub name: Arc<str>,
+    /// File stem of the theme (`yace-dark`), used by `extends`.
+    pub id: Arc<str>,
+    pub kind: ThemeKind,
     pub bg: Color,
     pub fg: Color,
     pub muted: Color,
@@ -61,132 +81,91 @@ pub struct Theme {
     pub terminal_ansi: [Color; 16],
     /// Syntax colours, indexed by `yace_syntax::Scope`.
     pub syntax: [Color; Scope::COUNT],
+    /// Syntax text styles (bold, italic, underline), same index.
+    pub syntax_mods: [Modifier; Scope::COUNT],
+    /// Semantic token styles (`[semantic]`), kept for when semantic tokens
+    /// are rendered; tree-sitter scopes colour the text today.
+    pub semantic: Vec<(Box<str>, Color, Modifier)>,
     /// Colour depth the theme was converted for.
     pub depth: Depth,
 }
 
-/// Syntax colours for YACE Dark (VS Code Dark+ inspired, so VS Code users
-/// feel at home).
-fn dark_syntax(fg: Color) -> [Color; Scope::COUNT] {
-    let mut s = [fg; Scope::COUNT];
-    let rgb = |r, g, b| Color::Rgb(r, g, b);
-    let blue = rgb(0x56, 0x9c, 0xd6);
-    let teal = rgb(0x4e, 0xc9, 0xb0);
-    let yellow = rgb(0xdc, 0xdc, 0xaa);
-    let light_blue = rgb(0x9c, 0xdc, 0xfe);
-    let orange = rgb(0xce, 0x91, 0x78);
-    for (scope, c) in [
-        (Scope::Comment, rgb(0x6a, 0x99, 0x55)),
-        (Scope::String, orange),
-        (Scope::StringSpecial, rgb(0xd1, 0x69, 0x69)),
-        (Scope::Escape, rgb(0xd7, 0xba, 0x7d)),
-        (Scope::Character, orange),
-        (Scope::Number, rgb(0xb5, 0xce, 0xa8)),
-        (Scope::Boolean, blue),
-        (Scope::Constant, rgb(0x4f, 0xc1, 0xff)),
-        (Scope::ConstantBuiltin, blue),
-        (Scope::Keyword, blue),
-        (Scope::KeywordControl, rgb(0xc5, 0x86, 0xc0)),
-        (Scope::Operator, fg),
-        (Scope::Punctuation, fg),
-        (Scope::PunctuationBracket, fg),
-        (Scope::Function, yellow),
-        (Scope::FunctionBuiltin, yellow),
-        (Scope::FunctionMethod, yellow),
-        (Scope::Macro, teal),
-        (Scope::Type, teal),
-        (Scope::TypeBuiltin, teal),
-        (Scope::Constructor, teal),
-        (Scope::Variable, light_blue),
-        (Scope::VariableBuiltin, blue),
-        (Scope::VariableParameter, light_blue),
-        (Scope::Property, light_blue),
-        (Scope::Attribute, light_blue),
-        (Scope::Tag, blue),
-        (Scope::Namespace, teal),
-        (Scope::Label, rgb(0xc8, 0xc8, 0xc8)),
-        (Scope::Heading, blue),
-        (Scope::Link, rgb(0x4d, 0xaa, 0xfc)),
-        (Scope::Raw, orange),
-        (Scope::ListMarker, rgb(0x67, 0x96, 0xe6)),
-    ] {
-        s[scope as usize] = c;
-    }
-    s
-}
-
 impl Theme {
-    pub fn yace_dark() -> Self {
+    /// A theme with every colour unset; the root of `yace-dark`/`yace-light`.
+    pub fn blank(kind: ThemeKind) -> Self {
+        let r = Color::Reset;
         Self {
-            name: "YACE Dark",
-            bg: Color::Rgb(0x1e, 0x1f, 0x24),
-            fg: Color::Rgb(0xd4, 0xd6, 0xdc),
-            muted: Color::Rgb(0x80, 0x86, 0x92),
-            sidebar_bg: Color::Rgb(0x19, 0x1a, 0x1f),
-            sidebar_fg: Color::Rgb(0xc4, 0xc7, 0xcf),
-            sidebar_title: Color::Rgb(0x9a, 0xa0, 0xac),
-            tab_active_bg: Color::Rgb(0x1e, 0x1f, 0x24),
-            tab_active_fg: Color::Rgb(0xf2, 0xf3, 0xf5),
-            tab_inactive_bg: Color::Rgb(0x25, 0x26, 0x2c),
-            tab_inactive_fg: Color::Rgb(0x8c, 0x91, 0x9c),
-            tab_bar_bg: Color::Rgb(0x25, 0x26, 0x2c),
-            border: Color::Rgb(0x34, 0x36, 0x3e),
-            focus_border: Color::Rgb(0x4d, 0x8d, 0xf5),
-            selection_bg: Color::Rgb(0x26, 0x4f, 0x78),
-            selection_inactive_bg: Color::Rgb(0x3a, 0x3d, 0x41),
-            cursor_line_bg: Color::Rgb(0x26, 0x28, 0x2e),
-            line_number: Color::Rgb(0x5a, 0x5f, 0x6b),
-            line_number_active: Color::Rgb(0xc6, 0xc9, 0xd1),
-            cursor_fg: Color::Rgb(0x1e, 0x1f, 0x24),
-            cursor_bg: Color::Rgb(0xae, 0xaf, 0xad),
-            bracket_match_bg: Color::Rgb(0x3b, 0x51, 0x4d),
-            status_bg: Color::Rgb(0x1f, 0x4f, 0x8f),
-            status_fg: Color::Rgb(0xf2, 0xf3, 0xf5),
-            status_no_folder_bg: Color::Rgb(0x6c, 0x3c, 0x8c),
-            list_active_bg: Color::Rgb(0x04, 0x39, 0x5e),
-            list_active_fg: Color::Rgb(0xf2, 0xf3, 0xf5),
-            list_inactive_selection_bg: Color::Rgb(0x37, 0x37, 0x3d),
-            list_hover_match: Color::Rgb(0x3d, 0xa9, 0xfc),
-            overlay_bg: Color::Rgb(0x25, 0x26, 0x2c),
-            overlay_fg: Color::Rgb(0xd4, 0xd6, 0xdc),
-            overlay_border: Color::Rgb(0x4d, 0x8d, 0xf5),
-            overlay_selected_bg: Color::Rgb(0x04, 0x39, 0x5e),
-            input_bg: Color::Rgb(0x31, 0x33, 0x3b),
-            error: Color::Rgb(0xf1, 0x4c, 0x4c),
-            warning: Color::Rgb(0xcc, 0xa7, 0x00),
-            info: Color::Rgb(0x3d, 0xa9, 0xfc),
-            git_modified: Color::Rgb(0xe2, 0xc0, 0x8d),
-            git_added: Color::Rgb(0x81, 0xb8, 0x8b),
-            git_deleted: Color::Rgb(0xc7, 0x4e, 0x39),
-            dirty: Color::Rgb(0xe2, 0xc0, 0x8d),
-            missing_root: Color::Rgb(0xc7, 0x4e, 0x39),
-            scrollbar: Color::Rgb(0x42, 0x45, 0x4f),
-            whitespace: Color::Rgb(0x45, 0x48, 0x52),
-            find_match_bg: Color::Rgb(0x62, 0x33, 0x15),
-            find_current_bg: Color::Rgb(0x9e, 0x6a, 0x03),
-            match_fg: Color::Rgb(0x3d, 0xa9, 0xfc),
-            terminal_bg: Color::Rgb(0x1a, 0x1b, 0x20),
-            terminal_fg: Color::Rgb(0xd4, 0xd6, 0xdc),
-            terminal_ansi: [
-                Color::Rgb(0x1e, 0x1f, 0x24),
-                Color::Rgb(0xe0, 0x6c, 0x75),
-                Color::Rgb(0x98, 0xc3, 0x79),
-                Color::Rgb(0xe5, 0xc0, 0x7b),
-                Color::Rgb(0x61, 0xaf, 0xef),
-                Color::Rgb(0xc6, 0x78, 0xdd),
-                Color::Rgb(0x56, 0xb6, 0xc2),
-                Color::Rgb(0xd4, 0xd6, 0xdc),
-                Color::Rgb(0x5c, 0x63, 0x70),
-                Color::Rgb(0xf0, 0x7c, 0x85),
-                Color::Rgb(0xa8, 0xd3, 0x89),
-                Color::Rgb(0xf5, 0xd0, 0x8b),
-                Color::Rgb(0x71, 0xbf, 0xff),
-                Color::Rgb(0xd6, 0x88, 0xed),
-                Color::Rgb(0x66, 0xc6, 0xd2),
-                Color::Rgb(0xff, 0xff, 0xff),
-            ],
-            syntax: dark_syntax(Color::Rgb(0xd4, 0xd6, 0xdc)),
+            name: Arc::from(""),
+            id: Arc::from(""),
+            kind,
+            bg: r,
+            fg: r,
+            muted: r,
+            sidebar_bg: r,
+            sidebar_fg: r,
+            sidebar_title: r,
+            tab_active_bg: r,
+            tab_active_fg: r,
+            tab_inactive_bg: r,
+            tab_inactive_fg: r,
+            tab_bar_bg: r,
+            border: r,
+            focus_border: r,
+            selection_bg: r,
+            selection_inactive_bg: r,
+            cursor_line_bg: r,
+            line_number: r,
+            line_number_active: r,
+            cursor_fg: r,
+            cursor_bg: r,
+            bracket_match_bg: r,
+            status_bg: r,
+            status_fg: r,
+            status_no_folder_bg: r,
+            list_active_bg: r,
+            list_active_fg: r,
+            list_inactive_selection_bg: r,
+            list_hover_match: r,
+            overlay_bg: r,
+            overlay_fg: r,
+            overlay_border: r,
+            overlay_selected_bg: r,
+            input_bg: r,
+            error: r,
+            warning: r,
+            info: r,
+            git_modified: r,
+            git_added: r,
+            git_deleted: r,
+            dirty: r,
+            missing_root: r,
+            scrollbar: r,
+            whitespace: r,
+            find_match_bg: r,
+            find_current_bg: r,
+            match_fg: r,
+            terminal_bg: r,
+            terminal_fg: r,
+            terminal_ansi: [r; 16],
+            syntax: [r; Scope::COUNT],
+            syntax_mods: [Modifier::empty(); Scope::COUNT],
+            semantic: Vec::new(),
             depth: Depth::TrueColor,
+        }
+    }
+
+    /// The default theme (embedded `themes/yace-dark.toml`).
+    pub fn yace_dark() -> Self {
+        Self::builtin("yace-dark")
+    }
+
+    /// A built-in theme by id; panics only if an embedded file is broken
+    /// (covered by tests).
+    pub fn builtin(id: &str) -> Self {
+        let cat = Catalog::builtin();
+        match load_theme(&cat, id, &Overrides::default()) {
+            Ok((t, _)) => t,
+            Err(e) => panic!("built-in theme {id}: {e}"),
         }
     }
 
@@ -224,6 +203,9 @@ impl Theme {
             self.terminal_ansi = [Color::Reset; 16];
         }
         for c in &mut self.syntax {
+            *c = downgrade(*c, depth);
+        }
+        for (_, c, _) in &mut self.semantic {
             *c = downgrade(*c, depth);
         }
         macro_rules! conv {
@@ -291,6 +273,88 @@ impl Theme {
     pub fn title(&self, focused: bool) -> Style {
         let s = Style::new().fg(if focused { self.focus_border } else { self.sidebar_title }).bg(self.sidebar_bg);
         s.add_modifier(Modifier::BOLD)
+    }
+
+    // State styles. With no colours (monochrome, `NO_COLOR`), state is shown
+    // with text attributes instead so selection, matches and focus stay
+    // visible (spec §16.5).
+
+    pub fn is_mono(&self) -> bool {
+        self.depth == Depth::Mono
+    }
+    /// Selected text (patched over the text style).
+    pub fn selection(&self, focused: bool) -> Style {
+        if self.is_mono() {
+            return Style::new().add_modifier(Modifier::REVERSED);
+        }
+        Style::new().bg(if focused { self.selection_bg } else { self.selection_inactive_bg })
+    }
+    /// A find match (patched over the text style).
+    pub fn find_match(&self, current: bool) -> Style {
+        if self.is_mono() {
+            return if current {
+                Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+            } else {
+                Style::new().add_modifier(Modifier::UNDERLINED)
+            };
+        }
+        Style::new().bg(if current { self.find_current_bg } else { self.find_match_bg })
+    }
+    /// A drawn (non-terminal) cursor cell.
+    pub fn cursor(&self) -> Style {
+        if self.is_mono() {
+            return Style::new().add_modifier(Modifier::REVERSED);
+        }
+        Style::new().fg(self.cursor_fg).bg(self.cursor_bg)
+    }
+    /// The selected row of a list (Explorer, pickers).
+    pub fn list_selected(&self, focused: bool) -> Style {
+        if self.is_mono() {
+            return if focused {
+                Style::new().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::new().add_modifier(Modifier::UNDERLINED)
+            };
+        }
+        if focused {
+            Style::new().fg(self.list_active_fg).bg(self.list_active_bg)
+        } else {
+            Style::new().bg(self.list_inactive_selection_bg)
+        }
+    }
+    /// The selected row of an overlay list.
+    pub fn overlay_selected(&self) -> Style {
+        if self.is_mono() {
+            return Style::new().add_modifier(Modifier::REVERSED);
+        }
+        Style::new().fg(self.list_active_fg).bg(self.overlay_selected_bg)
+    }
+    /// A tab in the tab bar.
+    pub fn tab(&self, active: bool) -> Style {
+        if self.is_mono() {
+            return if active {
+                Style::new().add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            } else {
+                Style::new()
+            };
+        }
+        if active {
+            Style::new().fg(self.tab_active_fg).bg(self.tab_active_bg)
+        } else {
+            Style::new().fg(self.tab_inactive_fg).bg(self.tab_inactive_bg)
+        }
+    }
+    /// The status bar.
+    pub fn status(&self, no_folder: bool) -> Style {
+        if self.is_mono() {
+            return Style::new().add_modifier(Modifier::REVERSED);
+        }
+        Style::new().fg(self.status_fg).bg(if no_folder { self.status_no_folder_bg } else { self.status_bg })
+    }
+    /// Text of a syntax scope.
+    pub fn syntax_style(&self, scope: Option<Scope>) -> Style {
+        let Some(s) = scope else { return Style::new().fg(self.fg) };
+        Style::new().fg(self.syntax[s as usize]).add_modifier(self.syntax_mods[s as usize])
     }
 }
 

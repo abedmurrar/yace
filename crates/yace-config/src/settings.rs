@@ -93,6 +93,10 @@ pub struct EditorSettings {
     pub folding: bool,
     /// When fold markers show in the gutter.
     pub show_folding_controls: FoldingControls,
+    /// Syntax colour overrides (VS Code shape: `comments`, `strings`,
+    /// `keywords`, … or YACE scope names; `"[Theme Name]"` sections apply to
+    /// one theme only). See `docs/themes.md`.
+    pub token_color_customizations: toml::Table,
     /// Format with the language server before saving.
     pub format_on_save: bool,
     /// Ask for completions while typing (not only on trigger characters).
@@ -141,6 +145,7 @@ impl Default for EditorSettings {
             word_wrap_column: 80,
             folding: true,
             show_folding_controls: FoldingControls::Mouseover,
+            token_color_customizations: toml::Table::new(),
             format_on_save: false,
             quick_suggestions: true,
             quick_suggestions_delay: 50,
@@ -256,6 +261,20 @@ pub struct WorkbenchSettings {
     pub color_depth: ColorDepth,
     /// Initial sidebar width in cells.
     pub sidebar_width: u16,
+    /// Theme name or id (`docs/themes.md`).
+    pub color_theme: String,
+    /// UI colour overrides by VS Code colour id; `"[Theme Name]"` sections
+    /// apply to one theme only.
+    pub color_customizations: toml::Table,
+    pub side_bar_location: SideBarLocation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SideBarLocation {
+    #[default]
+    Left,
+    Right,
 }
 
 impl Default for WorkbenchSettings {
@@ -266,6 +285,9 @@ impl Default for WorkbenchSettings {
             glyphs: Glyphs::Unicode,
             color_depth: ColorDepth::Auto,
             sidebar_width: 32,
+            color_theme: "YACE Dark".into(),
+            color_customizations: toml::Table::new(),
+            side_bar_location: SideBarLocation::Left,
         }
     }
 }
@@ -409,6 +431,7 @@ pub enum Scope {
 /// Scope of a `section.key` setting.
 pub fn scope_of(section: &str, key: &str) -> Scope {
     match (section, key) {
+        ("editor", "tokenColorCustomizations") => Scope::Window,
         ("editor", _) => Scope::Resource,
         ("files", "autoSave" | "autoSaveDelay" | "largeFileThresholdMb") => Scope::Window,
         ("files", _) => Scope::Resource,

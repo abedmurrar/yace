@@ -8,7 +8,7 @@ use yace_buffer::{
     text::line_without_ending,
 };
 
-use super::{App, Severity};
+use super::App;
 use crate::editor::{DocId, GroupId};
 
 impl App {
@@ -401,10 +401,6 @@ impl App {
         } else if col >= view.scroll_col + width {
             view.scroll_col = col + 1 - width + 4.min(width / 4);
         }
-    }
-
-    pub(crate) fn not_available(&mut self, what: &str, milestone: &str) {
-        self.notify(Severity::Info, format!("{what} is not available yet (planned for milestone {milestone})."));
     }
 }
 

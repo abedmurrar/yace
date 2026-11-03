@@ -52,7 +52,7 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+k ctrl+o", "workbench.action.files.openFolder", ""),
     ("ctrl+k f", "workbench.action.closeFolder", ""),
     ("ctrl+k ctrl+t", "workbench.action.selectTheme", ""),
-    ("ctrl+k ctrl+s", "workbench.action.openGlobalKeybindingsFile", ""),
+    ("ctrl+k ctrl+s", "workbench.action.openGlobalKeybindings", ""),
     ("ctrl+,", "workbench.action.openSettingsJson", ""),
     ("ctrl+n", "workbench.action.files.newUntitledFile", ""),
     ("ctrl+s", "workbench.action.files.save", ""),
@@ -285,6 +285,19 @@ mod tests {
         keymap::{Resolution, Resolver},
         when::ContextSet,
     };
+
+    /// The keybinding editor writes `keys.to_string().to_lowercase()` and
+    /// `when.to_string()`; both must read back as the same binding.
+    #[test]
+    fn display_round_trips_for_every_default() {
+        for b in default_keymap().bindings() {
+            let text = b.keys.to_string().to_lowercase();
+            let back: crate::KeySeq = text.parse().unwrap_or_else(|e| panic!("{text}: {e}"));
+            assert_eq!(back, b.keys, "{text}");
+            let w = b.when.to_string();
+            assert_eq!(crate::When::parse(&w).unwrap(), b.when, "{w}");
+        }
+    }
 
     #[test]
     fn defaults_parse_and_have_no_unintended_conflicts() {

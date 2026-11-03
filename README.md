@@ -8,12 +8,12 @@ work across all of them in one Explorer with VS Code keyboard shortcuts.
 No Electron, no Node.js, no JavaScript runtime, no cloud account, no
 telemetry.
 
-> **Status:** milestones M1–M5 and M7 are implemented: multi-root
-> workspaces, Explorer, full editing, fuzzy Quick Open and workspace search,
-> the integrated terminal, tree-sitter syntax highlighting, folding, word
-> wrap, and language servers (completion, diagnostics, go to definition,
-> rename, symbols, code actions, formatting). Themes, plugins and Git are
-> planned. See [`TODO.md`](TODO.md) for the complete, itemised status.
+> **Status:** milestones M1–M7 are implemented: multi-root workspaces,
+> Explorer, full editing, fuzzy Quick Open and workspace search, the
+> integrated terminal, themes and a keybinding editor, tree-sitter syntax
+> highlighting, folding, word wrap, and language servers (completion,
+> diagnostics, go to definition, rename, symbols, code actions,
+> formatting). Plugins and Git are planned. See [`TODO.md`](TODO.md) for the complete, itemised status.
 
 ## Build and run
 
@@ -58,9 +58,21 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
 - **Settings.** Layered: defaults < `~/.config/yace/config.toml` <
   workspace settings < per-repository `.vscode/settings.json`. Invalid
   values are reported with file and key, and the default is used instead.
-  Custom keybindings go in `keybindings.toml`.
-- **Sessions.** Tabs, cursors, splits, Explorer expansion and sidebar state
-  are restored per workspace.
+  Changes apply as soon as a file is saved (live reload); a file that stops
+  parsing keeps its last good values.
+- **Themes.** YACE Dark and Light, One Dark, Dracula, Catppuccin Mocha and
+  Tokyo Night, switched live with a previewing picker (Ctrl+K Ctrl+T). Your
+  own TOML themes can extend any of them; single colours can be overridden
+  in settings with VS Code's keys; VS Code themes can be imported (data
+  only). Works in true colour, 256 and 16 colours, and without colour
+  (`NO_COLOR`). See [`docs/themes.md`](docs/themes.md).
+- **Keyboard shortcuts editor** (Ctrl+K Ctrl+S): search by name or by
+  pressing keys, rebind, remove, reset, see conflicts; changes go to
+  `keybindings.toml` with your comments kept.
+- **Sessions and layout.** Tabs, cursors, splits and their sizes, Explorer
+  expansion, sidebar and panel state are restored per workspace; the side
+  bar can sit left or right; small terminals degrade gracefully down to
+  1×1.
 - **Command palette** (Ctrl+Shift+P / F1) for every command.
 - **Quick Open and search.** Fuzzy file search across every root (Ctrl+P),
   workspace search and replace (Ctrl+Shift+F), find/replace in the editor.

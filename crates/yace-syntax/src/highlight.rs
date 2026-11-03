@@ -64,6 +64,15 @@ pub enum Scope {
 impl Scope {
     pub const COUNT: usize = Scope::Embedded as usize + 1;
 
+    /// Every scope, indexed by its discriminant.
+    pub const ALL: [Scope; Scope::COUNT] = ALL;
+
+    /// Canonical capture name, as used in theme files (`keyword.control`).
+    /// `Scope::from_capture(s.name()) == s` for every scope.
+    pub fn name(self) -> &'static str {
+        NAMES[self as usize]
+    }
+
     fn from_u8(v: u8) -> Scope {
         ALL.get(usize::from(v)).copied().unwrap_or(Scope::None)
     }
@@ -122,6 +131,46 @@ const ALL: [Scope; Scope::COUNT] = [
     Scope::Raw,
     Scope::ListMarker,
     Scope::Embedded,
+];
+
+const NAMES: [&str; Scope::COUNT] = [
+    "none",
+    "comment",
+    "string",
+    "string.special",
+    "string.escape",
+    "character",
+    "number",
+    "boolean",
+    "constant",
+    "constant.builtin",
+    "keyword",
+    "keyword.control",
+    "operator",
+    "punctuation",
+    "punctuation.bracket",
+    "function",
+    "function.builtin",
+    "function.method",
+    "function.macro",
+    "type",
+    "type.builtin",
+    "constructor",
+    "variable",
+    "variable.builtin",
+    "variable.parameter",
+    "property",
+    "attribute",
+    "tag",
+    "namespace",
+    "label",
+    "markup.heading",
+    "markup.bold",
+    "markup.italic",
+    "markup.link",
+    "markup.raw",
+    "markup.list",
+    "embedded",
 ];
 
 fn exact(n: &str) -> Option<Scope> {
@@ -378,6 +427,13 @@ fn parse_injection(
 mod tests {
     use super::*;
     use crate::{language::by_id, syntax::Syntax};
+
+    #[test]
+    fn scope_names_round_trip() {
+        for s in Scope::ALL.into_iter().skip(1) {
+            assert_eq!(Scope::from_capture(s.name()), s, "{}", s.name());
+        }
+    }
 
     fn spans(lang: &str, src: &str) -> (Rope, Vec<Span>) {
         let rope = Rope::from_str(src);

@@ -83,12 +83,16 @@ pub struct PanelState {
     applied_size: Option<(u16, u16)>,
 }
 
+/// Bottom panel height (rows of terminal content) for a new window and
+/// after "View: Reset Layout".
+pub const DEFAULT_PANEL_HEIGHT: u16 = 12;
+
 impl Default for PanelState {
     fn default() -> Self {
         let (notice_tx, notice_rx) = unbounded();
         Self {
             visible: false,
-            height: 12,
+            height: DEFAULT_PANEL_HEIGHT,
             maximized: false,
             tabs: Vec::new(),
             active: 0,

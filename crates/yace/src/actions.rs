@@ -38,6 +38,8 @@ pub enum PromptAction {
         doc: DocId,
         pos: usize,
     },
+    /// Import a VS Code colour theme JSON file.
+    ImportThemeFile,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +53,8 @@ pub enum CloseChoice {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfirmAction {
     Nothing,
+    /// Move keybindings.toml aside and use the defaults.
+    RestoreDefaultKeybindings,
     Close(CloseChoice),
     Trash(PathBuf),
     DeletePermanently(PathBuf),
@@ -102,6 +106,12 @@ pub enum PickerAction {
     CodeAction,
     /// Copy `App::notification_log[data]` to the clipboard.
     CopyNotification,
+    /// Preferences: Color Theme (live preview while moving).
+    SelectTheme,
+    /// Import `App::vscode_themes[data]`.
+    ImportVsCodeTheme,
+    /// Open user theme file `data` (0 = create a new one).
+    EditUserTheme,
 }
 
 #[derive(Debug, Clone, PartialEq)]

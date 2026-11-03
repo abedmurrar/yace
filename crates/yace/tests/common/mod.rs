@@ -90,6 +90,16 @@ impl Harness {
         }
     }
 
+    /// A second app ("a new window") over the same config and state.
+    pub fn new_app(&self) -> App {
+        App::new(AppOptions {
+            paths: self.paths(),
+            system_clipboard: false,
+            keyboard_enhanced: true,
+            process_start: Instant::now(),
+        })
+    }
+
     pub fn paths(&self) -> Paths {
         Paths::in_dir(self.state.path())
     }
@@ -223,6 +233,16 @@ impl Harness {
         self.app.handle(AppEvent::FsChanged(paths));
         self.app.on_tick(Instant::now() + Duration::from_secs(1));
         self.settle();
+    }
+
+    /// Render once at another size (the harness terminal is unchanged).
+    #[allow(dead_code)]
+    pub fn render_at(&mut self, w: u16, h: u16) -> ratatui::buffer::Buffer {
+        self.app.resize(w, h);
+        let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+        let app = &self.app;
+        term.draw(|f| yace_app::ui::draw(app, f)).unwrap();
+        term.backend().buffer().clone()
     }
 
     /// Render and return the cell buffer (for colour assertions).

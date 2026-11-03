@@ -16,6 +16,7 @@ jsonc-parser.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 yace-keymap.workspace = true
+toml_edit.workspace = true
 
 [lints]
 workspace = true

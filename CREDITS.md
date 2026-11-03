@@ -20,7 +20,22 @@ do the heavy lifting; thank you to their authors and contributors.
 | [unicode-segmentation](https://github.com/unicode-rs/unicode-segmentation) and [unicode-width](https://github.com/unicode-rs/unicode-width) | Grapheme-correct cursors and display widths | kwantam, Manish Goregaokar | MIT OR Apache-2.0 |
 | [arboard](https://github.com/1Password/arboard) | System clipboard | 1Password and contributors | MIT OR Apache-2.0 |
 | [trash](https://github.com/ArturKovacs/trash) | Move to Trash from the Explorer | Artur Kovacs | MIT |
-| [clap](https://github.com/clap-rs/clap), [serde](https://github.com/serde-rs/serde), [toml](https://github.com/toml-rs/toml), [crossbeam](https://github.com/crossbeam-rs/crossbeam), [directories](https://github.com/soc/directories-rs), [tracing](https://github.com/tokio-rs/tracing), [tempfile](https://github.com/Stebalien/tempfile), [signal-hook](https://github.com/vorner/signal-hook), [smallvec](https://github.com/servo/rust-smallvec) | CLI, configuration, channels, XDG paths, logging, atomic files, signals | their respective authors | MIT and/or Apache-2.0 |
+| [clap](https://github.com/clap-rs/clap), [serde](https://github.com/serde-rs/serde), [toml and toml_edit](https://github.com/toml-rs/toml), [crossbeam](https://github.com/crossbeam-rs/crossbeam), [directories](https://github.com/soc/directories-rs), [tracing](https://github.com/tokio-rs/tracing), [tempfile](https://github.com/Stebalien/tempfile), [signal-hook](https://github.com/vorner/signal-hook), [smallvec](https://github.com/servo/rust-smallvec) | CLI, configuration, channels, XDG paths, logging, atomic files, signals | their respective authors | MIT and/or Apache-2.0 |
+
+## Theme palettes
+
+The built-in themes' colours come from these themes (all MIT); their
+licence notices are in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md#theme-palettes).
+YACE ships its own theme files (`crates/yace/themes/`), not the original
+packages.
+
+| Theme in YACE | Palette from | Authors |
+|---|---|---|
+| One Dark | [Atom One Dark](https://github.com/atom/atom/tree/master/packages/one-dark-syntax); terminal colours from [One Dark Pro](https://github.com/Binaryify/OneDark-Pro) | GitHub Inc.; Binaryify |
+| Dracula | [Dracula](https://draculatheme.com) | Zeno Rocha and the Dracula Theme contributors |
+| Catppuccin Mocha | [Catppuccin](https://catppuccin.com) | the Catppuccin organisation |
+| Tokyo Night | [Tokyo Night](https://github.com/enkia/tokyo-night-vscode-theme) | enkia |
+| YACE Dark / YACE Light | YACE; syntax colours modelled on VS Code's Dark+ / Light+ | — |
 
 The complete list of the crates compiled into the `yace` binary, with each
 crate's version, licence and licence texts, is in
@@ -43,5 +58,5 @@ used unmodified, and its source is available from crates.io.
 
 YACE was designed and is maintained by Abed Murrar. It was developed with
 the help of Anthropic's Claude (Claude Code), which wrote much of the code
-under his direction; commits carry a `Co-Authored-By` line where that
+under the maintainer's direction; commits carry a `Co-Authored-By` line where that
 applies.

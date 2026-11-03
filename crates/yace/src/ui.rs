@@ -60,25 +60,38 @@ fn digits(n: usize) -> u16 {
 
 pub fn workbench_layout(app: &App) -> WorkbenchLayout {
     let area = app.area;
-    let status = Rect { x: area.x, y: area.bottom().saturating_sub(1), width: area.width, height: area.height.min(1) };
-    let main = Rect { height: area.height.saturating_sub(1), ..area };
+    // Very short terminals drop the status bar first (spec §3.3).
+    let status_h = if area.height >= 3 { area.height.min(1) } else { 0 };
+    let status = Rect { x: area.x, y: area.bottom().saturating_sub(status_h), width: area.width, height: status_h };
+    let main = Rect { height: area.height.saturating_sub(status_h), ..area };
     let narrow = main.width < 50;
     let show_sidebar = app.sidebar_visible && (!narrow || app.focus == Focus::Explorer || app.active().is_none());
+    let right = app.settings.workbench.side_bar_location == yace_config::SideBarLocation::Right;
     let (sidebar, sidebar_border, editor) = if show_sidebar && main.width >= 12 {
         let w = if narrow {
             main.width.saturating_sub(1)
         } else {
             app.sidebar_width.min(main.width.saturating_sub(21)).max(10)
         };
-        let sb = Rect { width: w, ..main };
-        let border = Rect { x: main.x + w, width: 1, ..main };
-        let ed = Rect { x: main.x + w + 1, width: main.width.saturating_sub(w + 1), ..main };
-        (Some(sb), Some(border), ed)
+        let rest = main.width.saturating_sub(w + 1);
+        if right {
+            let ed = Rect { width: rest, ..main };
+            let border = Rect { x: main.x + rest, width: 1, ..main };
+            let sb = Rect { x: main.x + rest + 1, width: w, ..main };
+            (Some(sb), Some(border), ed)
+        } else {
+            let sb = Rect { width: w, ..main };
+            let border = Rect { x: main.x + w, width: 1, ..main };
+            let ed = Rect { x: main.x + w + 1, width: rest, ..main };
+            (Some(sb), Some(border), ed)
+        }
     } else {
         (None, None, main)
     };
     // Bottom panel below the editor groups (the sidebar stays full height).
-    let (editor, panel_border, panel_tabs, panel_content) = if app.panel.visible && editor.height >= 6 {
+    // On short terminals it only shows while it has focus or is maximised.
+    let roomy = editor.height >= 12 || app.focus == Focus::Terminal || app.panel.maximized;
+    let (editor, panel_border, panel_tabs, panel_content) = if app.panel.visible && editor.height >= 6 && roomy {
         let total = if app.panel.maximized {
             editor.height
         } else {
@@ -97,7 +110,8 @@ pub fn workbench_layout(app: &App) -> WorkbenchLayout {
     let groups = rects
         .into_iter()
         .map(|(id, rect)| {
-            let tabs = Rect { height: rect.height.min(1), ..rect };
+            // Tabs only when there is room for text below them.
+            let tabs = Rect { height: if rect.height >= 3 { 1 } else { 0 }, ..rect };
             let content = Rect { y: rect.y + tabs.height, height: rect.height.saturating_sub(tabs.height), ..rect };
             let lines = app
                 .layout
@@ -365,11 +379,7 @@ fn draw_sidebar(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
         let selected = row_i == ex.selected;
         let mut style = t.sidebar();
         if selected {
-            style = if focused {
-                Style::new().fg(t.list_active_fg).bg(t.list_active_bg)
-            } else {
-                Style::new().fg(t.sidebar_fg).bg(t.list_inactive_selection_bg)
-            };
+            style = t.sidebar().patch(t.list_selected(focused));
             fill(buf, Rect { x: list.x, y, width: list.width, height: 1 }, style);
         }
         let indent = (row.depth as u16) * 2;
@@ -451,11 +461,7 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
     for cell in tab_cells(app, group, gl.tabs) {
         let v = &group.views[cell.view];
         let active = cell.view == group.active;
-        let mut style = if active {
-            Style::new().fg(t.tab_active_fg).bg(t.tab_active_bg)
-        } else {
-            Style::new().fg(t.tab_inactive_fg).bg(t.tab_inactive_bg)
-        };
+        let mut style = t.tab(active);
         if v.preview {
             style = style.add_modifier(Modifier::ITALIC);
         }
@@ -509,7 +515,7 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
     let bracket = if settings.editor.match_brackets && !doc.large_file { matching_bracket(rope, head) } else { None };
     let ranges: Vec<(usize, usize)> = view.sel.ranges().iter().map(|r| (r.from(), r.to())).collect();
     let heads: Vec<usize> = view.sel.ranges().iter().map(|r| r.head).collect();
-    let sel_bg = if group_focused { t.selection_bg } else { t.selection_inactive_bg };
+    let sel_style = t.selection(group_focused);
     let len_lines = rope.len_lines();
     // Display rows (folds + word wrap) for the viewport only.
     let map = crate::display::DisplayMap::new(rope, &view.folds, app.wrap_width(view.doc, gl.text_width as usize), tw);
@@ -653,16 +659,20 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
                     style = style.add_modifier(Modifier::UNDERLINED).underline_color(diag_color(sev));
                 }
                 if let Some(m) = find_matches.iter().find(|(a, b)| ci >= *a && ci < *b) {
-                    style = style.bg(if Some(*m) == current_match { t.find_current_bg } else { t.find_match_bg });
+                    style = style.patch(t.find_match(Some(*m) == current_match));
                 }
                 if selected {
-                    style = style.bg(sel_bg);
+                    style = style.patch(sel_style);
                 }
                 if bracket.is_some_and(|(a, b)| ci == a || ci == b) {
-                    style = style.bg(t.bracket_match_bg);
+                    style = if t.is_mono() {
+                        style.add_modifier(Modifier::UNDERLINED)
+                    } else {
+                        style.bg(t.bracket_match_bg)
+                    };
                 }
                 if line_heads.contains(&ci) && ci != head && group_focused {
-                    style = Style::new().fg(t.cursor_fg).bg(t.cursor_bg);
+                    style = t.cursor();
                 }
                 let (sym, style) = if g == "\t" {
                     (" ".repeat(w), style)
@@ -692,9 +702,9 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             let nl_selected =
                 active_ranges.iter().any(|(a, b)| line_end >= *a && line_end < *b && line + 1 < len_lines);
             if line_heads.contains(&line_end) && line_end != head && group_focused {
-                put(buf, end_x as u16, y, " ", 1, Style::new().bg(t.cursor_bg));
+                put(buf, end_x as u16, y, " ", 1, t.cursor());
             } else if nl_selected {
-                put(buf, end_x as u16, y, " ", 1, Style::new().bg(sel_bg));
+                put(buf, end_x as u16, y, " ", 1, sel_style);
             }
         }
         // Folded region placeholder.
@@ -815,8 +825,7 @@ fn draw_lsp_popups(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout, area: Rect
             };
             let yy = y + r as u16;
             let selected = scroll + r == c.selected;
-            let bg = if selected { t.overlay_selected_bg } else { t.overlay_bg };
-            let st = Style::new().fg(t.overlay_fg).bg(bg);
+            let st = if selected { t.overlay_selected() } else { Style::new().fg(t.overlay_fg).bg(t.overlay_bg) };
             fill(buf, Rect { x, y: yy, width: w, height: 1 }, st);
             let kind = kind_of(*i);
             let kx = (x + w).saturating_sub(kind.len() as u16 + 1);
@@ -843,15 +852,7 @@ fn draw_lsp_popups(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout, area: Rect
 }
 
 fn syntax_style(t: &crate::theme::Theme, scope: Option<yace_syntax::Scope>) -> Style {
-    use yace_syntax::Scope;
-    let Some(s) = scope else { return Style::new().fg(t.fg) };
-    let style = Style::new().fg(t.syntax[s as usize]);
-    match s {
-        Scope::Heading | Scope::Bold => style.add_modifier(Modifier::BOLD),
-        Scope::Italic => style.add_modifier(Modifier::ITALIC),
-        Scope::Link => style.add_modifier(Modifier::UNDERLINED),
-        _ => style,
-    }
+    t.syntax_style(scope)
 }
 
 fn draw_empty_group(app: &App, buf: &mut Buffer, r: Rect, active: bool) {
@@ -905,8 +906,7 @@ fn editor_cursor(app: &App, wl: &WorkbenchLayout) -> Option<(u16, u16)> {
 
 fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {
     let t = &app.theme;
-    let bg = if app.workspace.roots().is_empty() { t.status_no_folder_bg } else { t.status_bg };
-    let base = Style::new().fg(t.status_fg).bg(bg);
+    let base = t.status(app.workspace.roots().is_empty());
     fill(buf, r, base);
     let mut left;
     let mut right: Vec<String> = Vec::new();
@@ -1046,7 +1046,167 @@ pub fn overlay_geometry(area: Rect, o: &Overlay) -> OverlayGeom {
             let y = area.y + area.height.saturating_sub(h) / 3;
             OverlayGeom { outer: Rect { x, y, width: w, height: h }, ..Default::default() }
         }
+        Overlay::Keybindings(_) => {
+            let w = area.width.saturating_sub(4).min(160);
+            let outer = Rect {
+                x: area.x + (area.width - w) / 2,
+                y: area.y + 1.min(area.height),
+                width: w,
+                height: area.height.saturating_sub(2),
+            };
+            let inner_w = outer.width.saturating_sub(2);
+            let input = Rect { x: outer.x + 1, y: outer.y + 1, width: inner_w, height: 1 };
+            // Title, input, header above; status and footer below.
+            let list = Rect { x: outer.x + 1, y: outer.y + 3, width: inner_w, height: outer.height.saturating_sub(6) };
+            OverlayGeom { outer, input: Some(input), list: Some(list), buttons: vec![] }
+        }
     }
+}
+
+/// Column widths of the keybinding editor: (title, keys, when, source).
+fn kb_columns(width: u16) -> (u16, u16, u16, u16) {
+    let w = width.saturating_sub(1);
+    if w < 60 {
+        let keys = (w / 3).min(22);
+        return (w.saturating_sub(keys + 1), keys, 0, 0);
+    }
+    let (keys, source) = (24, 8);
+    let when = (w / 4).min(36);
+    (w.saturating_sub(keys + when + source + 3), keys, when, source)
+}
+
+fn draw_keybindings(
+    app: &App,
+    buf: &mut Buffer,
+    geom: &OverlayGeom,
+    e: &crate::keybindings_editor::KeybindingEditor,
+) -> Option<(u16, u16)> {
+    use crate::keybindings_editor::KbMode;
+    let t = &app.theme;
+    let base = Style::new().fg(t.overlay_fg).bg(t.overlay_bg);
+    let muted = Style::new().fg(t.muted).bg(t.overlay_bg);
+    draw_box(app, buf, geom.outer, &format!("Keyboard Shortcuts ({} of {})", e.filtered.len(), e.rows.len()));
+    let input = geom.input?;
+    let list = geom.list?;
+    if geom.outer.height < 7 || list.width < 10 {
+        return None;
+    }
+    let mut cursor = None;
+    match &e.mode {
+        KbMode::RecordSearch(keys) => {
+            let shown: Vec<String> = keys.iter().map(ToString::to_string).collect();
+            let text = format!(
+                " Recording keys: {}   (Alt+K or Esc to stop)",
+                if shown.is_empty() { "press keys…".into() } else { shown.join(" ") }
+            );
+            fill(buf, input, Style::new().fg(t.overlay_fg).bg(t.input_bg));
+            put(buf, input.x, input.y, &text, input.width, Style::new().fg(t.warning).bg(t.input_bg));
+        }
+        _ => {
+            cursor =
+                Some(draw_input(app, buf, input, &e.input, "Search: command, keys, when; @conflicts @user @unbound"))
+        }
+    }
+    let (tw, kw, ww, sw) = kb_columns(list.width);
+    let header_y = list.y - 1;
+    let head = Style::new().fg(t.muted).bg(t.overlay_bg).add_modifier(Modifier::BOLD);
+    let mut x = list.x + 1;
+    for (label, w) in [("Command", tw), ("Keybinding", kw), ("When", ww), ("Source", sw)] {
+        if w > 0 {
+            put(buf, x, header_y, label, w, head);
+            x += w + 1;
+        }
+    }
+    let height = list.height as usize;
+    let scroll = if e.selected >= height { e.selected + 1 - height } else { 0 };
+    if e.filtered.is_empty() {
+        put(buf, list.x + 1, list.y, "No matching commands", list.width, muted);
+    }
+    for (i, &ri) in e.filtered.iter().enumerate().skip(scroll).take(height) {
+        let row = &e.rows[ri];
+        let y = list.y + (i - scroll) as u16;
+        let selected = i == e.selected;
+        let style = if selected { t.overlay_selected() } else { base };
+        fill(buf, Rect { x: list.x, y, width: list.width, height: 1 }, style);
+        let mut x = list.x + 1;
+        let used = put(buf, x, y, &ellipsize(&row.title, tw as usize, app.glyphs.ellipsis), tw, style);
+        if (used as usize) + row.command.len() + 3 <= tw as usize && row.title != row.command {
+            put(buf, x + used + 2, y, &row.command, tw - used - 2, if selected { style } else { muted });
+        }
+        x += tw + 1;
+        let keys_style = if row.conflict { style.fg(t.warning) } else { style };
+        let mut keys = row.keys_text();
+        if row.conflict {
+            keys = format!("{} {keys}", app.glyphs.warning);
+        }
+        put(buf, x, y, &ellipsize(&keys, kw as usize, app.glyphs.ellipsis), kw, keys_style);
+        x += kw + 1;
+        if ww > 0 {
+            put(
+                buf,
+                x,
+                y,
+                &ellipsize(&row.when, ww as usize, app.glyphs.ellipsis),
+                ww,
+                if selected { style } else { muted },
+            );
+            x += ww + 1;
+        }
+        if sw > 0 {
+            put(buf, x, y, row.source_text(), sw, if selected { style } else { muted });
+        }
+    }
+    let status_y = geom.outer.bottom().saturating_sub(3);
+    let foot_y = geom.outer.bottom().saturating_sub(2);
+    let inner = geom.outer.width.saturating_sub(4);
+    match &e.mode {
+        KbMode::Define(keys) => {
+            let title = e.current().map(|r| r.title.as_str()).unwrap_or("");
+            let shown: Vec<String> = keys.iter().map(ToString::to_string).collect();
+            let mut text = format!("Press the keys for \"{title}\", then Enter (Esc cancels): {}", shown.join(" "));
+            let others: Vec<String> = e
+                .bound_to(keys)
+                .iter()
+                .filter(|r| Some(r.command.as_str()) != e.current().map(|c| c.command.as_str()))
+                .map(|r| r.title.clone())
+                .collect();
+            if !keys.is_empty() && !others.is_empty() {
+                text.push_str(&format!("   — also bound to: {}", others.join(", ")));
+            }
+            put(
+                buf,
+                geom.outer.x + 2,
+                status_y,
+                &text,
+                inner,
+                Style::new().fg(t.warning).bg(t.overlay_bg).add_modifier(Modifier::BOLD),
+            );
+            cursor = None;
+        }
+        _ if !e.note.is_empty() => {
+            put(buf, geom.outer.x + 2, status_y, &e.note, inner, Style::new().fg(t.info).bg(t.overlay_bg));
+        }
+        _ if !app.keyboard_enhanced => {
+            put(
+                buf,
+                geom.outer.x + 2,
+                status_y,
+                "This terminal can't send some keys (e.g. Ctrl+Shift+letters, Ctrl+Enter); see docs/keybindings.md",
+                inner,
+                muted,
+            );
+        }
+        _ => {}
+    }
+    put(
+        buf,
+        geom.outer.x + 2,
+        foot_y,
+        "Enter change keys · Del remove · Alt+R reset to default · Alt+K search by keys · Esc close",
+        inner,
+        muted,
+    );
+    cursor
 }
 
 fn draw_box(app: &App, buf: &mut Buffer, r: Rect, title: &str) {
@@ -1108,7 +1268,7 @@ fn draw_input(
                 })
                 .collect()
         };
-        let s = if input.all_selected { style.bg(t.selection_bg) } else { style };
+        let s = if input.all_selected { style.patch(t.selection(true)) } else { style };
         put(buf, r.x + 1, r.y, &visible, r.width.saturating_sub(1), s);
     }
     (r.x + 1 + cursor_cells - scroll, r.y)
@@ -1131,11 +1291,8 @@ fn draw_overlay(app: &App, buf: &mut Buffer, area: Rect, o: &Overlay) -> Option<
                 let it = &p.items[*idx];
                 let y = list.y + (row - scroll) as u16;
                 let selected = row == p.selected;
-                let style = if selected {
-                    Style::new().fg(t.list_active_fg).bg(t.overlay_selected_bg)
-                } else {
-                    Style::new().fg(t.overlay_fg).bg(t.overlay_bg)
-                };
+                let style =
+                    if selected { t.overlay_selected() } else { Style::new().fg(t.overlay_fg).bg(t.overlay_bg) };
                 fill(buf, Rect { x: list.x, y, width: list.width, height: 1 }, style);
                 let hint_w = UnicodeWidthStr::width(it.hint.as_str()) as u16;
                 let room = list.width.saturating_sub(hint_w + 3);
@@ -1220,6 +1377,7 @@ fn draw_overlay(app: &App, buf: &mut Buffer, area: Rect, o: &Overlay) -> Option<
             }
             None
         }
+        Overlay::Keybindings(e) => draw_keybindings(app, buf, &geom, e),
         Overlay::Info { title, lines } => {
             draw_box(app, buf, geom.outer, title);
             for (i, line) in lines.iter().enumerate() {
@@ -1449,13 +1607,7 @@ fn draw_search_view(app: &App, buf: &mut Buffer, list: Rect, focused: bool) {
     for (i, row) in rows.iter().enumerate().skip(scroll).take(height) {
         let y = lay.results.y + (i - scroll) as u16;
         let selected = i == s.selected && s.field == SearchField::Results;
-        let base = if selected && results_focused {
-            Style::new().fg(t.list_active_fg).bg(t.list_active_bg)
-        } else if selected {
-            Style::new().fg(t.sidebar_fg).bg(t.list_inactive_selection_bg)
-        } else {
-            t.sidebar()
-        };
+        let base = if selected { t.sidebar().patch(t.list_selected(results_focused)) } else { t.sidebar() };
         let line = Rect { x: lay.results.x, y, width: lay.results.width, height: 1 };
         fill(buf, line, base);
         let right = line.right();
@@ -1512,7 +1664,7 @@ fn draw_search_view(app: &App, buf: &mut Buffer, list: Rect, focused: bool) {
                     .flat_map(|(a, b)| (a.saturating_sub(lead)..b.saturating_sub(lead)).collect::<Vec<_>>())
                     .collect();
                 let mut ts = base;
-                let mut hs = base.bg(t.find_match_bg);
+                let mut hs = base.patch(t.find_match(false));
                 if excluded {
                     ts = ts.add_modifier(Modifier::CROSSED_OUT).fg(t.muted);
                     hs = ts;
@@ -1592,11 +1744,8 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
     let (cells, plus) = panel_tab_cells(app, strip);
     for (i, x, w, close_x) in cells {
         let active = i == app.panel.active;
-        let style = if active {
-            Style::new().fg(t.tab_active_fg).bg(t.terminal_bg)
-        } else {
-            Style::new().fg(t.tab_inactive_fg).bg(t.tab_inactive_bg)
-        };
+        let style =
+            if active && !t.is_mono() { Style::new().fg(t.tab_active_fg).bg(t.terminal_bg) } else { t.tab(active) };
         let r = Rect { x, y: strip.y, width: w, height: 1 };
         fill(buf, r, style);
         let label = app.terminal_label(i);
@@ -1659,6 +1808,9 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
                 bg = t.selection_bg;
             }
             let mut style = Style::new().fg(fg).bg(bg);
+            if st.selected && t.is_mono() {
+                style = style.add_modifier(Modifier::REVERSED);
+            }
             if st.bold {
                 style = style.add_modifier(Modifier::BOLD);
             }

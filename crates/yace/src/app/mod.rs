@@ -10,12 +10,15 @@ mod files;
 mod find;
 mod folding;
 mod history;
+mod keybindings;
+mod live_reload;
 mod lsp;
 mod mouse;
 mod quick_open;
 mod search_view;
 mod session;
 mod terminal;
+mod theme;
 mod workspace_ops;
 
 use std::{
@@ -40,7 +43,7 @@ use crate::{
     explorer::{Entry, Explorer},
     metrics::Metrics,
     overlay::{Overlay, OverlayOutcome},
-    theme::{Glyphs, Theme, detect_depth},
+    theme::{Glyphs, Theme},
 };
 
 pub use completion::completion_kind;
@@ -48,7 +51,7 @@ pub use edit::{Move, Op};
 pub use find::FindField;
 pub use mouse::MouseState;
 pub use search_view::{Row as SearchRow, SearchField};
-pub use terminal::{PanelState, TermTab, snapshot as terminal_snapshot};
+pub use terminal::{DEFAULT_PANEL_HEIGHT, PanelState, TermTab, snapshot as terminal_snapshot};
 
 /// Inputs to the application.
 #[derive(Debug)]
@@ -183,6 +186,13 @@ pub struct AppOptions {
 pub struct App {
     pub paths: Paths,
     user_layer: Layer,
+    /// Last good per-root settings layers (kept when a file breaks).
+    root_layers: HashMap<RootId, Layer>,
+    /// Last good user keybindings.
+    user_bindings: Vec<yace_keymap::BindingSpec>,
+    /// Content hashes of loaded config files, so watcher events for
+    /// unchanged files (our own writes) don't reload.
+    config_hashes: HashMap<PathBuf, u64>,
     pub config_errors: Vec<ConfigError>,
     /// Settings for the window (user + workspace).
     pub settings: Settings,
@@ -262,6 +272,13 @@ pub struct App {
     pub doc_symbols: Option<(DocId, u64, Vec<yace_lsp::Symbol>, u32)>,
     /// Workspace symbol results for the current query: (seq, results).
     pub workspace_symbols: (u64, Vec<(yace_lsp::Symbol, u32)>),
+    /// The theme picker's live preview.
+    pub(crate) theme_preview: Option<theme::ThemePreview>,
+    pub(crate) theme_key: Option<theme::ThemeKey>,
+    /// VS Code themes listed by the import picker.
+    pub(crate) vscode_themes: Vec<crate::theme::vscode::VsTheme>,
+    /// User theme files listed by "Edit User Theme".
+    pub(crate) user_theme_files: Vec<(String, PathBuf)>,
 }
 
 const FS_COALESCE: Duration = Duration::from_millis(100);
@@ -271,11 +288,15 @@ impl App {
         let (user_layer, mut config_errors) = yace_config::load_toml_layer(&opts.paths.user_settings(), Level::User);
         let (settings, errs) = yace_config::resolve(std::slice::from_ref(&user_layer));
         config_errors.extend(errs);
-        let theme = Theme::yace_dark().for_depth(detect_depth(settings.workbench.color_depth));
+        // Loaded from settings below (one parse); blank until then.
+        let theme = Theme::blank(crate::theme::ThemeKind::Dark);
         let glyphs = Glyphs::from_setting(settings.workbench.glyphs);
         let (recent, recent_err) = RecentList::load(&opts.paths.recent_file());
         let mut app = Self {
             user_layer,
+            root_layers: HashMap::new(),
+            user_bindings: Vec::new(),
+            config_hashes: HashMap::new(),
             config_errors: Vec::new(),
             root_settings: HashMap::new(),
             keymap: Keymap::new(),
@@ -334,10 +355,15 @@ impl App {
             format_save: None,
             doc_symbols: None,
             workspace_symbols: (0, Vec::new()),
+            theme_preview: None,
+            theme_key: None,
+            vscode_themes: Vec::new(),
+            user_theme_files: Vec::new(),
             settings,
             paths: opts.paths,
         };
         app.reload_keymap();
+        config_errors.extend(app.load_theme_from_settings());
         app.report_config_errors(config_errors);
         if let Some(e) = recent_err {
             app.notify(Severity::Warning, e);
@@ -489,10 +515,21 @@ impl App {
 
     pub(crate) fn reload_keymap(&mut self) {
         let mut km = yace_keymap::default_keymap();
-        let (specs, mut errors) = yace_config::load_keybindings(&self.paths.keybindings());
+        let path = self.paths.keybindings();
+        let (mut specs, mut errors) = yace_config::load_keybindings(&path);
+        if errors.is_empty() {
+            self.user_bindings = specs.clone();
+        } else {
+            // A broken file keeps the last good bindings (spec §17.4).
+            specs = self.user_bindings.clone();
+            for e in &mut errors {
+                e.message.push_str(" (the previous keybindings stay in effect)");
+            }
+        }
+        self.remember_config_file(&path);
         let binding_errors = km.apply_specs(&specs, Source::User);
         errors.extend(binding_errors.into_iter().map(|e| ConfigError {
-            origin: self.paths.keybindings().display().to_string(),
+            origin: path.display().to_string(),
             key: None,
             message: e.to_string(),
         }));
@@ -503,8 +540,17 @@ impl App {
 
     /// Recompute window and per-root settings.
     pub(crate) fn reload_settings(&mut self) {
-        let (user_layer, mut errors) = yace_config::load_toml_layer(&self.paths.user_settings(), Level::User);
-        self.user_layer = user_layer;
+        let user_path = self.paths.user_settings();
+        let (user_layer, mut errors) = yace_config::load_toml_layer(&user_path, Level::User);
+        if errors.is_empty() {
+            self.user_layer = user_layer;
+        } else {
+            // A file that doesn't parse keeps its last good values (§17.4).
+            for e in &mut errors {
+                e.message.push_str(" (the previous settings stay in effect)");
+            }
+        }
+        self.remember_config_file(&user_path);
         let ws_layer = Layer::new(
             Level::Workspace,
             self.workspace.file().map(|p| p.display().to_string()).unwrap_or_else(|| "workspace".into()),
@@ -520,8 +566,21 @@ impl App {
             if !available {
                 continue;
             }
-            let (layer, e) = yace_config::load_root_layer(&path);
+            let (mut layer, e) = yace_config::load_root_layer(&path);
+            if e.is_empty() {
+                match &layer {
+                    Some(l) => {
+                        self.root_layers.insert(id, l.clone());
+                    }
+                    None => {
+                        self.root_layers.remove(&id);
+                    }
+                }
+            } else {
+                layer = self.root_layers.get(&id).cloned();
+            }
             errors.extend(e);
+            self.remember_config_file(&path.join(".vscode").join("settings.json"));
             if let Some(layer) = layer {
                 let (s, e) = yace_config::resolve(&[self.user_layer.clone(), ws_layer.clone(), layer]);
                 errors.extend(e);
@@ -531,7 +590,7 @@ impl App {
         self.explorer.show_hidden = self.settings.explorer.show_hidden;
         self.explorer.set_excludes(&self.settings.files.exclude);
         self.glyphs = Glyphs::from_setting(self.settings.workbench.glyphs);
-        self.theme = Theme::yace_dark().for_depth(detect_depth(self.settings.workbench.color_depth));
+        errors.extend(self.load_theme_from_settings());
         self.config_errors.clear();
         self.report_config_errors(errors);
         self.needs_render = true;
@@ -642,6 +701,7 @@ impl App {
             }
         }
         self.sync_documents();
+        self.sync_theme_preview();
         self.refresh_find_if_stale();
         self.ensure_active_started();
         self.sync_terminal_size();
@@ -769,6 +829,11 @@ impl App {
             OverlayOutcome::Consumed => {}
             OverlayOutcome::Cancel => {
                 let closed = self.overlays.pop();
+                if let Some(Overlay::Picker(p)) = &closed
+                    && p.action == PickerAction::SelectTheme
+                {
+                    self.end_theme_preview(None);
+                }
                 if let Some(Overlay::Prompt(p)) = closed
                     && let PromptAction::SaveAs { doc } = p.action
                     && self.close_flow.as_ref().is_some_and(|f| f.saving == Some(doc))
@@ -805,6 +870,7 @@ impl App {
             }
             OverlayOutcome::QueryChanged => self.quick_open_query_changed(),
             OverlayOutcome::ToggleIgnored => self.quick_open_toggle_ignored(),
+            OverlayOutcome::KeybindingEdit(edit) => self.on_keybinding_edit(edit),
         }
     }
 
@@ -812,6 +878,14 @@ impl App {
         let text = text.trim().to_string();
         match action {
             PromptAction::RenameSymbol { doc, pos } => self.lsp_rename(doc, pos, &text),
+            PromptAction::ImportThemeFile => {
+                let path = yace_workspace::paths::expand_tilde(&text);
+                if !path.is_file() {
+                    return Err(format!("{} is not a file", path.display()));
+                }
+                self.import_theme_from(&path, "", "");
+                Ok(())
+            }
             PromptAction::NewFile { dir } => self.create_entry(&dir, &text, false),
             PromptAction::NewFolder { dir } => self.create_entry(&dir, &text, true),
             PromptAction::Rename { path } => self.rename_entry(&path, &text),
@@ -839,6 +913,7 @@ impl App {
     fn on_confirm(&mut self, action: ConfirmAction) {
         match action {
             ConfirmAction::Nothing => {}
+            ConfirmAction::RestoreDefaultKeybindings => self.restore_default_keybindings(),
             ConfirmAction::Close(choice) => self.on_close_choice(choice),
             ConfirmAction::Trash(p) => self.trash_entry(&p),
             ConfirmAction::DeletePermanently(p) => self.delete_permanently(&p),
@@ -886,6 +961,9 @@ impl App {
                 }
             }
             PickerAction::QuickOpen => self.quick_open_pick(data),
+            PickerAction::SelectTheme => self.end_theme_preview(Some(data)),
+            PickerAction::ImportVsCodeTheme => self.import_vscode_theme_pick(data),
+            PickerAction::EditUserTheme => self.edit_user_theme_pick(data),
             PickerAction::NewTerminalInRoot => self.new_terminal_in_root(RootId(data as u32)),
             PickerAction::NewTerminalProfile => self.new_terminal_with_profile(data),
             PickerAction::OpenRecent => self.open_recent(data),
@@ -940,6 +1018,7 @@ impl App {
 
     pub(crate) fn sync_watches(&mut self) {
         let mut want: BTreeSet<PathBuf> = self.explorer.expanded_dirs().into_iter().collect();
+        want.extend(self.config_watch_dirs());
         for (_, e) in self.docs.iter() {
             if let Some(parent) = e.doc.path().and_then(Path::parent) {
                 want.insert(parent.to_path_buf());

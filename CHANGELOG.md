@@ -13,6 +13,61 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- **Themes** (M6). Six built-in themes: YACE Dark (default), YACE Light,
+  One Dark, Dracula, Catppuccin Mocha and Tokyo Night. `Ctrl+K Ctrl+T`
+  opens a picker that previews each theme as you move; Enter keeps it
+  (saved in `config.toml` with your comments kept), Esc goes back.
+- Your own themes in `~/.config/yace/themes/*.toml`: VS Code colour ids for
+  the interface, scope names for syntax (with bold/italic/underline),
+  `extends` to build on another theme. "Create Theme from Current" and
+  "Edit User Theme…" get you started; saving applies immediately. See
+  `docs/themes.md`.
+- Colour overrides without a theme: `workbench.colorCustomizations` and
+  `editor.tokenColorCustomizations` (VS Code's keys and shapes, including
+  per-theme `"[Name]"` sections), also read from VS Code workspace
+  settings, as is `workbench.colorTheme`.
+- "Import VS Code Color Theme…": converts a theme from an installed VS
+  Code (or Cursor, Windsurf, VS Code Server) extension, or any theme
+  `.json`, into a YACE theme. Colour data only; no extension code runs.
+- "Developer: Inspect Editor Tokens" shows the scope, colour and style
+  under the cursor.
+- **Keyboard Shortcuts editor** (`Ctrl+K Ctrl+S`): every command with its
+  keys, when-clause and source; search by text, `@conflicts`, `@user`,
+  `@unbound`, or by pressing the keys (`Alt+K`); Enter rebinds (chords
+  too), Delete removes, `Alt+R` resets; conflicts are marked. "Restore
+  Default Keybindings" (keeps a `.bak`) and "Export Keybindings".
+- **Live reload**: `config.toml`, `keybindings.toml`, theme files and
+  `.vscode/settings.json` apply as soon as they are saved, in YACE or any
+  other editor.
+- "Open Workspace Settings", "Open Default Settings (Read-only)", "Reset
+  Layout (Sidebar, Panel, Group Sizes)", "Reset Editor Group Sizes".
+- The side bar can sit on the right: `workbench.sideBarLocation` and
+  "View: Primary Side Bar Position: Left/Right".
+
+### Changed
+
+- Without colour (`NO_COLOR`, `colorDepth = "mono"`), selection, cursor,
+  list selection, the status bar and matches are shown with reverse video,
+  bold and underline instead of disappearing.
+- A settings or keybindings file that no longer parses keeps its last
+  working values (with the file and line reported) instead of falling back
+  to the defaults.
+- Small terminals: below 12 rows the panel shows only while focused or
+  maximised, and below 3 rows the tab and status bars are hidden. Every
+  size down to 1×1 renders.
+- VS Code folder settings (`.vscode/settings.json`) that hold window-level
+  keys such as the theme are no longer reported as errors; they are
+  ignored for the folder, as before.
+
+### Performance
+
+- Built-in themes are compiled from their TOML files, so startup parses no
+  theme (0.8 µs to load one; parsing took 40–90 µs, up to 0.3 ms cold).
+  Switching themes re-colours the next frame without re-highlighting.
+  First frame and heap memory are unchanged from 0.4.2.
+
 ## [0.4.2] - 2026-11-03
 
 ### Fixed

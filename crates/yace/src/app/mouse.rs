@@ -129,7 +129,12 @@ impl App {
             MouseEventKind::Drag(MouseButton::Left) => match self.mouse.drag.clone() {
                 Some(Drag::Sidebar) => {
                     let max = self.area.width.saturating_sub(20).max(10);
-                    self.sidebar_width = x.saturating_sub(self.area.x).clamp(10, max);
+                    let w = if self.settings.workbench.side_bar_location == yace_config::SideBarLocation::Right {
+                        self.area.right().saturating_sub(x + 1)
+                    } else {
+                        x.saturating_sub(self.area.x)
+                    };
+                    self.sidebar_width = w.clamp(10, max);
                 }
                 Some(Drag::Split(h)) => self.layout.drag_handle(&h, x, y),
                 Some(Drag::Panel) => {
@@ -500,6 +505,18 @@ impl App {
                 }
                 if let Some(list) = geom.list
                     && hit(list, x, y)
+                    && let Some(Overlay::Keybindings(e)) = self.overlays.last_mut()
+                {
+                    let height = list.height as usize;
+                    let scroll = if e.selected >= height { e.selected + 1 - height } else { 0 };
+                    let idx = scroll + (y - list.y) as usize;
+                    if idx < e.filtered.len() {
+                        e.selected = idx;
+                    }
+                    return;
+                }
+                if let Some(list) = geom.list
+                    && hit(list, x, y)
                     && let Some(Overlay::Picker(p)) = self.overlays.last_mut()
                 {
                     let height = list.height as usize;
@@ -513,8 +530,15 @@ impl App {
                 }
             }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
-                if let Some(Overlay::Picker(p)) = self.overlays.last_mut() {
-                    p.move_by(if m.kind == MouseEventKind::ScrollDown { 1 } else { -1 });
+                let down = m.kind == MouseEventKind::ScrollDown;
+                match self.overlays.last_mut() {
+                    Some(Overlay::Picker(p)) => p.move_by(if down { 1 } else { -1 }),
+                    Some(Overlay::Keybindings(e)) => {
+                        let n = e.filtered.len();
+                        e.selected =
+                            if down { (e.selected + 3).min(n.saturating_sub(1)) } else { e.selected.saturating_sub(3) };
+                    }
+                    _ => {}
                 }
             }
             _ => {}

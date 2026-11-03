@@ -173,3 +173,103 @@ fn real_binary_highlights_rust() {
     writer.flush().unwrap();
     assert!(wait_for(Duration::from_secs(5), || child.try_wait().ok().flatten().is_some()));
 }
+
+struct Running {
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+    parser: Arc<Mutex<vt100::Parser>>,
+    writer: Box<dyn Write + Send>,
+}
+
+/// Start the real binary on `file` in a 20×80 pseudo-terminal.
+fn spawn_yace(file: &std::path::Path, config: &str, env: &[(&str, &str)]) -> (Running, tempfile::TempDir) {
+    let state = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(state.path().join("config")).unwrap();
+    std::fs::write(state.path().join("config/config.toml"), config).unwrap();
+    let pty = native_pty_system();
+    let pair = pty.openpty(PtySize { rows: 20, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_yace"));
+    cmd.arg(file);
+    cmd.cwd(file.parent().unwrap());
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env_remove("NO_COLOR");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    cmd.env("YACE_CONFIG_DIR", state.path().join("config"));
+    cmd.env("YACE_STATE_DIR", state.path().join("state"));
+    cmd.env("YACE_CACHE_DIR", state.path().join("cache"));
+    cmd.env_remove("DISPLAY");
+    cmd.env_remove("WAYLAND_DISPLAY");
+    let child = pair.slave.spawn_command(cmd).unwrap();
+    drop(pair.slave);
+    let parser = Arc::new(Mutex::new(vt100::Parser::new(20, 80, 0)));
+    let raw = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let mut reader = pair.master.try_clone_reader().unwrap();
+    let (p2, r2) = (Arc::clone(&parser), Arc::clone(&raw));
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = reader.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            p2.lock().unwrap().process(&buf[..n]);
+            r2.lock().unwrap().extend_from_slice(&buf[..n]);
+        }
+    });
+    let mut writer = pair.master.take_writer().unwrap();
+    if wait_for(Duration::from_secs(5), || raw.lock().unwrap().windows(3).any(|w| w == b"\x1b[c")) {
+        writer.write_all(b"\x1b[?62c").unwrap();
+        writer.flush().unwrap();
+    }
+    (Running { child, parser, writer }, state)
+}
+
+fn cell_at(parser: &Mutex<vt100::Parser>, needle: &str) -> Option<vt100::Cell> {
+    let p = parser.lock().unwrap();
+    let screen = p.screen();
+    for row in 0..20 {
+        let text = screen.contents_between(row, 0, row, 80);
+        if let Some(i) = text.find(needle) {
+            return screen.cell(row, text[..i].chars().count() as u16).cloned();
+        }
+    }
+    None
+}
+
+fn quit(mut r: Running) {
+    r.writer.write_all(b"\x11").unwrap(); // Ctrl+Q
+    r.writer.flush().unwrap();
+    assert!(wait_for(Duration::from_secs(5), || r.child.try_wait().ok().flatten().is_some()));
+}
+
+/// A configured theme reaches the real terminal, and with NO_COLOR the
+/// selection is still visible (reverse video, spec §16.5).
+#[test]
+fn real_binary_themes_and_monochrome() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("main.rs");
+    std::fs::write(&file, "fn main() {}\n// second\n").unwrap();
+
+    let (r, _state) = spawn_yace(&file, "[workbench]\ncolorTheme = \"Dracula\"\ncolorDepth = \"truecolor\"\n", &[]);
+    let dracula_bg = vt100::Color::Rgb(0x28, 0x2a, 0x36);
+    assert!(
+        wait_for(Duration::from_secs(10), || cell_at(&r.parser, "// second")
+            .is_some_and(|c| c.bgcolor() == dracula_bg)),
+        "Dracula background: {:?}",
+        cell_at(&r.parser, "// second").map(|c| c.bgcolor())
+    );
+    quit(r);
+
+    let (mut r, _state) = spawn_yace(&file, "", &[("NO_COLOR", "1")]);
+    assert!(wait_for(Duration::from_secs(10), || cell_at(&r.parser, "fn main").is_some()));
+    r.writer.write_all(b"\x1b[1;2F").unwrap(); // Shift+End selects the line
+    r.writer.flush().unwrap();
+    assert!(
+        wait_for(Duration::from_secs(5), || cell_at(&r.parser, "fn main").is_some_and(|c| c.inverse())),
+        "selection in reverse video"
+    );
+    let c = cell_at(&r.parser, "fn main").unwrap();
+    assert_eq!(c.bgcolor(), vt100::Color::Default, "no colours under NO_COLOR");
+    quit(r);
+}

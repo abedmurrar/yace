@@ -256,6 +256,8 @@ pub enum Overlay {
         title: String,
         lines: Vec<String>,
     },
+    /// Keyboard Shortcuts editor (`Ctrl+K Ctrl+S`).
+    Keybindings(Box<crate::keybindings_editor::KeybindingEditor>),
 }
 
 /// Outcome of a key press inside an overlay.
@@ -272,12 +274,19 @@ pub enum OverlayOutcome {
     QueryChanged,
     /// Quick Open: toggle including ignored files (Alt+I).
     ToggleIgnored,
+    /// Keybinding editor: apply an edit to `keybindings.toml`.
+    KeybindingEdit(crate::keybindings_editor::KbEdit),
 }
 
 impl Overlay {
     pub fn handle_key(&mut self, key: KeyPress, ch: Option<char>) -> OverlayOutcome {
         let plain = key.mods.is_empty();
         match self {
+            Overlay::Keybindings(e) => match e.handle_key(key, ch) {
+                None => OverlayOutcome::Consumed,
+                Some(Err(())) => OverlayOutcome::Cancel,
+                Some(Ok(edit)) => OverlayOutcome::KeybindingEdit(edit),
+            },
             Overlay::Info { .. } => match key.code {
                 KeyCode::Escape | KeyCode::Enter | KeyCode::Space => OverlayOutcome::Cancel,
                 _ => OverlayOutcome::Consumed,
@@ -368,6 +377,10 @@ impl Overlay {
             Overlay::Picker(p) => {
                 p.input.insert(text);
                 p.refilter();
+            }
+            Overlay::Keybindings(e) if e.mode == crate::keybindings_editor::KbMode::Search => {
+                e.input.insert(text);
+                e.refilter();
             }
             _ => {}
         }

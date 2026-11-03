@@ -19,6 +19,7 @@ use std::{
 use serde::Deserialize;
 pub use settings::*;
 use toml::{Table, Value};
+pub use toml_edit;
 use yace_keymap::BindingSpec;
 
 /// Which layer a setting came from.
@@ -90,6 +91,49 @@ fn merge_exclude(current: &Value, incoming: &Value) -> Option<Value> {
     Some(Value::Array(list))
 }
 
+/// Merge colour override tables key by key (one level deep, so
+/// `"[Theme]"` sections merge too), like VS Code merges objects.
+fn merge_tables(current: Option<&Value>, incoming: &Value) -> Value {
+    let (Some(Value::Table(cur)), Value::Table(inc)) = (current, incoming) else { return incoming.clone() };
+    let mut out = cur.clone();
+    for (k, v) in inc {
+        let merged = match (out.get(k), v) {
+            (Some(Value::Table(a)), Value::Table(b)) => {
+                let mut t = a.clone();
+                t.extend(b.iter().map(|(k, v)| (k.clone(), v.clone())));
+                Value::Table(t)
+            }
+            _ => v.clone(),
+        };
+        out.insert(k.clone(), merged);
+    }
+    Value::Table(out)
+}
+
+/// VS Code theme names → YACE built-in theme names (`workbench.colorTheme`).
+pub fn map_vscode_theme_name(name: &str) -> &str {
+    match name {
+        "Default Dark+"
+        | "Default Dark Modern"
+        | "Dark+"
+        | "Dark Modern"
+        | "Visual Studio Dark"
+        | "Dark (Visual Studio)"
+        | "Default Dark+ Experimental" => "YACE Dark",
+        "Default Light+"
+        | "Default Light Modern"
+        | "Light+"
+        | "Light Modern"
+        | "Visual Studio Light"
+        | "Light (Visual Studio)" => "YACE Light",
+        n if n.starts_with("One Dark") || n.starts_with("Atom One Dark") => "One Dark",
+        n if n.starts_with("Dracula") => "Dracula",
+        n if n.starts_with("Catppuccin") => "Catppuccin Mocha",
+        n if n.starts_with("Tokyo Night") => "Tokyo Night",
+        n => n,
+    }
+}
+
 /// Resolve layers (in precedence order) into settings plus errors.
 pub fn resolve(layers: &[Layer]) -> (Settings, Vec<ConfigError>) {
     let mut current = defaults_table();
@@ -125,6 +169,8 @@ pub fn resolve(layers: &[Layer]) -> (Settings, Vec<ConfigError>) {
                 };
                 let merged = if (section == "files" || section == "search") && key == "exclude" {
                     sec.get(key).and_then(|c| merge_exclude(c, v)).unwrap_or_else(|| v.clone())
+                } else if key == "colorCustomizations" || key == "tokenColorCustomizations" {
+                    merge_tables(sec.get(key), v)
                 } else {
                     v.clone()
                 };
@@ -308,6 +354,22 @@ pub fn from_vscode_settings(json: &serde_json::Value) -> Table {
                 put("files", "eol", Value::String(mapped.into()))
             }
             ("workbench.editor.enablePreview", J::Bool(b)) => put("workbench", "enablePreview", Value::Boolean(*b)),
+            ("workbench.colorTheme", J::String(s)) => {
+                put("workbench", "colorTheme", Value::String(map_vscode_theme_name(s).to_string()))
+            }
+            ("workbench.colorCustomizations", J::Object(_)) => {
+                if let Some(t) = json_to_toml(v) {
+                    put("workbench", "colorCustomizations", t)
+                }
+            }
+            ("editor.tokenColorCustomizations", J::Object(_)) => {
+                if let Some(t) = json_to_toml(v) {
+                    put("editor", "tokenColorCustomizations", t)
+                }
+            }
+            ("workbench.sideBar.location", J::String(s)) if matches!(s.as_str(), "left" | "right") => {
+                put("workbench", "sideBarLocation", Value::String(s.clone()))
+            }
             ("yace", J::Object(_)) => {
                 if let Some(Value::Table(t)) = json_to_toml(v) {
                     for (section, entries) in t {
@@ -331,7 +393,17 @@ pub fn load_root_layer(root: &Path) -> (Option<Layer>, Vec<ConfigError>) {
     match fs::read_to_string(&path) {
         Ok(text) => match parse_jsonc(&text) {
             Ok(json) => {
-                (Some(Layer::new(Level::Root, path.display().to_string(), from_vscode_settings(&json))), vec![])
+                // VS Code folder settings legitimately hold window-level keys
+                // (theme, …); a root can only change resource settings, so
+                // drop the rest silently instead of reporting them.
+                let mut values = from_vscode_settings(&json);
+                for (section, entries) in values.iter_mut() {
+                    if let Value::Table(t) = entries {
+                        t.retain(|k, _| scope_of(section, k) == Scope::Resource);
+                    }
+                }
+                values.retain(|_, v| !matches!(v, Value::Table(t) if t.is_empty()));
+                (Some(Layer::new(Level::Root, path.display().to_string(), values)), vec![])
             }
             Err(e) => (None, vec![ConfigError { origin: path.display().to_string(), key: None, message: e }]),
         },
@@ -375,6 +447,10 @@ impl Paths {
     }
     pub fn keybindings(&self) -> PathBuf {
         self.config_dir.join("keybindings.toml")
+    }
+    /// User themes (`*.toml`, spec §17.2).
+    pub fn themes_dir(&self) -> PathBuf {
+        self.config_dir.join("themes")
     }
     pub fn workspaces_state_dir(&self) -> PathBuf {
         self.state_dir.join("workspaces")
@@ -442,6 +518,49 @@ pub const DEFAULT_CONFIG_TEMPLATE: &str = r#"# YACE user settings. See docs/conf
 # enablePreview = true
 # glyphs = "unicode"        # "unicode" | "nerdFont" | "ascii"
 "#;
+
+/// Edit a TOML file in place, keeping comments, order and formatting of
+/// everything not touched. A missing file starts empty. Written atomically.
+pub fn edit_toml(path: &Path, f: impl FnOnce(&mut toml_edit::DocumentMut)) -> Result<(), String> {
+    let text = match fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let mut doc: toml_edit::DocumentMut =
+        text.parse().map_err(|e: toml_edit::TomlError| format!("{}: {}", path.display(), e.message()))?;
+    f(&mut doc);
+    atomic_write(path, doc.to_string().as_bytes()).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Set (or with `None`, remove) `section.key` in a settings file.
+pub fn edit_setting(path: &Path, section: &str, key: &str, value: Option<toml_edit::Value>) -> Result<(), String> {
+    edit_toml(path, |doc| match value {
+        Some(v) => {
+            if !doc.contains_table(section) {
+                doc.insert(section, toml_edit::Item::Table(toml_edit::Table::new()));
+            }
+            if let Some(t) = doc.get_mut(section).and_then(|i| i.as_table_like_mut()) {
+                match t.get_mut(key).and_then(|i| i.as_value_mut()) {
+                    // Keep the comment decoration around the old value.
+                    Some(old) => {
+                        let decor = old.decor().clone();
+                        *old = v;
+                        *old.decor_mut() = decor;
+                    }
+                    None => {
+                        t.insert(key, toml_edit::Item::Value(v));
+                    }
+                }
+            }
+        }
+        None => {
+            if let Some(t) = doc.get_mut(section).and_then(|i| i.as_table_like_mut()) {
+                t.remove(key);
+            }
+        }
+    })
+}
 
 /// Starter `keybindings.toml`.
 pub const DEFAULT_KEYBINDINGS_TEMPLATE: &str = r#"# YACE user keybindings. Later entries win; "-command" removes a default.
@@ -533,6 +652,32 @@ mod tests {
         assert!(!s.files.exclude.contains(&"**/.git".to_string()));
         // glyphs is application-scoped, so the workspace cannot set it
         assert_eq!(s.workbench.glyphs, Glyphs::Unicode);
+    }
+
+    #[test]
+    fn edit_setting_keeps_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        std::fs::write(&p, "# my settings\n[editor]\ntabSize = 2 # two!\n\n[workbench]\n# the theme\ncolorTheme = \"Dracula\" # nice\n").unwrap();
+        edit_setting(&p, "workbench", "colorTheme", Some("One Dark".into())).unwrap();
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(
+            text,
+            "# my settings\n[editor]\ntabSize = 2 # two!\n\n[workbench]\n# the theme\ncolorTheme = \"One Dark\" # nice\n"
+        );
+        edit_setting(&p, "files", "autoSave", Some("afterDelay".into())).unwrap();
+        edit_setting(&p, "editor", "tabSize", None).unwrap();
+        let t: Table = std::fs::read_to_string(&p).unwrap().parse().unwrap();
+        assert_eq!(t["files"]["autoSave"].as_str(), Some("afterDelay"));
+        assert!(t["editor"].as_table().unwrap().is_empty());
+        // A missing file (and directory) is created.
+        let q = dir.path().join("new").join("config.toml");
+        edit_setting(&q, "workbench", "colorTheme", Some("Dracula".into())).unwrap();
+        assert!(std::fs::read_to_string(&q).unwrap().contains("[workbench]\ncolorTheme = \"Dracula\""));
+        // Invalid TOML is refused, never overwritten.
+        std::fs::write(&p, "[broken").unwrap();
+        assert!(edit_setting(&p, "a", "b", Some(1.into())).is_err());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "[broken");
     }
 
     #[test]

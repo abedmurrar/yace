@@ -84,6 +84,29 @@ out = [
 ]
 for name, ver, lic, repo, refs in rows:
     out.append(f"| {name} | {ver} | {lic} | {repo} | {', '.join(refs) or 'none shipped (SPDX: ' + lic + ')'} |")
+# Colour palettes of the built-in themes (crates/yace/themes/*.toml) are
+# derived from these MIT-licensed themes; their notices travel with YACE.
+PALETTES = [
+    ("One Dark", "crates/yace/themes/one-dark.toml", "https://github.com/atom/atom/tree/master/packages/one-dark-syntax", "2014 GitHub Inc."),
+    ("One Dark (terminal colours)", "crates/yace/themes/one-dark.toml", "https://github.com/Binaryify/OneDark-Pro", "2016 Binaryify"),
+    ("Dracula", "crates/yace/themes/dracula.toml", "https://github.com/dracula/visual-studio-code", "2016 Dracula Theme"),
+    ("Catppuccin Mocha", "crates/yace/themes/catppuccin-mocha.toml", "https://github.com/catppuccin/catppuccin", "2021 Catppuccin"),
+    ("Tokyo Night", "crates/yace/themes/tokyo-night.toml", "https://github.com/enkia/tokyo-night-vscode-theme", "2018-present Enkia"),
+]
+out += [
+    "",
+    "## Theme palettes",
+    "",
+    "The colour palettes of these built-in themes are derived from MIT-licensed themes:",
+    "",
+    "| Theme | File | Source | Licence |",
+    "|---|---|---|---|",
+]
+for name, f, url, holders in PALETTES:
+    t = MIT.format(holders=holders)
+    h = hashlib.sha256(t.encode()).hexdigest()[:12]
+    texts.setdefault(h, ("MIT", t, []))[2].append(f"{name} palette")
+    out.append(f"| {name} | `{f}` | {url} | [MIT](#t-{h}) |")
 out += ["", "## Licence texts", ""]
 for h, (fname, t, users) in sorted(texts.items(), key=lambda kv: kv[1][2][0]):
     out.append(f'<a id="t-{h}"></a>')

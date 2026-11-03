@@ -79,14 +79,12 @@ Rebind those in the terminal, or use the fallbacks below.
 | `Ctrl+R` | Open Recent | `workbench.action.openRecent` |
 | `Ctrl+K F` | Close Workspace | `workbench.action.closeFolder` |
 | `Ctrl+,` | Open User Settings | `workbench.action.openSettingsJson` |
-| `Ctrl+K Ctrl+S` | Open Keyboard Shortcuts File | `workbench.action.openGlobalKeybindingsFile` |
+| `Ctrl+K Ctrl+S` | Open Keyboard Shortcuts (editor) | `workbench.action.openGlobalKeybindings` |
+| `Ctrl+K Ctrl+T` | Color Theme (picker with live preview) | `workbench.action.selectTheme` |
 | `Ctrl+G` | Go to Line/Column | `workbench.action.gotoLine` |
 | `Ctrl+Q` | Quit | `workbench.action.quit` |
 | `Escape` | Dismiss Notification | `yace.dismissNotification` |
 
-These are reserved for later milestones and currently show a "not available
-yet" notice: `Ctrl+K Ctrl+T` (themes, M6), and `Ctrl+Shift+O`, `Ctrl+T`,
-`Ctrl+Space`, `F2`, `F12` (language features, M7).
 
 ### Integrated terminal
 
@@ -233,6 +231,30 @@ the terminal; completion still opens on its own while you type (or run
 
 ## Customising
 
+### Keyboard Shortcuts editor (`Ctrl+K Ctrl+S`)
+
+Lists every command — bound or not — with its keys, when-clause and source
+(Default, Plugin or User). Conflicting bindings (same keys and when-clause,
+different commands; only the last one is reachable) are marked with ⚠.
+
+| Key | Action |
+|---|---|
+| typing | filter by command title, id, keys or when-clause; `@conflicts`, `@user`, `@default`, `@unbound` narrow the list |
+| `Alt+K` | search by keys: press a key or chord to list what it's bound to (`Alt+K`/`Esc` stops) |
+| `Enter` | change the selected binding: press the new key or chord (two presses), then `Enter`; `Esc` cancels. The editor shows what else uses those keys |
+| `Delete` | remove the selected binding (at the end of the search text) |
+| `Alt+R` | reset the command to its default keys (removes your entries for it) |
+| `Esc` | close |
+
+Changes are written to `keybindings.toml` (your comments and order are
+kept): replacing a default adds a `-command` entry for the old keys plus the
+new binding. "Preferences: Restore Default Keybindings" moves your file to
+`keybindings.toml.bak`; "Preferences: Export Keybindings" opens the whole
+effective keymap as TOML. Keys your terminal can't send (see above) can be
+bound but only work in terminals that send them.
+
+### `keybindings.toml`
+
 `~/.config/yace/keybindings.toml`:
 
 ```toml
@@ -253,6 +275,7 @@ key = "ctrl+p"
 ```
 
 Problems in this file are reported with the entry number, and the valid
-entries still apply. Saving the file from inside YACE reloads it; so does
-running "Preferences: Reload Settings and Keybindings". To see bindings
+entries still apply. Saving the file — in YACE or any other editor —
+reloads it; if it no longer parses, the previous bindings stay until it is
+fixed. To see bindings
 that shadow each other, run "Developer: Show Keybinding Conflicts".

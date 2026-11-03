@@ -362,6 +362,20 @@ impl Layout {
         self.maximized = false;
     }
 
+    /// Give every split's children equal sizes (View: Reset Layout,
+    /// Even Editor Group Sizes).
+    pub fn even_sizes(&mut self) {
+        fn walk(n: &mut Node) {
+            if let Node::Split { children, ratios, .. } = n {
+                let k = children.len().max(1) as f32;
+                ratios.iter_mut().for_each(|r| *r = 1.0 / k);
+                children.iter_mut().for_each(walk);
+            }
+        }
+        walk(&mut self.root);
+        self.maximized = false;
+    }
+
     /// Reset to a single group containing every open view (deduplicated).
     pub fn reset(&mut self) {
         let mut merged = Group::new(self.order()[0]);

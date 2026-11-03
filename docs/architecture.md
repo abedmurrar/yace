@@ -120,6 +120,37 @@ The context is computed per key and includes: focus (`editorFocus`,
 selections, whether the explorer filter is active, `keyboardEnhanced` and
 `notificationVisible`.
 
+## Themes and configuration (M6)
+
+- `theme/` holds the `Theme` (semantic colour tokens + syntax styles) and
+  its loader. Theme files are TOML whose UI keys are VS Code colour ids;
+  one table (`COLOR_KEYS`) maps ids to fields and drives parsing,
+  overrides, VS Code import and the docs (a test keeps `docs/themes.md` in
+  sync). Inheritance (`extends`) is resolved by building the parent first.
+- The six built-in themes are **compiled**: `builtin_gen.rs` is generated
+  from `crates/yace/themes/*.toml` by a test that fails when it is stale,
+  so startup never parses a theme (0.8 µs instead of 40–90 µs warm, up to
+  0.3 ms cold). User themes are parsed when used.
+- The theme is rebuilt only when what it depends on changes (name,
+  overrides, colour depth, or a theme file on disk). Spans store syntax
+  scopes, not colours, so switching themes re-colours the next frame with
+  no re-highlighting.
+- State styles (`selection()`, `find_match()`, `list_selected()`, `tab()`,
+  `status()`, `cursor()`) switch to text attributes in monochrome, so no
+  state depends on colour alone.
+- **Live reload** (`app/live_reload.rs`): the config folder, the themes
+  folder and each root's `.vscode` folder are watched by the same watcher
+  as the Explorer. A change is applied only if the file's content hash
+  differs from what was last applied (so YACE's own writes don't reload
+  twice). A file that fails to parse keeps its last good layer.
+- **Writing settings** (`yace_config::edit_setting` / `edit_toml`) uses
+  `toml_edit`, so comments, order and formatting survive; used by the theme
+  picker, the side bar position toggle and the keybinding editor.
+- **Keybinding editor** (`keybindings_editor.rs`): a terminal-agnostic
+  model (rows, filter, record/define modes) that emits `KbEdit`s; the app
+  turns them into `keybindings.toml` edits (`-command` entries to replace
+  defaults) and reloads the keymap.
+
 ## Documents, views, groups
 
 - `DocumentStore` owns documents, keyed by canonical path, so one file is
