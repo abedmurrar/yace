@@ -13,6 +13,24 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- TypeScript 7 support: projects whose `node_modules/typescript` is 7 or
+  newer use TypeScript's own native language server (`tsc --lsp --stdio`)
+  automatically, started directly without a Node.js process (138 MiB vs.
+  538 MiB for typescript-language-server + tsserver on the same project).
+  Projects on older TypeScript keep using typescript-language-server.
+- Pull diagnostics (LSP 3.17 `textDocument/diagnostic`), which TypeScript 7
+  and other newer servers use instead of pushing them: requested after
+  opening and editing a file (one request in flight per file), re-pulled
+  across open files when the server says diagnostics span files, and on
+  `workspace/diagnostic/refresh`.
+
+### Fixed
+
+- With TypeScript 7 installed, typescript-language-server failed to start
+  ("provides no tsserver.js"); YACE now picks the right server per project.
+
 ## [0.4.0] - 2026-11-03
 
 ### Added

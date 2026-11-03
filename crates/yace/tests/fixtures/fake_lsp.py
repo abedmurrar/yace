@@ -18,6 +18,8 @@ import json, os, re, sys
 
 LOG = os.environ.get("FAKE_LSP_LOG")
 DEF = os.environ.get("FAKE_LSP_DEF")
+# FAKE_LSP_PULL=1: pull diagnostics only (textDocument/diagnostic), like TypeScript 7.
+PULL = os.environ.get("FAKE_LSP_PULL") == "1"
 docs = {}
 root = None
 
@@ -87,14 +89,19 @@ def word_at(text, off):
     return s, e, text[s:e]
 
 
-def publish(uri):
-    text = docs[uri]
+def diagnostics_for(uri):
+    text = docs.get(uri, "")
     diags = []
     for m in re.finditer(r"TODO|ERROR", text):
         sev = 2 if m.group() == "TODO" else 1
         diags.append({"range": rng(text, m.start(), m.end()), "severity": sev, "source": "fake",
                       "code": "T1" if sev == 2 else 7, "message": f"{m.group()} found"})
-    send({"method": "textDocument/publishDiagnostics", "params": {"uri": uri, "diagnostics": diags}})
+    return diags
+
+
+def publish(uri):
+    if not PULL:
+        send({"method": "textDocument/publishDiagnostics", "params": {"uri": uri, "diagnostics": diagnostics_for(uri)}})
 
 
 def files_under_root():
@@ -150,7 +157,8 @@ def handle(msg):
             "definitionProvider": True, "referencesProvider": True, "renameProvider": True,
             "documentSymbolProvider": True, "workspaceSymbolProvider": True,
             "codeActionProvider": True, "documentFormattingProvider": True,
-            "positionEncoding": "utf-16"},
+            "positionEncoding": "utf-16",
+            **({"diagnosticProvider": {"identifier": "fake", "interFileDependencies": True, "workspaceDiagnostics": False}} if PULL else {})},
             "serverInfo": {"name": "fake-lsp"}}})
     elif method == "initialized":
         send({"id": "cfg-1", "method": "workspace/configuration", "params": {"items": [{"section": "fake"}]}})
@@ -252,6 +260,8 @@ def handle(msg):
                 edits.append({"range": {"start": {"line": i, "character": len(stripped)}, "end": {"line": i, "character": len(line)}},
                               "newText": ""})
         send({"id": mid, "result": edits})
+    elif method == "textDocument/diagnostic":
+        send({"id": mid, "result": {"kind": "full", "items": diagnostics_for(p["textDocument"]["uri"])}})
     elif method == "shutdown":
         send({"id": mid, "result": None})
     elif method == "exit":

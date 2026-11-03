@@ -20,6 +20,23 @@ pub struct ServerDef {
     pub install_hint: String,
     /// Runs on Node.js (reported as an external runtime).
     pub needs_node: bool,
+    /// How the program is found.
+    pub kind: DefKind,
+}
+
+/// How a server's program is located.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DefKind {
+    /// `command` on `PATH` (or as given).
+    #[default]
+    Plain,
+    /// TypeScript 7's own server (`tsc --lsp --stdio`), from the project's
+    /// TypeScript when it is ≥ 7, else a global TypeScript ≥ 7. The native
+    /// binary is started directly (no Node.js process in between).
+    TypeScriptNative,
+    /// `typescript-language-server`: needs `tsserver.js`, which TypeScript 7
+    /// no longer ships, so it is skipped for projects on TypeScript ≥ 7.
+    TypeScriptTsserver,
 }
 
 fn def(name: &str, command: &str, args: &[&str], languages: &[&str], hint: &str, node: bool) -> ServerDef {
@@ -33,6 +50,7 @@ fn def(name: &str, command: &str, args: &[&str], languages: &[&str], hint: &str,
         settings: Value::Null,
         install_hint: hint.into(),
         needs_node: node,
+        kind: DefKind::Plain,
     }
 }
 
@@ -40,14 +58,28 @@ fn def(name: &str, command: &str, args: &[&str], languages: &[&str], hint: &str,
 pub fn builtin() -> Vec<ServerDef> {
     vec![
         def("rust-analyzer", "rust-analyzer", &[], &["rust"], "rustup component add rust-analyzer", false),
-        def(
-            "typescript-language-server",
-            "typescript-language-server",
-            &["--stdio"],
-            &["typescript", "typescriptreact", "javascript", "javascriptreact"],
-            "npm install -g typescript typescript-language-server",
-            true,
-        ),
+        ServerDef {
+            kind: DefKind::TypeScriptNative,
+            ..def(
+                "typescript",
+                "tsc",
+                &["--lsp", "--stdio"],
+                &["typescript", "typescriptreact", "javascript", "javascriptreact"],
+                "npm install -g typescript   (TypeScript 7 includes its own language server)",
+                false,
+            )
+        },
+        ServerDef {
+            kind: DefKind::TypeScriptTsserver,
+            ..def(
+                "typescript-language-server",
+                "typescript-language-server",
+                &["--stdio"],
+                &["typescript", "typescriptreact", "javascript", "javascriptreact"],
+                "npm install -g typescript typescript-language-server",
+                true,
+            )
+        },
         def("pyright", "pyright-langserver", &["--stdio"], &["python"], "npm install -g pyright", true),
         def("pylsp", "pylsp", &[], &["python"], "pip install python-lsp-server", false),
         def("gopls", "gopls", &[], &["go"], "go install golang.org/x/tools/gopls@latest", false),
@@ -132,6 +164,70 @@ pub fn which(command: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?).map(|d| d.join(command)).find(|p| is_exec(p))
 }
 
+/// Major version and directory of a `typescript` package.
+fn ts_package(dir: &Path) -> Option<(u32, PathBuf)> {
+    let text = std::fs::read_to_string(dir.join("package.json")).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    let major = v.get("version")?.as_str()?.split('.').next()?.parse().ok()?;
+    Some((major, dir.to_path_buf()))
+}
+
+/// The TypeScript a project uses: the nearest `node_modules/typescript`.
+pub fn workspace_typescript(root: &Path) -> Option<(u32, PathBuf)> {
+    root.ancestors().find_map(|d| ts_package(&d.join("node_modules").join("typescript")))
+}
+
+/// A global TypeScript (the package behind `tsc` on `PATH`).
+fn global_typescript() -> Option<(u32, PathBuf)> {
+    let tsc = std::fs::canonicalize(which("tsc")?).ok()?;
+    ts_package(tsc.parent()?.parent()?)
+}
+
+/// TypeScript 7's native executable for a `typescript` package directory.
+fn native_tsc(pkg: &Path) -> Option<PathBuf> {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        o => o,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        a => a,
+    };
+    let platform = format!("typescript-{os}-{arch}");
+    let exe = if cfg!(windows) { "tsc.exe" } else { "tsc" };
+    let mut dirs = vec![pkg.join("node_modules")];
+    dirs.extend(pkg.ancestors().skip(1).filter(|d| d.ends_with("node_modules")).map(Path::to_path_buf));
+    dirs.into_iter().map(|d| d.join("@typescript").join(&platform).join("lib").join(exe)).find(|p| p.is_file())
+}
+
+fn ts7_program(pkg: &Path) -> Option<PathBuf> {
+    native_tsc(pkg).or_else(|| Some(pkg.join("bin").join("tsc")).filter(|p| p.is_file()))
+}
+
+/// The program to start for `def` in workspace folder `root`, or why it
+/// cannot be used there.
+pub fn resolve(def: &ServerDef, root: &Path) -> Result<PathBuf, String> {
+    match def.kind {
+        DefKind::Plain => which(&def.command).ok_or_else(|| format!("{} not found on PATH", def.command)),
+        DefKind::TypeScriptNative => match workspace_typescript(root) {
+            Some((major, pkg)) if major >= 7 => ts7_program(&pkg).ok_or_else(|| "TypeScript 7 binary missing".into()),
+            Some((major, _)) => Err(format!("the project uses TypeScript {major}")),
+            None => match global_typescript() {
+                Some((major, pkg)) if major >= 7 => {
+                    ts7_program(&pkg).ok_or_else(|| "TypeScript 7 binary missing".into())
+                }
+                _ => Err("no TypeScript 7 found".into()),
+            },
+        },
+        DefKind::TypeScriptTsserver => match workspace_typescript(root) {
+            Some((major, _)) if major >= 7 => Err("TypeScript 7 has no tsserver.js".into()),
+            _ => which(&def.command).ok_or_else(|| format!("{} not found on PATH", def.command)),
+        },
+    }
+}
+
 /// Servers for a language: user definitions (which replace built-ins of
 /// the same name) first, then built-ins; disabled names removed.
 pub fn candidates(language: &str, user: &[ServerDef], disabled: &[String]) -> Vec<ServerDef> {
@@ -158,12 +254,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn typescript_resolution_follows_the_project_version() {
+        let d = std::env::temp_dir().join(format!("yace-ts-{}", std::process::id()));
+        let ts = d.join("proj/node_modules/typescript");
+        let native = d.join("proj/node_modules/@typescript/typescript-linux-x64/lib");
+        std::fs::create_dir_all(ts.join("bin")).unwrap();
+        std::fs::create_dir_all(&native).unwrap();
+        std::fs::write(ts.join("package.json"), r#"{"name":"typescript","version":"7.0.2"}"#).unwrap();
+        std::fs::write(ts.join("bin/tsc"), "").unwrap();
+        std::fs::write(native.join("tsc"), "").unwrap();
+        let root = d.join("proj/packages/app");
+        std::fs::create_dir_all(&root).unwrap();
+        let defs = builtin();
+        let native_def = defs.iter().find(|x| x.kind == DefKind::TypeScriptNative).unwrap();
+        let tsls = defs.iter().find(|x| x.kind == DefKind::TypeScriptTsserver).unwrap();
+        let p = resolve(native_def, &root).unwrap();
+        if std::env::consts::OS == "linux" && std::env::consts::ARCH == "x86_64" {
+            assert!(p.ends_with("@typescript/typescript-linux-x64/lib/tsc"), "native binary, no Node: {p:?}");
+        }
+        assert!(resolve(tsls, &root).unwrap_err().contains("tsserver"));
+        std::fs::write(ts.join("package.json"), r#"{"name":"typescript","version":"5.9.3"}"#).unwrap();
+        assert!(resolve(native_def, &root).unwrap_err().contains("TypeScript 5"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn candidates_respect_user_overrides_and_disabled() {
         let mut mine = def("typescript-language-server", "/opt/tsls", &["--stdio"], &["typescript"], "", true);
         mine.settings = serde_json::json!({"typescript": {"format": {"semicolons": "remove"}}});
         let c = candidates("typescript", std::slice::from_ref(&mine), &[]);
-        assert_eq!(c.len(), 1);
+        assert_eq!(c.len(), 2, "user definition first, then the native TypeScript server");
         assert_eq!(c[0].command, "/opt/tsls");
+        assert_eq!(c[1].kind, DefKind::TypeScriptNative);
         assert_eq!(
             candidates("python", &[], &[]).iter().map(|d| d.name.as_str()).collect::<Vec<_>>(),
             ["pyright", "pylsp"]

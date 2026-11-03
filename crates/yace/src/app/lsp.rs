@@ -158,6 +158,7 @@ impl App {
             self.lsp_close(*d);
             self.lsp_open(*d);
         }
+        let mut changed = Vec::new();
         for (d, list) in edits {
             if let Some(path) = self.docs.doc(*d).and_then(|x| x.path()).map(path_key)
                 && let Some(ds) = self.lsp.diagnostics.get_mut(&path)
@@ -185,6 +186,10 @@ impl App {
             let params = json!({ "textDocument": { "uri": ld.uri, "version": ld.version }, "contentChanges": changes });
             let id = ld.server;
             self.lsp.notify(id, "textDocument/didChange", params);
+            changed.push(*d);
+        }
+        if !changed.is_empty() {
+            self.pull_after_change(&changed);
         }
     }
 
@@ -206,7 +211,8 @@ impl App {
         let id = match defs.iter().find_map(|def| self.lsp.find(&def.name, &root)) {
             Some(id) => id,
             None => {
-                let Some(def) = defs.iter().find(|d| registry::which(&d.command).is_some()).cloned() else {
+                let found = defs.iter().find_map(|d| registry::resolve(d, &root).ok().map(|p| (d.clone(), p)));
+                let Some((def, program)) = found else {
                     if self.lsp.hinted.insert(lang.id.to_string()) {
                         let hint = &defs[0].install_hint;
                         self.notify_sticky(
@@ -219,7 +225,7 @@ impl App {
                     }
                     return;
                 };
-                match self.lsp.spawn(def.clone(), root, root_name) {
+                match self.lsp.spawn(def.clone(), program, root, root_name) {
                     Ok(id) => id,
                     Err(e) => {
                         self.notify(Severity::Warning, format!("Could not start {}: {e}", def.name));
@@ -229,7 +235,9 @@ impl App {
             }
         };
         let uri = uri::from_path(&path);
-        self.lsp.docs.insert(d, LspDoc { server: id, uri, version: 0, language: lang.id });
+        self.lsp
+            .docs
+            .insert(d, LspDoc { server: id, uri, version: 0, language: lang.id, pulling: false, pull_again: false });
         // Diagnostics published before the file was opened.
         self.reposition_diags(&path, id);
         let Some(s) = self.lsp.server_mut(id) else { return };
@@ -270,6 +278,51 @@ impl App {
         }
         s.docs.insert(d);
         self.lsp.notify(ld.server, "textDocument/didOpen", params);
+        self.pull_diagnostics(d);
+    }
+
+    /// Pull diagnostics for `d` (servers that don't push them). At most one
+    /// request per document is in flight; changes meanwhile pull again.
+    pub(crate) fn pull_diagnostics(&mut self, d: DocId) {
+        let Some(ld) = self.lsp.docs.get(&d).cloned() else { return };
+        let Some(s) = self.lsp.server(ld.server) else { return };
+        if !s.caps.diagnostic_pull || s.status != Status::Running || !s.docs.contains(&d) {
+            return;
+        }
+        if ld.pulling {
+            if let Some(x) = self.lsp.docs.get_mut(&d) {
+                x.pull_again = true;
+            }
+            return;
+        }
+        let ver = self.docs.doc(d).map(|x| x.version()).unwrap_or(0);
+        let params = json!({ "textDocument": { "uri": ld.uri } });
+        if self
+            .lsp
+            .request(ld.server, "textDocument/diagnostic", params, ReqKind::PullDiagnostics, Some(d), ver)
+            .is_some()
+            && let Some(x) = self.lsp.docs.get_mut(&d)
+        {
+            x.pulling = true;
+            x.pull_again = false;
+        }
+    }
+
+    /// After a change on a server whose diagnostics span files, every open
+    /// document of that server may have new problems.
+    fn pull_after_change(&mut self, changed: &[DocId]) {
+        let mut todo: Vec<DocId> = changed.to_vec();
+        for d in changed {
+            let Some(server) = self.lsp.docs.get(d).map(|l| l.server) else { continue };
+            if self.lsp.server(server).is_some_and(|s| s.caps.diagnostic_inter_file) {
+                todo.extend(self.lsp.docs.iter().filter(|(_, l)| l.server == server).map(|(k, _)| *k));
+            }
+        }
+        todo.sort_unstable();
+        todo.dedup();
+        for d in todo {
+            self.pull_diagnostics(d);
+        }
     }
 
     fn lsp_close(&mut self, d: DocId) {
@@ -427,6 +480,14 @@ impl App {
                         .map(|it| registry::config_section(&settings, it.get("section").and_then(Value::as_str)))
                         .collect(),
                 )
+            }
+            "workspace/diagnostic/refresh" => {
+                let docs: Vec<DocId> =
+                    self.lsp.docs.iter().filter(|(_, l)| l.server == server).map(|(d, _)| *d).collect();
+                for d in docs {
+                    self.pull_diagnostics(d);
+                }
+                Value::Null
             }
             "workspace/workspaceFolders" => match self.lsp.server(server) {
                 Some(s) => json!([{ "uri": uri::from_path(&s.root), "name": s.root_name }]),
@@ -719,6 +780,24 @@ impl App {
     fn on_reply(&mut self, server: u32, p: Pending, result: Result<Reply, String>) {
         let current = p.doc.and_then(|d| self.docs.doc(d)).map(|x| x.version());
         let fresh = p.doc.is_none() || current == Some(p.version);
+        if p.kind == ReqKind::PullDiagnostics
+            && let Some(d) = p.doc
+        {
+            let again = self.lsp.docs.get_mut(&d).map(|x| {
+                x.pulling = false;
+                std::mem::take(&mut x.pull_again)
+            });
+            if let (true, Ok(Reply::PulledDiagnostics(Some(items)))) = (fresh, &result)
+                && let Some(uri) = self.lsp.docs.get(&d).map(|x| x.uri.clone())
+            {
+                let pd = yace_lsp::PublishDiagnostics { uri, version: None, diagnostics: items.clone() };
+                self.on_diagnostics(server, pd);
+            }
+            if again == Some(true) || !fresh {
+                self.pull_diagnostics(d);
+            }
+            return;
+        }
         let reply = match result {
             Ok(r) => r,
             Err(e) => {

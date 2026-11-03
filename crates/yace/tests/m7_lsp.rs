@@ -426,8 +426,15 @@ fn real_typescript_language_server() {
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("a.ts"), "export function greet(name: string): string {\n  return name;\n}\n").unwrap();
     std::fs::write(root.join("b.ts"), "import { greet } from './a';\ngreet(1);\n").unwrap();
+    // YACE_TEST_TSLS_ARGS: e.g. "--lsp --stdio" for TypeScript 7's native server.
+    let args: Vec<String> = std::env::var("YACE_TEST_TSLS_ARGS")
+        .unwrap_or_else(|_| "--stdio".into())
+        .split_whitespace()
+        .map(|a| format!("\"{a}\""))
+        .collect();
+    let args = args.join(", ");
     let cfg = format!(
-        "[lsp]\n[[lsp.servers]]\nname = \"typescript-language-server\"\ncommand = \"{server}\"\nargs = [\"--stdio\"]\nlanguages = [\"typescript\"]\nenv = {{ PATH = \"{path}\" }}\n"
+        "[lsp]\n[[lsp.servers]]\nname = \"typescript-language-server\"\ncommand = \"{server}\"\nargs = [{args}]\nlanguages = [\"typescript\"]\nenv = {{ PATH = \"{path}\" }}\n"
     );
     let mut h = Harness::with_config(&cfg);
     open_folder(&mut h, &root);
@@ -485,4 +492,68 @@ fn notification_history_is_searchable_and_copyable() {
     // The whole history can also be opened as text.
     h.command("yace.notificationsInEditor");
     assert!(h.active_text().contains("[info] No language server for TypeScript"));
+}
+
+#[test]
+fn pull_diagnostics_like_typescript_7() {
+    if !have_python() {
+        return;
+    }
+    let f = fixture(&[("a.ts", "let a = 1; // TODO\n")]);
+    let mut h = Harness::with_config(&config(&f.log, ", FAKE_LSP_PULL = \"1\"", ""));
+    open_folder(&mut h, &f.root);
+    h.app.open_file(&f.root.join("a.ts"), false);
+    h.settle();
+    assert!(wait_running(&mut h));
+    assert!(h.wait_for(T, |h| h.app.lsp.counts() == (0, 1)), "pulled after open");
+    assert!(log_has(&f.log, "\"textDocument/diagnostic\""), "YACE pulled");
+    h.key("ctrl+end");
+    h.type_text("ERROR");
+    assert!(h.wait_for(T, |h| h.app.lsp.counts() == (1, 1)), "pulled again after the edit");
+    h.key("ctrl+a");
+    h.type_text("clean");
+    assert!(h.wait_for(T, |h| h.app.lsp.counts() == (0, 0)), "problems go away");
+}
+
+/// TypeScript 7 found in the project's node_modules and used with no
+/// configuration (`tsc --lsp --stdio`, native binary, pull diagnostics).
+/// Runs when `YACE_TEST_TS7` points at a TypeScript ≥ 7 package directory.
+#[test]
+fn real_typescript_7_builtin() {
+    let Ok(pkg) = std::env::var("YACE_TEST_TS7") else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("app");
+    std::fs::create_dir_all(root.join("node_modules")).unwrap();
+    std::os::unix::fs::symlink(&pkg, root.join("node_modules/typescript")).unwrap();
+    std::fs::write(root.join("a.ts"), "export function greet(name: string): string {\n  return name;\n}\n").unwrap();
+    std::fs::write(root.join("b.ts"), "import { greet } from './a';\ngreet(1);\n").unwrap();
+    let mut h = Harness::new();
+    open_folder(&mut h, &root);
+    h.app.open_file(&root.join("b.ts"), false);
+    h.settle();
+    let t = Duration::from_secs(60);
+    assert!(h.wait_for(t, |h| h.app.lsp_status().is_some_and(|s| s == "typescript")), "{:?}", h.app.lsp_status());
+    let program = h.app.lsp.servers[0].program.clone();
+    eprintln!("program: {}", program.display());
+    assert!(h.wait_for(t, |h| h.app.lsp.counts().0 >= 1), "type error pulled");
+    let d = h.app.active().unwrap().2;
+    assert!(h.app.doc_diagnostics(d).iter().any(|x| x.message.contains("not assignable")));
+    h.key("down");
+    h.key("home");
+    h.key("f12");
+    assert!(h.wait_for(t, |h| {
+        h.app.active().and_then(|(_, _, d)| h.app.docs.doc(d)?.path().map(|p| p.ends_with("a.ts"))).unwrap_or(false)
+    }));
+    h.app.open_file(&root.join("b.ts"), false);
+    h.settle();
+    h.key("ctrl+end");
+    h.type_text("gre");
+    h.command("editor.action.triggerSuggest");
+    assert!(h.wait_for(t, |h| {
+        h.app.completion.as_ref().is_some_and(|c| c.shown.iter().any(|i| c.items[*i].label == "greet"))
+    }));
+    h.command("yace.lsp.showRunning");
+    if let Some(Overlay::Info { lines, .. }) = h.app.overlays.last() {
+        eprintln!("{}", lines.join("\n"));
+    }
 }

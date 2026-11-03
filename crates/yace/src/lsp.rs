@@ -28,6 +28,8 @@ pub enum Status {
 pub struct Server {
     pub id: u32,
     pub def: ServerDef,
+    /// The resolved program (e.g. TypeScript 7's native `tsc`).
+    pub program: PathBuf,
     pub root: PathBuf,
     pub root_name: String,
     pub client: Option<Client>,
@@ -72,6 +74,10 @@ pub struct LspDoc {
     pub uri: String,
     pub version: i32,
     pub language: &'static str,
+    /// A pull-diagnostics request is in flight.
+    pub pulling: bool,
+    /// The text changed while it was in flight: pull again afterwards.
+    pub pull_again: bool,
 }
 
 /// What a pending request is for (its answer is applied accordingly).
@@ -90,6 +96,7 @@ pub enum ReqKind {
     CodeActionResolve,
     Format { then_save: bool },
     ExecuteCommand,
+    PullDiagnostics,
 }
 
 impl ReqKind {
@@ -193,7 +200,8 @@ pub fn client_capabilities() -> Value {
             "workspaceEdit": { "documentChanges": true },
             "symbol": { "dynamicRegistration": false },
             "didChangeConfiguration": { "dynamicRegistration": false },
-            "executeCommand": { "dynamicRegistration": false }
+            "executeCommand": { "dynamicRegistration": false },
+            "diagnostics": { "refreshSupport": true }
         },
         "window": { "workDoneProgress": true },
         "textDocument": {
@@ -232,7 +240,8 @@ pub fn client_capabilities() -> Value {
             "formatting": {},
             "rangeFormatting": {},
             "rename": { "prepareSupport": false },
-            "publishDiagnostics": { "versionSupport": true }
+            "publishDiagnostics": { "versionSupport": true },
+            "diagnostic": { "dynamicRegistration": false, "relatedDocumentSupport": false }
         }
     })
 }
@@ -256,6 +265,7 @@ pub fn user_defs(s: &yace_config::LspSettings) -> Vec<ServerDef> {
             settings: toml_to_json(u.settings.as_ref()),
             install_hint: String::new(),
             needs_node: false,
+            kind: Default::default(),
         })
         .collect()
 }
@@ -309,14 +319,13 @@ impl LspState {
     }
 
     /// Start a server process and send `initialize`.
-    pub fn spawn(&mut self, def: ServerDef, root: PathBuf, root_name: String) -> Result<u32, String> {
-        let program =
-            yace_lsp::registry::which(&def.command).ok_or_else(|| format!("{} not found on PATH", def.command))?;
+    pub fn spawn(&mut self, def: ServerDef, program: PathBuf, root: PathBuf, root_name: String) -> Result<u32, String> {
         self.next_server += 1;
         let id = self.next_server;
         let mut server = Server {
             id,
             def,
+            program: program.clone(),
             root,
             root_name,
             client: None,
@@ -364,8 +373,10 @@ impl LspState {
     /// the new process has initialised.
     pub fn restart(&mut self, id: u32) -> Result<(), String> {
         let Some(i) = self.servers.iter().position(|s| s.id == id) else { return Err("no such server".into()) };
-        let program = yace_lsp::registry::which(&self.servers[i].def.command)
-            .ok_or_else(|| format!("{} not found on PATH", self.servers[i].def.command))?;
+        let program = self.servers[i].program.clone();
+        if !program.is_file() {
+            return Err(format!("{} no longer exists", program.display()));
+        }
         let mut server = self.servers.remove(i);
         if let Some(mut c) = server.client.take() {
             c.shutdown();

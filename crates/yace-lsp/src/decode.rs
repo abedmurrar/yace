@@ -9,7 +9,10 @@ use crate::types::*;
 #[derive(Debug, Clone)]
 pub enum Reply {
     Initialize(Box<ServerCaps>),
-    Completion { items: Vec<CompletionItem>, incomplete: bool },
+    Completion {
+        items: Vec<CompletionItem>,
+        incomplete: bool,
+    },
     CompletionResolved(Box<CompletionItem>),
     Hover(String),
     SignatureHelp(Option<SignatureHelp>),
@@ -19,6 +22,8 @@ pub enum Reply {
     CodeActionResolved(Box<CodeAction>),
     Edits(Vec<TextEdit>),
     WorkspaceEdit(WorkspaceEdit),
+    /// `textDocument/diagnostic`: `None` when unchanged since the last pull.
+    PulledDiagnostics(Option<Vec<Diagnostic>>),
     Other(Value),
 }
 
@@ -179,6 +184,15 @@ pub fn decode_reply(method: &str, v: Value) -> Reply {
             v.as_array().map(|a| a.iter().filter_map(|e| TextEdit::deserialize(e).ok()).collect()).unwrap_or_default(),
         ),
         "textDocument/rename" => Reply::WorkspaceEdit(WorkspaceEdit::parse(&v)),
+        "textDocument/diagnostic" => Reply::PulledDiagnostics(match v.get("kind").and_then(Value::as_str) {
+            Some("unchanged") => None,
+            _ => Some(
+                v.get("items")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(|d| Diagnostic::deserialize(d).ok()).collect())
+                    .unwrap_or_default(),
+            ),
+        }),
         _ => Reply::Other(v),
     }
 }
@@ -280,5 +294,17 @@ mod tests {
         assert!(!caps.definition);
         assert_eq!(caps.completion_triggers, vec!["."]);
         assert_eq!(caps.encoding, crate::position::Encoding::Utf8);
+        let caps = ServerCaps::from_initialize(&json!({"capabilities": {
+            "diagnosticProvider": {"identifier": "typescript", "interFileDependencies": true, "workspaceDiagnostics": false}}}));
+        assert!(caps.diagnostic_pull && caps.diagnostic_inter_file);
+        let full = json!({"kind": "full", "items": [{"range": {"start":{"line":1,"character":6},"end":{"line":1,"character":7}},
+                          "severity": 1, "code": 2345, "source": "ts", "message": "not assignable"}]});
+        let Reply::PulledDiagnostics(Some(d)) = decode_reply("textDocument/diagnostic", full) else { panic!() };
+        assert_eq!(d[0].code_text().as_deref(), Some("2345"));
+        let Reply::PulledDiagnostics(None) =
+            decode_reply("textDocument/diagnostic", json!({"kind": "unchanged", "resultId": "1"}))
+        else {
+            panic!()
+        };
     }
 }

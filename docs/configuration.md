@@ -163,7 +163,8 @@ Built-in servers (used when found on `PATH`; YACE never installs them):
 | Server | Languages | Install |
 |---|---|---|
 | `rust-analyzer` | Rust | `rustup component add rust-analyzer` |
-| `typescript-language-server` (Node.js) | TS, TSX, JS, JSX | `npm install -g typescript typescript-language-server` |
+| `typescript` — TypeScript 7's own server (`tsc --lsp --stdio`, native binary) | TS, TSX, JS, JSX | used automatically when the project's `node_modules/typescript` is ≥ 7 (or, without one, a global TypeScript ≥ 7): `npm install -g typescript` |
+| `typescript-language-server` (Node.js) | TS, TSX, JS, JSX (projects on TypeScript ≤ 6) | `npm install -g typescript@5 typescript-language-server` |
 | `pyright` (Node.js), else `pylsp` | Python | `npm install -g pyright` / `pip install python-lsp-server` |
 | `gopls` | Go | `go install golang.org/x/tools/gopls@latest` |
 | `clangd` | C, C++ | your package manager |

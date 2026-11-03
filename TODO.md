@@ -568,6 +568,8 @@ Legend:
 - [x] [M7] Notification history picker (`Ctrl+K Ctrl+N`, Enter copies) and "Open Notifications in Editor"; one-time hints stay until Esc
 - [x] [M7] "Show Language Server Output" (stderr + log in an untitled editor); status bar shows the active server and its progress
 - [x] [M7] Tests: fake JSON-RPC server (`tests/fixtures/fake_lsp.py`) covering sync, diagnostics, completion, hover, signature help, cross-root definition, references, rename, symbols, code actions, format on save, crash/restart, startup failure, missing-server hint, stale answers, 5k-item lists; real-server smoke test with typescript-language-server (`YACE_TEST_TSLS`)
+- [x] [M7] TypeScript 7: built-in `typescript` server (`tsc --lsp --stdio`) resolved from the project's TypeScript ≥ 7 (native binary started directly) or a global one; typescript-language-server only for TypeScript ≤ 6 (`registry::resolve`, `DefKind`) — v0.4.1
+- [x] [M7] Pull diagnostics (`textDocument/diagnostic`, coalesced per file, inter-file re-pull, `workspace/diagnostic/refresh`) — v0.4.1
 - [~] [M7] Semantic tokens — deferred: tree-sitter covers colouring
 - [ ] [M7] Several servers per language (e.g. ESLint next to tsserver)
 - [ ] [M7] Mouse-hover popups; completion item documentation side panel

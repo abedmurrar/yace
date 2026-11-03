@@ -74,6 +74,10 @@ pub struct ServerCaps {
     pub rename: bool,
     pub prepare_rename: bool,
     pub execute_command: bool,
+    /// Pull diagnostics (`textDocument/diagnostic`, LSP 3.17).
+    pub diagnostic_pull: bool,
+    /// Diagnostics of one file depend on others (re-pull open files).
+    pub diagnostic_inter_file: bool,
     pub encoding: crate::position::Encoding,
 }
 
@@ -135,6 +139,12 @@ impl ServerCaps {
         caps.prepare_rename =
             c.get("renameProvider").and_then(|v| v.get("prepareProvider")).and_then(Value::as_bool).unwrap_or(false);
         caps.execute_command = has(&c, "executeCommandProvider");
+        caps.diagnostic_pull = has(&c, "diagnosticProvider");
+        caps.diagnostic_inter_file = c
+            .get("diagnosticProvider")
+            .and_then(|v| v.get("interFileDependencies"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         caps.encoding =
             crate::position::Encoding::from_name(c.get("positionEncoding").and_then(Value::as_str).unwrap_or("utf-16"));
         caps
