@@ -570,6 +570,9 @@ Legend:
 - [x] [M7] Tests: fake JSON-RPC server (`tests/fixtures/fake_lsp.py`) covering sync, diagnostics, completion, hover, signature help, cross-root definition, references, rename, symbols, code actions, format on save, crash/restart, startup failure, missing-server hint, stale answers, 5k-item lists; real-server smoke test with typescript-language-server (`YACE_TEST_TSLS`)
 - [x] [M7] TypeScript 7: built-in `typescript` server (`tsc --lsp --stdio`) resolved from the project's TypeScript ≥ 7 (native binary started directly) or a global one; typescript-language-server only for TypeScript ≤ 6 (`registry::resolve`, `DefKind`) — v0.4.1
 - [x] [M7] Pull diagnostics (`textDocument/diagnostic`, coalesced per file, inter-file re-pull, `workspace/diagnostic/refresh`) — v0.4.1
+- [x] [M7] Replies decoded from raw JSON (`RawValue` envelope); completion items keep compact JSON text for resolve: 13,425 items 103 → 20.7 MiB; trim after big lists close — v0.4.2
+- [x] [M7] Missing-server hint per folder and per missing server (mixed TypeScript 7/5 workspaces) — v0.4.2
+- [ ] [M7] First keystroke over a 13k-item completion list (~8 ms est.): score in parallel chunks or cap the scanned set
 - [~] [M7] Semantic tokens — deferred: tree-sitter covers colouring
 - [ ] [M7] Several servers per language (e.g. ESLint next to tsserver)
 - [ ] [M7] Mouse-hover popups; completion item documentation side panel

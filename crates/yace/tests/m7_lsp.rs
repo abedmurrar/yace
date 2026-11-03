@@ -557,3 +557,105 @@ fn real_typescript_7_builtin() {
         eprintln!("{}", lines.join("\n"));
     }
 }
+
+/// Opens a real multi-root workspace (`YACE_TEST_REAL_WS`), one TypeScript
+/// file per folder, and reports which server each folder got. Read-only:
+/// nothing is edited or saved.
+#[test]
+fn real_workspace_servers_per_folder() {
+    let Ok(ws) = std::env::var("YACE_TEST_REAL_WS") else { return };
+    let mut h = Harness::with_config("[lsp]\nidleShutdownSecs = 0\n");
+    initial_workspace(
+        &mut h.app,
+        &Launch { target: Target::WorkspaceFile(ws.into()), add_roots: vec![], goto: None, restore: false },
+    );
+    h.settle();
+    let roots: Vec<std::path::PathBuf> = h.app.workspace.roots().iter().map(|r| r.path.clone()).collect();
+    for root in &roots {
+        let file = walk_first_ts(root);
+        let Some(file) = file else {
+            eprintln!("{}: no .ts file", root.display());
+            continue;
+        };
+        h.app.open_file(&file, false);
+        h.settle();
+    }
+    h.wait_for(Duration::from_secs(60), |h| {
+        h.app.lsp.servers.iter().all(|s| s.status != yace_app::lsp::Status::Starting)
+    });
+    std::thread::sleep(Duration::from_secs(3));
+    h.settle();
+    h.command("yace.lsp.showRunning");
+    if let Some(Overlay::Info { lines, .. }) = h.app.overlays.last() {
+        eprintln!("{}", lines.join("\n"));
+    }
+    for (_, m) in &h.app.notification_log {
+        eprintln!("note: {m}");
+    }
+}
+
+fn walk_first_ts(dir: &Path) -> Option<std::path::PathBuf> {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let mut entries: Vec<_> = std::fs::read_dir(&d).ok()?.flatten().map(|e| e.path()).collect();
+        entries.sort();
+        for p in &entries {
+            if p.is_file() && p.extension().is_some_and(|e| e == "ts") && !p.to_string_lossy().ends_with(".d.ts") {
+                return Some(p.clone());
+            }
+        }
+        for p in entries.into_iter().rev() {
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if p.is_dir() && !name.starts_with('.') && name != "node_modules" && name != "dist" && name != "build" {
+                stack.push(p);
+            }
+        }
+    }
+    None
+}
+
+/// Memory per step on a real workspace (`YACE_TEST_REAL_WS`): which
+/// feature makes YACE's own RSS grow. Read-only.
+#[test]
+fn real_workspace_memory_steps() {
+    let Ok(ws) = std::env::var("YACE_TEST_REAL_WS") else { return };
+    let rss = || -> f64 {
+        std::fs::read_to_string("/proc/self/status")
+            .unwrap()
+            .lines()
+            .find(|l| l.starts_with("VmRSS"))
+            .and_then(|l| l.split_whitespace().nth(1)?.parse::<f64>().ok())
+            .unwrap_or(0.0)
+            / 1024.0
+    };
+    let report = |step: &str| eprintln!("MEM {step:<40} {:6.1} MiB", rss());
+    report("start");
+    let mut h = Harness::with_config("[lsp]\nidleShutdownSecs = 0\n");
+    initial_workspace(
+        &mut h.app,
+        &Launch { target: Target::WorkspaceFile(ws.into()), add_roots: vec![], goto: None, restore: false },
+    );
+    h.settle();
+    report("workspace open");
+    let root = h.app.workspace.roots()[0].path.clone();
+    let file = walk_first_ts(&root).unwrap();
+    h.app.open_file(&file, false);
+    h.settle();
+    report("first .ts open (parse)");
+    let t = Duration::from_secs(90);
+    h.wait_for(t, |h| h.app.lsp_status().is_some_and(|s| s == "typescript"));
+    std::thread::sleep(Duration::from_secs(5));
+    h.settle();
+    report("server running + diagnostics");
+    h.key("ctrl+end");
+    h.type_text("\nconst zz = ");
+    h.command("editor.action.triggerSuggest");
+    h.wait_for(t, |h| h.app.completion.is_some());
+    let n = h.app.completion.as_ref().map(|c| c.items.len()).unwrap_or(0);
+    report(&format!("completion open ({n} items)"));
+    h.key("escape");
+    h.key("ctrl+z");
+    report("completion closed");
+    yace_app::mem::trim();
+    report("after malloc_trim");
+}

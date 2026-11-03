@@ -93,8 +93,8 @@ impl Client {
         thread::Builder::new().name("yace-lsp-read".into()).spawn(move || {
             let mut r = BufReader::with_capacity(64 * 1024, stdout);
             let mut buf = Vec::new();
-            while let Ok(Some(msg)) = jsonrpc::read_message(&mut r, &mut buf) {
-                if let Some(inc) = classify(msg, &p)
+            while let Ok(true) = jsonrpc::read_body(&mut r, &mut buf) {
+                if let Some(inc) = classify(&buf, &p)
                     && events.send((server, inc)).is_err()
                 {
                     return;
@@ -213,28 +213,44 @@ impl Drop for Client {
     }
 }
 
-fn classify(mut msg: Value, pending: &Pending) -> Option<Incoming> {
-    let method = msg.get("method").and_then(Value::as_str).map(String::from);
-    let id = msg.get_mut("id").map(Value::take);
-    match (id, method) {
-        (Some(id), Some(method)) => {
-            let params = msg.get_mut("params").map(Value::take).unwrap_or(Value::Null);
-            Some(Incoming::Request { id, method, params })
-        }
+#[derive(serde::Deserialize)]
+struct Envelope<'a> {
+    #[serde(default)]
+    id: Option<Value>,
+    #[serde(default)]
+    method: Option<String>,
+    #[serde(borrow, default)]
+    params: Option<&'a serde_json::value::RawValue>,
+    #[serde(borrow, default)]
+    result: Option<&'a serde_json::value::RawValue>,
+    #[serde(default)]
+    error: Option<Value>,
+}
+
+/// Classify and decode one message body without building a `Value` tree
+/// for the whole message.
+fn classify(body: &[u8], pending: &Pending) -> Option<Incoming> {
+    let env: Envelope = serde_json::from_slice(body).ok()?;
+    let to_value = |r: Option<&serde_json::value::RawValue>| {
+        r.and_then(|r| serde_json::from_str::<Value>(r.get()).ok()).unwrap_or(Value::Null)
+    };
+    match (env.id, env.method) {
+        (Some(id), Some(method)) => Some(Incoming::Request { id, method, params: to_value(env.params) }),
         (Some(id), None) => {
             let id = id.as_u64()?;
             let method = lock(pending).remove(&id)?;
-            let result = match msg.get_mut("error") {
+            let result = match env.error {
                 Some(e) if !e.is_null() => {
                     Err(e.get("message").and_then(Value::as_str).unwrap_or("request failed").to_string())
                 }
-                _ => Ok(decode_reply(&method, msg.get_mut("result").map(Value::take).unwrap_or(Value::Null))),
+                _ => Ok(match env.result {
+                    Some(r) => crate::decode::decode_reply_raw(&method, r),
+                    None => decode_reply(&method, Value::Null),
+                }),
             };
             Some(Incoming::Response { id, method, result })
         }
-        (None, Some(method)) => {
-            decode_notification(&method, msg.get_mut("params").map(Value::take).unwrap_or(Value::Null))
-        }
+        (None, Some(method)) => decode_notification(&method, to_value(env.params)),
         (None, None) => None,
     }
 }

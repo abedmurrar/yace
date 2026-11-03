@@ -76,7 +76,7 @@ pub fn builtin() -> Vec<ServerDef> {
                 "typescript-language-server",
                 &["--stdio"],
                 &["typescript", "typescriptreact", "javascript", "javascriptreact"],
-                "npm install -g typescript typescript-language-server",
+                "npm install -g typescript-language-server   (for projects on TypeScript 6 or older)",
                 true,
             )
         },

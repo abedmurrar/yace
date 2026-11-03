@@ -2,7 +2,7 @@
 //! responses (completion lists, symbol lists) never cost UI time.
 
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, value::RawValue};
 
 use crate::types::*;
 
@@ -140,8 +140,44 @@ pub fn code_action(x: &Value) -> Option<CodeAction> {
 
 fn completion_item(x: &Value) -> Option<CompletionItem> {
     let mut it = CompletionItem::deserialize(x).ok()?;
-    it.raw = x.clone();
+    it.raw = x.to_string().into();
     Some(it)
+}
+
+fn completion_item_raw(x: &RawValue) -> Option<CompletionItem> {
+    let mut it: CompletionItem = serde_json::from_str(x.get()).ok()?;
+    it.raw = x.get().into();
+    Some(it)
+}
+
+#[derive(Deserialize)]
+struct RawList<'a> {
+    #[serde(default, rename = "isIncomplete")]
+    incomplete: bool,
+    #[serde(borrow, default)]
+    items: Vec<&'a RawValue>,
+}
+
+/// Decode a reply straight from its JSON text. Completion lists are parsed
+/// item by item without building a `Value` tree for the whole list (they
+/// can be tens of thousands of items); other replies go through `Value`.
+pub fn decode_reply_raw(method: &str, raw: &RawValue) -> Reply {
+    if method == "textDocument/completion" {
+        let text = raw.get().trim_start();
+        let (items, incomplete) = if text.starts_with('[') {
+            let list: Vec<&RawValue> = serde_json::from_str(text).unwrap_or_default();
+            (list.into_iter().filter_map(completion_item_raw).collect(), false)
+        } else if text.starts_with('{') {
+            match serde_json::from_str::<RawList>(text) {
+                Ok(l) => (l.items.into_iter().filter_map(completion_item_raw).collect(), l.incomplete),
+                Err(_) => (Vec::new(), false),
+            }
+        } else {
+            (Vec::new(), false)
+        };
+        return Reply::Completion { items, incomplete };
+    }
+    decode_reply(method, serde_json::from_str(raw.get()).unwrap_or(Value::Null))
 }
 
 pub fn decode_reply(method: &str, v: Value) -> Reply {
@@ -246,7 +282,14 @@ mod tests {
         assert_eq!(items.len(), 3);
         assert_eq!(items[0].additional_text_edits.as_ref().unwrap().len(), 1);
         assert_eq!(items[1].text_edit.as_ref().unwrap().text_and_range().1.end.character, 1);
-        assert_eq!(items[2].raw["label"], "c");
+        assert!(items[2].raw.contains("\"label\":\"c\""));
+        let raw: Box<RawValue> = serde_json::from_str(
+            r#"{"isIncomplete": false, "items": [{"label": "x", "data": {"k": [1, 2]}}, {"label": "y"}]}"#,
+        )
+        .unwrap();
+        let Reply::Completion { items, .. } = decode_reply_raw("textDocument/completion", &raw) else { panic!() };
+        assert_eq!(items.len(), 2);
+        assert_eq!(&*items[0].raw, r#"{"label": "x", "data": {"k": [1, 2]}}"#);
         let Reply::Completion { items, .. } = decode_reply("textDocument/completion", json!([{"label": "x"}])) else {
             panic!()
         };

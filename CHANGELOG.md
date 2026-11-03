@@ -13,6 +13,18 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Fixed
+
+- Memory: a 13,425-item completion list (TypeScript 7 in a real project)
+  made YACE grow from 10 to 103 MiB. Replies are now decoded straight from
+  the server's JSON text and each item keeps its original JSON as compact
+  text: the same list costs 20.7 MiB, and the memory is returned to the OS
+  when the list closes.
+- The "no language server" hint names the folder and the server that is
+  missing there (in a workspace mixing TypeScript 7 and 5 projects it used
+  to suggest installing TypeScript when typescript-language-server was
+  what the TypeScript 5 folders needed).
+
 ## [0.4.1] - 2026-11-03
 
 ### Added

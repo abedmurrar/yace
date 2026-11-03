@@ -237,9 +237,11 @@ pub struct CompletionItem {
     pub preselect: Option<bool>,
     #[serde(default)]
     pub command: Option<Value>,
-    /// The item as received, for `completionItem/resolve`.
+    /// The item as received (compact JSON text), for
+    /// `completionItem/resolve`. Lists can have tens of thousands of items,
+    /// so this is text, not a `Value` tree.
     #[serde(skip)]
-    pub raw: Value,
+    pub raw: Box<str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

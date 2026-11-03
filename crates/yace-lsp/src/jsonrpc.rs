@@ -6,12 +6,20 @@ use serde_json::Value;
 
 /// Read one message body. `Ok(None)` at end of stream.
 pub fn read_message(r: &mut impl BufRead, buf: &mut Vec<u8>) -> io::Result<Option<Value>> {
+    if !read_body(r, buf)? {
+        return Ok(None);
+    }
+    serde_json::from_slice(buf).map(Some).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+/// Read one message body into `buf`. `Ok(false)` at end of stream.
+pub fn read_body(r: &mut impl BufRead, buf: &mut Vec<u8>) -> io::Result<bool> {
     let mut len: Option<usize> = None;
     let mut line = String::new();
     loop {
         line.clear();
         if r.read_line(&mut line)? == 0 {
-            return Ok(None);
+            return Ok(false);
         }
         let l = line.trim_end();
         if l.is_empty() {
@@ -27,9 +35,10 @@ pub fn read_message(r: &mut impl BufRead, buf: &mut Vec<u8>) -> io::Result<Optio
         }
     }
     let n = len.unwrap_or(0);
+    buf.clear();
     buf.resize(n, 0);
     r.read_exact(buf)?;
-    serde_json::from_slice(buf).map(Some).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    Ok(true)
 }
 
 pub fn write_message(w: &mut impl Write, msg: &Value) -> io::Result<()> {

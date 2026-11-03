@@ -443,12 +443,12 @@ impl App {
         }
         // Lazily resolved auto-imports.
         let resolve = self.lsp.server(c.server).is_some_and(|s| s.caps.completion_resolve);
-        if item.additional_text_edits.is_none() && resolve && !item.raw.is_null() {
+        if item.additional_text_edits.is_none() && resolve && !item.raw.is_empty() {
             let ver = self.docs.doc(d).map(|x| x.version()).unwrap_or(0);
             self.lsp.request(
                 c.server,
                 "completionItem/resolve",
-                item.raw.clone(),
+                serde_json::from_str(&item.raw).unwrap_or(Value::Null),
                 ReqKind::CompletionResolve { seq: c.seq, label: item.label.clone(), apply_edits: true },
                 Some(d),
                 ver,

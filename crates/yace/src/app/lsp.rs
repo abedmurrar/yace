@@ -211,17 +211,26 @@ impl App {
         let id = match defs.iter().find_map(|def| self.lsp.find(&def.name, &root)) {
             Some(id) => id,
             None => {
-                let found = defs.iter().find_map(|d| registry::resolve(d, &root).ok().map(|p| (d.clone(), p)));
+                let tried: Vec<(&yace_lsp::ServerDef, Result<PathBuf, String>)> =
+                    defs.iter().map(|d| (d, registry::resolve(d, &root))).collect();
+                let found = tried.iter().find_map(|(d, r)| r.as_ref().ok().map(|p| ((*d).clone(), p.clone())));
                 let Some((def, program)) = found else {
-                    if self.lsp.hinted.insert(lang.id.to_string()) {
-                        let hint = &defs[0].install_hint;
-                        self.notify_sticky(
-                            Severity::Info,
-                            format!(
-                                "No language server for {} found. For completion and navigation run: {hint}  (Esc to dismiss)",
-                                lang.name
-                            ),
+                    // Suggest the server that applies here but is missing
+                    // (not one that is unsuitable, e.g. for another
+                    // TypeScript version).
+                    let missing = tried
+                        .iter()
+                        .find(|(_, r)| {
+                            r.as_ref().err().is_some_and(|e| e.contains("not found") || e.contains("no TypeScript 7"))
+                        })
+                        .map(|(d, _)| *d)
+                        .unwrap_or(&defs[0]);
+                    if self.lsp.hinted.insert(format!("{}\u{0}{}", lang.id, missing.name)) {
+                        let msg = format!(
+                            "No language server for {} files in {root_name}. For completion and navigation run: {}  (Esc to dismiss)",
+                            lang.name, missing.install_hint
                         );
+                        self.notify_sticky(Severity::Info, msg);
                     }
                     return;
                 };

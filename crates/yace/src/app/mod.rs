@@ -591,6 +591,7 @@ impl App {
         let is_input = matches!(event, AppEvent::Terminal(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)));
         // Documents opened outside an event get their language first.
         self.sync_documents();
+        let big_list = self.completion.as_ref().filter(|c| c.items.len() >= 1000).map(|c| c.seq);
         match event {
             AppEvent::Terminal(Event::Key(k)) => self.on_key(k),
             AppEvent::Terminal(Event::Mouse(m)) => self.on_mouse(m),
@@ -650,6 +651,10 @@ impl App {
         }
         self.clamp_explorer_scroll();
         self.sync_watches();
+        // A large completion list was dropped: give its memory back.
+        if big_list.is_some() && self.completion.as_ref().map(|c| c.seq) != big_list {
+            self.request_trim();
+        }
         self.needs_render = true;
         if is_input {
             self.metrics.input.record(start.elapsed());
