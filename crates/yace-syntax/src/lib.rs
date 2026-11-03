@@ -6,7 +6,9 @@
 //! - [`language`]: registry, detection and per-language editing rules
 //! - [`syntax`]: incremental parsing from a rope, with a time budget
 //! - [`highlight`]: viewport-bounded highlighting with injections
+//! - [`fold`]: folding ranges from the tree (or indentation)
 
+pub mod fold;
 pub mod highlight;
 pub mod language;
 pub mod syntax;

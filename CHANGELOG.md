@@ -27,6 +27,14 @@ Security, Performance.
   indentation come from the language (`:` indents in Python and YAML,
   Enter between HTML tags splits the line). New **Toggle Block Comment**
   (`Shift+Alt+A`); in CSS and HTML `Ctrl+/` uses block comments.
+- Code folding from the syntax tree (indentation for other files): Fold
+  (`Ctrl+Shift+[`), Unfold (`Ctrl+Shift+]`), Toggle Fold (`Ctrl+K Ctrl+L`),
+  Fold All (`Ctrl+K Ctrl+0`), Unfold All (`Ctrl+K Ctrl+J`), and `▾`/`▸`
+  markers in the gutter. Folds survive edits elsewhere and are restored with
+  the session.
+- Word wrap: `editor.wordWrap` (`off`, `on`, `wordWrapColumn`, `bounded`)
+  and `editor.wordWrapColumn`, also read from VS Code settings; `Alt+Z`
+  toggles it.
 
 ### Changed
 
@@ -35,6 +43,8 @@ Security, Performance.
   of always jumping to the Explorer.
 - `Ctrl+/` in plain-text files no longer inserts `//` (plain text has no
   comment syntax, as in VS Code).
+- `Alt+Z` now toggles word wrap, as in VS Code, instead of being a Redo
+  fallback for legacy terminals; use `Ctrl+Y` to redo there.
 
 ### Performance
 

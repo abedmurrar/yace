@@ -7,6 +7,7 @@ mod edit;
 mod explorer_ops;
 mod files;
 mod find;
+mod folding;
 mod history;
 mod mouse;
 mod quick_open;
@@ -232,6 +233,8 @@ pub struct App {
     pub panel: terminal::PanelState,
     /// Per-document syntax trees and highlighting.
     pub syntax: crate::syntax::SyntaxStore,
+    /// Alt+Z: word wrap toggled for this window (overrides the setting).
+    pub word_wrap_override: Option<bool>,
 }
 
 const FS_COALESCE: Duration = Duration::from_millis(100);
@@ -291,6 +294,7 @@ impl App {
             last_trim: None,
             panel: Default::default(),
             syntax: Default::default(),
+            word_wrap_override: None,
             settings,
             paths: opts.paths,
         };

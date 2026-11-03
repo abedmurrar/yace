@@ -253,6 +253,16 @@ impl Harness {
         out
     }
 
+    /// Primary cursor as (line, column in chars).
+    #[allow(dead_code)]
+    pub fn cursor(&self) -> (usize, usize) {
+        let (g, v, d) = self.app.active().expect("active editor");
+        let rope = self.app.docs.doc(d).unwrap().rope();
+        let head = self.app.layout.group(g).unwrap().views[v].sel.primary().head;
+        let line = rope.char_to_line(head);
+        (line, head - rope.line_to_char(line))
+    }
+
     pub fn active_text(&self) -> String {
         let (_, _, d) = self.app.active().expect("active editor");
         self.app.docs.doc(d).unwrap().text()

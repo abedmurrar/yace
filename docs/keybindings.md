@@ -42,7 +42,6 @@ Rebind those in the terminal, or use the fallbacks below.
 | `Alt+Shift+F` | Search across the workspace | `Ctrl+Shift+F` |
 | `Alt+Shift+H` | Replace across the workspace | `Ctrl+Shift+H` |
 | `Ctrl+Space` (what `` Ctrl+` `` arrives as), `Ctrl+J`, `` Alt+` `` | Toggle terminal / panel | `` Ctrl+` `` — just press `` Ctrl+` ``; `` Alt+` `` is taken by GNOME's window switcher on Ubuntu |
-| `Alt+Z` | Redo | `Ctrl+Shift+Z` (`Ctrl+Y` also works) |
 | `Ctrl+PgDn` / `Ctrl+PgUp` | Next / previous editor | `Ctrl+Tab` |
 
 ## Defaults
@@ -178,7 +177,13 @@ starts one in the selected folder.
 | `Alt+Up/Down` | move line(s) |
 | `Shift+Alt+Up/Down`, `Ctrl+Shift+Alt+Up/Down` | copy line(s) |
 | `Ctrl+Shift+K` | delete line(s) |
-| `Ctrl+/` | toggle line comment |
+| `Ctrl+/` | toggle line comment (block comment in CSS/HTML) |
+| `Shift+Alt+A` | toggle block comment |
+| `Ctrl+Shift+[` / `Ctrl+Shift+]` | fold / unfold (legacy terminals: `Ctrl+K Ctrl+L` toggles) |
+| `Ctrl+K Ctrl+L` | toggle fold |
+| `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` | fold all / unfold all |
+| click `▾` / `▸` in the gutter | fold / unfold |
+| `Alt+Z` | toggle word wrap |
 | `Ctrl+Shift+\` | jump to matching bracket |
 | `Ctrl+K Ctrl+X` | trim trailing whitespace |
 

@@ -42,6 +42,37 @@ pub struct EditorSettings {
     pub scroll_beyond_last_line: bool,
     /// Highlight the bracket matching the one at the cursor.
     pub match_brackets: bool,
+    /// Soft wrapping of long lines (VS Code `editor.wordWrap`).
+    pub word_wrap: WordWrap,
+    /// Column for `wordWrapColumn` / `bounded`.
+    pub word_wrap_column: usize,
+    /// Code folding.
+    pub folding: bool,
+    /// When fold markers show in the gutter.
+    pub show_folding_controls: FoldingControls,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum WordWrap {
+    #[default]
+    Off,
+    /// At the viewport width.
+    On,
+    /// At `wordWrapColumn`.
+    WordWrapColumn,
+    /// At the smaller of the viewport width and `wordWrapColumn`.
+    Bounded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum FoldingControls {
+    Always,
+    /// Folded lines always; foldable ones while the mouse is over the gutter.
+    #[default]
+    Mouseover,
+    Never,
 }
 
 impl Default for EditorSettings {
@@ -55,6 +86,10 @@ impl Default for EditorSettings {
             cursor_surrounding_lines: 3,
             scroll_beyond_last_line: true,
             match_brackets: true,
+            word_wrap: WordWrap::Off,
+            word_wrap_column: 80,
+            folding: true,
+            show_folding_controls: FoldingControls::Mouseover,
         }
     }
 }

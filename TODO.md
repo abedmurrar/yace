@@ -533,8 +533,11 @@ Legend:
 - [x] [M7] Comment tokens, brackets, auto-close pairs and indent triggers from the language registry (replaces the M3 extension table); Toggle Block Comment (`Shift+Alt+A`); CSS/HTML `Ctrl+/` uses block comments; Enter between `<div></div>` splits into three lines; `:` indents in Python/YAML
 - [x] [M7] Status bar language from detection
 - [x] [M7] Syntax colours in the theme (`Theme::syntax`, YACE Dark ≈ VS Code Dark+), downgraded for 256/16 colours; large-file mode disables highlighting
-- [ ] [M7] Code folding from syntax tree
-- [ ] [M7] Word wrap
+- [x] [M7] Display map (`crates/yace/src/display.rs`): buffer lines → screen rows with folds and soft wrap, computed on demand for the viewport only; plain fast path when neither is active. Used by rendering, the terminal cursor, scroll-to-cursor, PgUp/PgDn, mouse wheel and hit-testing
+- [x] [M7] Code folding: ranges from the syntax tree (outermost node starting on the line, or a block opened at its end; closing line stays visible), indentation otherwise (`yace-syntax/src/fold.rs`); Fold `Ctrl+Shift+[`, Unfold `Ctrl+Shift+]`, Toggle `Ctrl+K Ctrl+L`, Fold All `Ctrl+K Ctrl+0`, Unfold All `Ctrl+K Ctrl+J`; gutter `▾`/`▸` (click toggles; `editor.showFoldingControls`), `…` placeholder; Up/Down skip folds, Left/Right step over them; jumps into a fold (go to line, search) open it; edits inside a fold reveal it; folds are per view, mapped through edits and saved in the session
+- [x] [M7] Word wrap: `editor.wordWrap` off/on/wordWrapColumn/bounded + `wordWrapColumn` (VS Code keys, imported), `Alt+Z` toggles for the window; word-boundary breaks, continuation rows keep the indentation, wide chars never straddle; Up/Down move by rows
+- [ ] [M7] Word wrap: `Home`/`End` go to the wrapped row's start/end first (VS Code); currently line-based
+- [ ] [M7] Fold commands: Fold Recursively, Fold Level N, Fold All Block Comments
 
 ### LSP (§13)
 - [ ] [M7] `yace-lsp` crate: JSON-RPC over stdio, own reader/writer threads

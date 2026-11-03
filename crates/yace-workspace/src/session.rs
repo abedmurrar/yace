@@ -91,6 +91,9 @@ pub struct TabState {
     pub anchor: Option<(usize, usize)>,
     pub scroll_line: usize,
     pub scroll_col: usize,
+    /// Collapsed regions as (header line, last hidden line).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub folds: Vec<(usize, usize)>,
 }
 
 /// State file path for a workspace identity.

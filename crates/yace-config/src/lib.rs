@@ -227,6 +227,16 @@ pub fn from_vscode_settings(json: &serde_json::Value) -> Table {
             }
             ("editor.scrollBeyondLastLine", J::Bool(b)) => put("editor", "scrollBeyondLastLine", Value::Boolean(*b)),
             ("editor.matchBrackets", J::String(s)) => put("editor", "matchBrackets", Value::Boolean(s != "never")),
+            ("editor.wordWrap", J::String(s)) if matches!(s.as_str(), "off" | "on" | "wordWrapColumn" | "bounded") => {
+                put("editor", "wordWrap", Value::String(s.clone()))
+            }
+            ("editor.wordWrapColumn", J::Number(n)) if n.as_u64().is_some() => {
+                put("editor", "wordWrapColumn", Value::Integer(n.as_u64().unwrap_or(80) as i64))
+            }
+            ("editor.folding", J::Bool(b)) => put("editor", "folding", Value::Boolean(*b)),
+            ("editor.showFoldingControls", J::String(s)) if matches!(s.as_str(), "always" | "mouseover" | "never") => {
+                put("editor", "showFoldingControls", Value::String(s.clone()))
+            }
             ("files.exclude", J::Object(globs)) => {
                 let list = globs
                     .iter()

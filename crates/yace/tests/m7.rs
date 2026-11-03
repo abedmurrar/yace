@@ -119,3 +119,93 @@ fn files_associations_override_detection() {
     let d_id = h.app.active().unwrap().2;
     assert_eq!(h.app.syntax.language(d_id).id, "markdown");
 }
+
+const RS: &str = "fn main() {\n    let a = 1;\n    let b = 2;\n}\n\nfn other() {\n    call();\n}\n";
+
+#[test]
+fn folding_hides_lines_and_movement_skips_them() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("f.rs"), RS).unwrap();
+    let mut h = Harness::new();
+    open_folder(&mut h, d.path());
+    h.app.open_file(&d.path().join("f.rs"), false);
+    h.settle();
+    h.command("editor.fold");
+    assert_eq!(h.app.view_folds(), vec![(0, 2)]);
+    let screen = h.screen();
+    assert!(!screen.contains("let a"), "folded lines hidden:\n{screen}");
+    assert!(screen.contains("fn main() {"), "header shown");
+    assert!(screen.contains("▸"), "folded marker");
+    // Down from the header lands on the closing line, skipping the fold.
+    h.key("down");
+    assert_eq!(h.cursor(), (3, 0));
+    h.key("up");
+    assert_eq!(h.cursor().0, 0);
+    // Right from the end of the header steps over the fold.
+    h.key("end");
+    h.key("right");
+    assert_eq!(h.cursor(), (3, 0));
+    // Editing elsewhere keeps the fold; editing inside reveals it.
+    h.key("ctrl+end");
+    h.type_text("// tail");
+    assert_eq!(h.app.view_folds(), vec![(0, 2)]);
+    h.command("workbench.action.gotoLine");
+    h.type_text("2");
+    h.key("enter");
+    assert!(h.app.view_folds().is_empty(), "going into a fold opens it");
+    // Fold All / Unfold All.
+    h.command("editor.foldAll");
+    assert_eq!(h.app.view_folds(), vec![(0, 2), (5, 6)]);
+    h.command("editor.unfoldAll");
+    assert!(h.app.view_folds().is_empty());
+}
+
+#[test]
+fn gutter_click_toggles_folds_and_folds_persist_in_the_session() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("f.rs"), RS).unwrap();
+    let mut h = Harness::new();
+    open_folder(&mut h, d.path());
+    h.app.open_file(&d.path().join("f.rs"), false);
+    h.settle();
+    let wl = yace_app::ui::workbench_layout(&h.app);
+    let g = wl.groups[0].clone();
+    let marker_x = g.content.x + g.gutter - 2;
+    let none = ratatui::crossterm::event::KeyModifiers::NONE;
+    h.click(marker_x, g.content.y + 5, none);
+    assert_eq!(h.app.view_folds(), vec![(5, 6)]);
+    // Persisted: save, close everything, reopen with restore.
+    h.app.save_session();
+    h.command("workbench.action.closeAllEditors");
+    initial_workspace(
+        &mut h.app,
+        &Launch { target: Target::Folder(d.path().to_path_buf()), add_roots: vec![], goto: None, restore: true },
+    );
+    h.settle();
+    assert_eq!(h.app.view_folds(), vec![(5, 6)], "folds restored with the session");
+    h.click(marker_x, g.content.y + 5, none);
+    assert!(h.app.view_folds().is_empty());
+}
+
+#[test]
+fn word_wrap_wraps_long_lines_and_moves_by_rows() {
+    let d = tempfile::tempdir().unwrap();
+    let long = "word ".repeat(60);
+    std::fs::write(d.path().join("w.txt"), format!("{long}\nshort\n")).unwrap();
+    let mut h = Harness::with_config("[editor]\nwordWrap = \"wordWrapColumn\"\nwordWrapColumn = 40\n");
+    open_folder(&mut h, d.path());
+    h.app.open_file(&d.path().join("w.txt"), false);
+    h.settle();
+    let screen = h.screen();
+    let wrapped_rows = screen.lines().filter(|l| l.contains("word word")).count();
+    assert!(wrapped_rows >= 7, "300 chars at 40 columns wrap onto several rows:\n{screen}");
+    // Down moves within the wrapped line first.
+    h.key("down");
+    let (line, col) = h.cursor();
+    assert_eq!(line, 0);
+    assert!((35..=40).contains(&col), "second row of line 0, got col {col}");
+    // Alt+Z turns wrapping off for the window.
+    h.key("alt+z");
+    let screen = h.screen();
+    assert_eq!(screen.lines().filter(|l| l.contains("word word")).count(), 1, "{screen}");
+}

@@ -186,6 +186,12 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+shift+k", "editor.action.deleteLines", ED),
     ("ctrl+/", "editor.action.commentLine", ED),
     ("shift+alt+a", "editor.action.blockComment", ED),
+    ("ctrl+shift+[", "editor.fold", ED),
+    ("ctrl+shift+]", "editor.unfold", ED),
+    ("ctrl+k ctrl+l", "editor.toggleFold", ED),
+    ("ctrl+k ctrl+0", "editor.foldAll", ED),
+    ("ctrl+k ctrl+j", "editor.unfoldAll", ED),
+    ("alt+z", "editor.action.toggleWordWrap", ""),
     ("ctrl+shift+\\", "editor.action.jumpToBracket", ED),
     ("ctrl+k ctrl+x", "editor.action.trimTrailingWhitespace", ED),
     // --- Explorer -------------------------------------------------------------
@@ -220,7 +226,6 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("alt+k", "editor.action.deleteLines", "editorFocus && !keyboardEnhanced"),
     ("alt+l", "editor.action.selectHighlights", "editorFocus && !keyboardEnhanced"),
     ("alt+t", "workbench.action.reopenClosedEditor", "!keyboardEnhanced"),
-    ("alt+z", "redo", "editorFocus && !keyboardEnhanced"),
     ("alt+`", "workbench.action.terminal.toggleTerminal", "!keyboardEnhanced"),
     // Legacy terminals send Ctrl+` as Ctrl+Space (NUL); the two can't be told apart.
     ("ctrl+space", "workbench.action.terminal.toggleTerminal", "!keyboardEnhanced"),

@@ -9,7 +9,8 @@ Usage: scripts/bench_interactive.py [N_KEYS] [FILE]
 
 FILE (default: a generated 6,000-line Rust file) is copied and opened, so
 syntax highlighting is exercised. YACE_BENCH_BIN overrides the binary
-(e.g. to compare with an older release).
+(e.g. to compare with an older release); YACE_BENCH_EXTRA_CONFIG is appended
+to the config (e.g. to turn word wrap on).
 """
 import os, pty, sys, tempfile, time, select, subprocess
 
@@ -24,6 +25,8 @@ tmp = tempfile.mkdtemp()
 os.makedirs(f"{tmp}/config")
 with open(f"{tmp}/config/config.toml", "w") as f:
     f.write("[keyboard]\nenhancedProtocol = false\n")
+    # e.g. YACE_BENCH_EXTRA_CONFIG=$'[editor]\nwordWrap = "on"'
+    f.write(os.environ.get("YACE_BENCH_EXTRA_CONFIG", "") + "\n")
 if len(sys.argv) > 2:
     import shutil
     target = os.path.join(tmp, os.path.basename(sys.argv[2]))

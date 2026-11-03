@@ -733,6 +733,12 @@ fn builtin_commands() -> Vec<Command> {
         c!("editor.action.deleteLines", "Editor", "Delete Line", |a, _| a.run_op(Op::DeleteLines)),
         c!("editor.action.commentLine", "Editor", "Toggle Line Comment", |a, _| a.run_op(Op::ToggleComment)),
         c!("editor.action.blockComment", "Editor", "Toggle Block Comment", |a, _| a.run_op(Op::ToggleBlockComment)),
+        c!("editor.fold", "Editor", "Fold", |a, _| a.fold_at_cursor()),
+        c!("editor.unfold", "Editor", "Unfold", |a, _| a.unfold_at_cursor()),
+        c!("editor.toggleFold", "Editor", "Toggle Fold", |a, _| a.toggle_fold_at_cursor()),
+        c!("editor.foldAll", "Editor", "Fold All", |a, _| a.fold_all()),
+        c!("editor.unfoldAll", "Editor", "Unfold All", |a, _| a.unfold_all()),
+        c!("editor.action.toggleWordWrap", "View", "Toggle Word Wrap", |a, _| a.toggle_word_wrap()),
         c!("editor.action.jumpToBracket", "Go", "Go to Bracket", |a, _| a.jump_to_bracket()),
         c!("editor.action.trimTrailingWhitespace", "Editor", "Trim Trailing Whitespace", |a, _| a
             .run_op(Op::TrimWhitespace)),

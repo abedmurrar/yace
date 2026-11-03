@@ -62,6 +62,7 @@ impl App {
                 anchor: (!p.is_empty()).then(|| lc(p.anchor)),
                 scroll_line: v.scroll_line,
                 scroll_col: v.scroll_col,
+                folds: v.folds.iter().map(|f| f.lines(rope)).collect(),
             })
         }));
         st.active_group = self.layout.order().iter().position(|g| *g == self.layout.active).unwrap_or(0);
@@ -207,8 +208,14 @@ impl App {
                         doc: id,
                         sel: Selection::single(Range::new(anchor, head)),
                         scroll_line: t.scroll_line.min(rope.len_lines().saturating_sub(1)),
+                        scroll_sub: 0,
                         scroll_col: t.scroll_col,
                         preview: t.preview,
+                        folds: t
+                            .folds
+                            .iter()
+                            .filter_map(|(h, l)| crate::display::Fold::from_lines(rope, *h, *l))
+                            .collect(),
                     });
                 }
                 (views, active)

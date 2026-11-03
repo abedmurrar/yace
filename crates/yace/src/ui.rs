@@ -508,14 +508,16 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
     let heads: Vec<usize> = view.sel.ranges().iter().map(|r| r.head).collect();
     let sel_bg = if group_focused { t.selection_bg } else { t.selection_inactive_bg };
     let len_lines = rope.len_lines();
+    // Display rows (folds + word wrap) for the viewport only.
+    let map = crate::display::DisplayMap::new(rope, &view.folds, app.wrap_width(view.doc, gl.text_width as usize), tw);
+    let rows = map.rows(view.top(), height);
+    let scroll_col = if map.wraps() { 0 } else { view.scroll_col };
+    let first_line = rows.first().map(|r| r.line).unwrap_or(0);
+    let last_line = rows.last().map(|r| r.line).unwrap_or(0);
     // Find matches intersecting the viewport (spec §22.3: visible lines only).
     let find_active = app.find.visible && app.find.doc == Some(view.doc) && gl.id == app.layout.active;
-    let vis_start = rope.line_to_char(view.scroll_line.min(len_lines.saturating_sub(1)));
-    let vis_end = if view.scroll_line + height < len_lines {
-        rope.line_to_char(view.scroll_line + height)
-    } else {
-        rope.len_chars()
-    };
+    let vis_start = rope.line_to_char(first_line);
+    let vis_end = if last_line + 1 < len_lines { rope.line_to_char(last_line + 1) } else { rope.len_chars() };
     let find_matches: &[(usize, usize)] = if find_active {
         let m = &app.find.matches;
         let a = m.partition_point(|(_, e)| *e <= vis_start);
@@ -525,23 +527,44 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         &[]
     };
     let current_match = app.find.current.and_then(|i| app.find.matches.get(i)).copied();
-    // Syntax spans for the visible bytes only (cached until the tree changes).
-    let spans = if doc.large_file {
-        None
-    } else {
-        let sb = rope.line_to_byte(view.scroll_line.min(len_lines.saturating_sub(1)));
-        let eb = if view.scroll_line + height < len_lines {
-            rope.line_to_byte(view.scroll_line + height)
-        } else {
-            rope.len_bytes()
-        };
-        app.syntax.spans(view.doc, rope, sb..eb)
-    };
-    let spans: &[yace_syntax::Span] = spans.as_deref().unwrap_or(&[]);
+    // Syntax spans for the visible lines only, per contiguous run (folds
+    // skip hidden text), cached until the tree changes.
+    let mut spans: Vec<yace_syntax::Span> = Vec::new();
+    if !doc.large_file {
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        for r in &rows {
+            match runs.last_mut() {
+                Some((_, e)) if r.line <= *e + 1 => *e = r.line,
+                _ => runs.push((r.line, r.line)),
+            }
+        }
+        for (a, b) in runs {
+            let sb = rope.line_to_byte(a);
+            let eb = if b + 1 < len_lines { rope.line_to_byte(b + 1) } else { rope.len_bytes() };
+            if let Some(sp) = app.syntax.spans(view.doc, rope, sb..eb) {
+                spans.extend_from_slice(&sp);
+            }
+        }
+    }
     let mut si = 0usize;
-    for row in 0..height {
-        let line = view.scroll_line + row;
-        let y = gl.content.y + row as u16;
+    // Fold markers: folded headers always; foldable lines per setting.
+    let show_foldable = settings.editor.folding
+        && match settings.editor.show_folding_controls {
+            yace_config::FoldingControls::Always => true,
+            yace_config::FoldingControls::Never => false,
+            yace_config::FoldingControls::Mouseover => app
+                .mouse
+                .hover
+                .is_some_and(|(x, y)| x >= gl.content.x && x < gl.text_x && gl.content.contains((x, y).into())),
+        };
+    let marker_x = gl.content.x + gl.gutter.saturating_sub(2);
+    for ri in 0..height {
+        let y = gl.content.y + ri as u16;
+        let Some(&drow) = rows.get(ri) else {
+            fill(buf, Rect { x: gl.content.x, y, width: gl.content.width, height: 1 }, Style::new().bg(t.bg));
+            continue;
+        };
+        let line = drow.line;
         let is_cursor_line = line == cursor_line;
         let line_bg = if is_cursor_line && settings.editor.render_line_highlight && !view.sel.has_non_empty() {
             t.cursor_line_bg
@@ -550,32 +573,39 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         };
         fill(buf, Rect { x: gl.content.x, y, width: gl.content.width, height: 1 }, Style::new().bg(t.bg));
         fill(buf, Rect { x: gl.text_x, y, width: gl.text_width, height: 1 }, Style::new().bg(line_bg));
-        if line >= len_lines {
-            continue;
-        }
-        // Gutter.
-        if settings.editor.line_numbers != LineNumbers::Off && gl.gutter > 2 {
-            let n = match settings.editor.line_numbers {
-                LineNumbers::Relative if !is_cursor_line => line.abs_diff(cursor_line),
-                _ => line + 1,
-            };
-            let s = format!("{n:>w$} ", w = (gl.gutter - 2) as usize);
-            let style = Style::new().fg(if is_cursor_line { t.line_number_active } else { t.line_number }).bg(t.bg);
-            put(buf, gl.content.x, y, &s, gl.gutter, style);
+        // Gutter: number on the first row of a line, fold marker after it.
+        if drow.sub == 0 {
+            if settings.editor.line_numbers != LineNumbers::Off && gl.gutter > 2 {
+                let n = match settings.editor.line_numbers {
+                    LineNumbers::Relative if !is_cursor_line => line.abs_diff(cursor_line),
+                    _ => line + 1,
+                };
+                let s = format!("{n:>w$} ", w = (gl.gutter - 2) as usize);
+                let style = Style::new().fg(if is_cursor_line { t.line_number_active } else { t.line_number }).bg(t.bg);
+                put(buf, gl.content.x, y, &s, gl.gutter, style);
+            }
+            let folded = map.is_folded_header(line);
+            if folded || show_foldable && app.fold_range(view.doc, rope, line, tw).is_some() {
+                let glyph = if folded { app.glyphs.collapsed } else { app.glyphs.expanded };
+                put(buf, marker_x, y, glyph, 1, Style::new().fg(if folded { t.fg } else { t.line_number }).bg(t.bg));
+            }
         }
         let line_start = rope.line_to_char(line);
         let content = line_without_ending(rope, line);
-        let content_len = content.len_chars();
-        let limit = content_len.min((view.scroll_col + gl.text_width as usize) * 2 + 16);
-        let text: std::borrow::Cow<str> = content.slice(..limit).into();
-        let line_end = line_start + content_len;
+        let segs = map.segments(line);
+        let seg = segs[drow.sub.min(segs.len() - 1)];
+        let last_seg = drow.sub + 1 >= segs.len();
+        let limit =
+            if map.wraps() { seg.end } else { content.len_chars().min((scroll_col + gl.text_width as usize) * 2 + 16) };
+        let text: std::borrow::Cow<str> = content.slice(seg.start..limit.max(seg.start)).into();
+        let line_end = line_start + content.len_chars();
         let active_ranges: Vec<(usize, usize)> =
             ranges.iter().copied().filter(|(a, b)| *a <= line_end && *b >= line_start && a != b).collect();
         let line_heads: Vec<usize> = heads.iter().copied().filter(|h| *h >= line_start && *h <= line_end).collect();
-        let mut col = 0usize;
-        let mut ci = line_start;
-        let mut bi = rope.char_to_byte(line_start);
-        let max_col = view.scroll_col + gl.text_width as usize;
+        let mut col = seg.indent;
+        let mut ci = line_start + seg.start;
+        let mut bi = rope.char_to_byte(ci);
+        let max_col = scroll_col + gl.text_width as usize;
         for g in text.graphemes(true) {
             if col >= max_col {
                 break;
@@ -587,7 +617,7 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             }
             let scope = spans.get(si).filter(|s| s.start <= bi).map(|s| s.scope);
             bi += g.len();
-            if col + w > view.scroll_col {
+            if col + w > scroll_col {
                 let selected = active_ranges.iter().any(|(a, b)| ci >= *a && ci < *b);
                 let mut style = syntax_style(t, scope).bg(line_bg);
                 if let Some(m) = find_matches.iter().find(|(a, b)| ci >= *a && ci < *b) {
@@ -609,9 +639,9 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
                 } else {
                     (g.to_string(), style)
                 };
-                let x0 = gl.text_x as usize + col.saturating_sub(view.scroll_col);
-                let visible_w = (col + w).min(max_col) - col.max(view.scroll_col);
-                if col < view.scroll_col || visible_w < w {
+                let x0 = gl.text_x as usize + col.saturating_sub(scroll_col);
+                let visible_w = (col + w).min(max_col) - col.max(scroll_col);
+                if col < scroll_col || visible_w < w {
                     // Partially visible wide char: blank it.
                     fill(buf, Rect { x: x0 as u16, y, width: visible_w as u16, height: 1 }, style);
                 } else {
@@ -621,9 +651,12 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             col += w;
             ci += n;
         }
+        if !last_seg {
+            continue;
+        }
         // Selected line break / secondary cursor at end of line.
-        let end_x = gl.text_x as usize + col.saturating_sub(view.scroll_col);
-        if col >= view.scroll_col && col < max_col {
+        let end_x = gl.text_x as usize + col.saturating_sub(scroll_col);
+        if col >= scroll_col && col < max_col {
             let nl_selected =
                 active_ranges.iter().any(|(a, b)| line_end >= *a && line_end < *b && line + 1 < len_lines);
             if line_heads.contains(&line_end) && line_end != head && group_focused {
@@ -632,12 +665,20 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
                 put(buf, end_x as u16, y, " ", 1, Style::new().bg(sel_bg));
             }
         }
+        // Folded region placeholder.
+        if map.is_folded_header(line) && col + 1 >= scroll_col && col + 4 <= max_col {
+            let x = gl.text_x as usize + (col + 1).saturating_sub(scroll_col);
+            let text = format!(" {} ", app.glyphs.ellipsis);
+            put(buf, x as u16, y, &text, 3, Style::new().fg(t.muted).bg(t.selection_inactive_bg));
+        }
     }
-    // Vertical scrollbar.
-    if len_lines > height && height > 0 {
+    // Vertical scrollbar (visible lines, so folds shrink the document).
+    let vis_lines = map.visible_lines();
+    if vis_lines > height && height > 0 {
         let x = gl.content.right().saturating_sub(1);
-        let thumb_h = ((height * height) / len_lines).max(1);
-        let thumb_y = (view.scroll_line * height) / len_lines.max(1);
+        let thumb_h = ((height * height) / vis_lines).max(1);
+        let top_vis = view.scroll_line.saturating_sub(map.hidden_before(view.scroll_line));
+        let thumb_y = (top_vis * height) / vis_lines.max(1);
         for i in 0..thumb_h.min(height) {
             let yy = gl.content.y + (thumb_y + i).min(height - 1) as u16;
             put(buf, x, yy, app.glyphs.scroll_thumb, 1, Style::new().fg(t.scrollbar).bg(t.bg));
@@ -697,17 +738,16 @@ fn editor_cursor(app: &App, wl: &WorkbenchLayout) -> Option<(u16, u16)> {
     let view = app.layout.active_group().active_view()?;
     let doc = app.docs.doc(view.doc)?;
     let rope = doc.rope();
-    let head = view.sel.primary().head.min(rope.len_chars());
-    let line = rope.char_to_line(head);
-    if line < view.scroll_line || line >= view.scroll_line + gl.content.height as usize {
-        return None;
-    }
     let tw = app.settings_for(doc.path()).editor.tab_size.max(1);
-    let col = yace_buffer::text::visual_col(line_without_ending(rope, line), head - rope.line_to_char(line), tw);
-    if col < view.scroll_col || col >= view.scroll_col + gl.text_width as usize {
+    let map = crate::display::DisplayMap::new(rope, &view.folds, app.wrap_width(view.doc, gl.text_width as usize), tw);
+    let (row, col) = map.row_of(view.sel.primary().head);
+    let height = gl.content.height as usize;
+    let dy = map.distance(map.clamp(view.top()), row, height.saturating_sub(1))?;
+    let scroll_col = if map.wraps() { 0 } else { view.scroll_col };
+    if col < scroll_col || col >= scroll_col + gl.text_width as usize {
         return None;
     }
-    Some((gl.text_x + (col - view.scroll_col) as u16, gl.content.y + (line - view.scroll_line) as u16))
+    Some((gl.text_x + (col - scroll_col) as u16, gl.content.y + dy as u16))
 }
 
 fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {

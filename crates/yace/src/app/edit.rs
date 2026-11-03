@@ -5,7 +5,7 @@ use yace_buffer::{
     ChangeSet, EditKind, LineEnding, Range, Rope, Selection,
     movement::{self, Direction},
     ops::{self, Edit, EditOptions},
-    text::{line_without_ending, visual_col},
+    text::line_without_ending,
 };
 
 use super::{App, Severity};
@@ -91,6 +91,8 @@ impl App {
         {
             view.sel = sel;
         }
+        // A cursor that lands inside a fold (search, go to line, …) opens it.
+        self.reveal_cursors(g, v);
         self.reveal_cursor = true;
     }
 
@@ -111,29 +113,61 @@ impl App {
     pub(crate) fn cmd_move(&mut self, kind: Move, extend: bool) {
         let tw = self.tab_width_active();
         let page = self.active_view_height().saturating_sub(1).max(1);
-        self.move_cursors(|rope, r| match kind {
-            Move::Left => movement::move_grapheme(rope, r, Direction::Backward, extend),
-            Move::Right => movement::move_grapheme(rope, r, Direction::Forward, extend),
-            Move::Up => movement::move_vertical(rope, r, Direction::Backward, 1, extend, tw),
-            Move::Down => movement::move_vertical(rope, r, Direction::Forward, 1, extend, tw),
-            Move::WordLeft => movement::move_word(rope, r, Direction::Backward, extend),
-            Move::WordRight => movement::move_word(rope, r, Direction::Forward, extend),
-            Move::Home => movement::line_home(rope, r, extend),
-            Move::End => movement::line_end(rope, r, extend),
-            Move::Top => movement::doc_start(r, extend),
-            Move::Bottom => movement::doc_end(rope, r, extend),
-            Move::PageUp => movement::move_vertical(rope, r, Direction::Backward, page, extend, tw),
-            Move::PageDown => movement::move_vertical(rope, r, Direction::Forward, page, extend, tw),
-        });
+        // Folds or word wrap: vertical moves go by display rows, horizontal
+        // ones step over folded regions.
+        if let Some((g, v, _, geo)) = self.active_geo()
+            && !geo.map().is_plain()
+        {
+            let map = geo.map();
+            let vertical = match kind {
+                Move::Up => Some(-1),
+                Move::Down => Some(1),
+                Move::PageUp => Some(-(page as isize)),
+                Move::PageDown => Some(page as isize),
+                _ => None,
+            };
+            if let Some(delta) = vertical {
+                let rope = &geo.rope;
+                let sel = self.layout.group(g).map(|gr| gr.views[v].sel.clone()).unwrap_or_default();
+                let new = sel.transform(|r| super::folding::display_vertical(&map, rope, r, delta, extend));
+                if let Some((_, _, d)) = self.active()
+                    && let Some(doc) = self.docs.doc_mut(d)
+                {
+                    doc.seal_history();
+                }
+                if matches!(kind, Move::PageUp | Move::PageDown)
+                    && let Some(view) = self.layout.group_mut(g).map(|gr| &mut gr.views[v])
+                {
+                    view.set_top(map.advance(view.top(), delta));
+                }
+                self.set_view_selection(g, v, new);
+                return;
+            }
+            let hidden = map.hidden_chars();
+            if !hidden.is_empty() {
+                let forward = matches!(kind, Move::Right | Move::WordRight | Move::End | Move::Bottom);
+                self.move_cursors(|rope, r| {
+                    let mut nr = basic_move(rope, r, kind, extend, tw, page);
+                    if let Some((s, e)) = hidden.iter().copied().find(|(s, e)| nr.head > *s && nr.head <= *e) {
+                        let head = if forward {
+                            let l = rope.char_to_line(e);
+                            if l + 1 < rope.len_lines() { rope.line_to_char(l + 1) } else { e }
+                        } else {
+                            s
+                        };
+                        nr = nr.with_head(head, extend);
+                    }
+                    nr
+                });
+                return;
+            }
+        }
+        self.move_cursors(|rope, r| basic_move(rope, r, kind, extend, tw, page));
         if matches!(kind, Move::PageUp | Move::PageDown) {
             // Keep the cursor at the same screen row, like VS Code.
             let delta = page as isize * if kind == Move::PageUp { -1 } else { 1 };
-            if let Some((g, v, d)) = self.active() {
-                let lines = self.docs.doc(d).map(|x| x.rope().len_lines()).unwrap_or(1);
-                if let Some(view) = self.layout.group_mut(g).map(|gr| &mut gr.views[v]) {
-                    view.scroll_line =
-                        (view.scroll_line as isize + delta).clamp(0, lines.saturating_sub(1) as isize) as usize;
-                }
+            if let Some((g, _, _)) = self.active() {
+                self.scroll_view(g, delta);
             }
         }
     }
@@ -309,10 +343,8 @@ impl App {
     }
 
     pub(crate) fn scroll_lines(&mut self, delta: isize) {
-        let Some((g, v, d)) = self.active() else { return };
-        let lines = self.docs.doc(d).map(|x| x.rope().len_lines()).unwrap_or(1);
-        if let Some(view) = self.layout.group_mut(g).map(|gr| &mut gr.views[v]) {
-            view.scroll_line = (view.scroll_line as isize + delta).clamp(0, lines.saturating_sub(1) as isize) as usize;
+        if let Some((g, _, _)) = self.active() {
+            self.scroll_view(g, delta);
         }
     }
 
@@ -323,12 +355,11 @@ impl App {
     }
 
     pub(crate) fn center_active_cursor(&mut self) {
-        let h = self.active_view_height();
-        let Some((g, v, d)) = self.active() else { return };
-        let Some(rope) = self.docs.doc(d).map(|x| x.rope().clone()) else { return };
+        let Some((g, v, _, geo)) = self.active_geo() else { return };
+        let map = geo.map();
         if let Some(view) = self.layout.group_mut(g).map(|gr| &mut gr.views[v]) {
-            let line = rope.char_to_line(view.sel.primary().head.min(rope.len_chars()));
-            view.scroll_line = line.saturating_sub(h / 2);
+            let (row, _) = map.row_of(view.sel.primary().head);
+            view.set_top(map.advance(row, -((geo.height / 2) as isize)));
         }
         self.reveal_cursor = true;
     }
@@ -342,20 +373,24 @@ impl App {
         if height == 0 || width == 0 {
             return;
         }
-        let Some((g, v, d)) = self.active() else { return };
+        let Some((g, v, _, geo)) = self.active_geo() else { return };
         let margin = self.settings.editor.cursor_surrounding_lines.min(height.saturating_sub(1) / 2);
-        let tw = self.edit_options(d).tab_width;
-        let Some(rope) = self.docs.doc(d).map(|x| x.rope().clone()) else { return };
+        let map = geo.map();
         let Some(view) = self.layout.group_mut(g).map(|gr| &mut gr.views[v]) else { return };
-        let head = view.sel.primary().head.min(rope.len_chars());
-        let line = rope.char_to_line(head);
-        if line < view.scroll_line + margin {
-            view.scroll_line = line.saturating_sub(margin);
-        } else if line + margin >= view.scroll_line + height {
-            view.scroll_line = (line + margin + 1).saturating_sub(height);
-        }
-        let col = visual_col(line_without_ending(&rope, line), head - rope.line_to_char(line), tw);
-        if col < view.scroll_col {
+        let (crow, col) = map.row_of(view.sel.primary().head);
+        let top = map.clamp(view.top());
+        let new_top = if crow < map.advance(top, margin as isize) {
+            map.advance(crow, -(margin as isize))
+        } else {
+            match map.distance(top, crow, height) {
+                Some(d) if d + margin < height => top,
+                _ => map.advance(crow, -((height - 1 - margin) as isize)),
+            }
+        };
+        view.set_top(new_top);
+        if map.wraps() {
+            view.scroll_col = 0;
+        } else if col < view.scroll_col {
             view.scroll_col = col.saturating_sub(4);
         } else if col >= view.scroll_col + width {
             view.scroll_col = col + 1 - width + 4.min(width / 4);
@@ -364,6 +399,24 @@ impl App {
 
     pub(crate) fn not_available(&mut self, what: &str, milestone: &str) {
         self.notify(Severity::Info, format!("{what} is not available yet (planned for milestone {milestone})."));
+    }
+}
+
+/// A cursor move on buffer lines (no folds or wrap involved).
+fn basic_move(rope: &Rope, r: Range, kind: Move, extend: bool, tw: usize, page: usize) -> Range {
+    match kind {
+        Move::Left => movement::move_grapheme(rope, r, Direction::Backward, extend),
+        Move::Right => movement::move_grapheme(rope, r, Direction::Forward, extend),
+        Move::Up => movement::move_vertical(rope, r, Direction::Backward, 1, extend, tw),
+        Move::Down => movement::move_vertical(rope, r, Direction::Forward, 1, extend, tw),
+        Move::WordLeft => movement::move_word(rope, r, Direction::Backward, extend),
+        Move::WordRight => movement::move_word(rope, r, Direction::Forward, extend),
+        Move::Home => movement::line_home(rope, r, extend),
+        Move::End => movement::line_end(rope, r, extend),
+        Move::Top => movement::doc_start(r, extend),
+        Move::Bottom => movement::doc_end(rope, r, extend),
+        Move::PageUp => movement::move_vertical(rope, r, Direction::Backward, page, extend, tw),
+        Move::PageDown => movement::move_vertical(rope, r, Direction::Forward, page, extend, tw),
     }
 }
 

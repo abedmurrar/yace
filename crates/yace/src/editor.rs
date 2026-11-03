@@ -127,14 +127,35 @@ pub struct View {
     pub doc: DocId,
     pub sel: Selection,
     pub scroll_line: usize,
+    /// Wrapped row of `scroll_line` shown at the top (word wrap).
+    pub scroll_sub: usize,
     /// Horizontal scroll in display cells.
     pub scroll_col: usize,
     pub preview: bool,
+    /// Collapsed regions (per view, as in VS Code).
+    pub folds: Vec<crate::display::Fold>,
 }
 
 impl View {
     pub fn new(doc: DocId) -> Self {
-        Self { doc, sel: Selection::point(0), scroll_line: 0, scroll_col: 0, preview: false }
+        Self {
+            doc,
+            sel: Selection::point(0),
+            scroll_line: 0,
+            scroll_sub: 0,
+            scroll_col: 0,
+            preview: false,
+            folds: Vec::new(),
+        }
+    }
+
+    pub fn top(&self) -> crate::display::Row {
+        crate::display::Row { line: self.scroll_line, sub: self.scroll_sub }
+    }
+
+    pub fn set_top(&mut self, r: crate::display::Row) {
+        self.scroll_line = r.line;
+        self.scroll_sub = r.sub;
     }
 }
 
@@ -227,6 +248,9 @@ impl Default for Layout {
 }
 
 impl Layout {
+    pub fn groups_mut(&mut self) -> &mut [Group] {
+        &mut self.groups
+    }
     pub fn groups(&self) -> &[Group] {
         &self.groups
     }
@@ -273,8 +297,14 @@ impl Layout {
     pub fn sync_views(&mut self, doc: DocId, cs: &ChangeSet, skip: Option<(GroupId, usize)>) {
         for g in &mut self.groups {
             for (i, v) in g.views.iter_mut().enumerate() {
-                if v.doc == doc && skip != Some((g.id, i)) {
+                if v.doc != doc {
+                    continue;
+                }
+                if skip != Some((g.id, i)) {
                     v.sel = v.sel.map(cs);
+                }
+                if !v.folds.is_empty() {
+                    crate::display::map_folds(&mut v.folds, cs);
                 }
             }
         }

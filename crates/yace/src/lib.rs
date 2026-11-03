@@ -7,6 +7,7 @@ pub mod app;
 pub mod cli;
 pub mod clipboard;
 pub mod commands;
+pub mod display;
 pub mod editor;
 pub mod explorer;
 pub mod mem;

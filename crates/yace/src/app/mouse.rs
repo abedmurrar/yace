@@ -11,7 +11,6 @@ use ratatui::{
 use yace_buffer::{
     Range, Selection,
     movement::{line_range, word_at},
-    text::{char_at_visual_col, line_without_ending},
 };
 
 use super::{App, Focus};
@@ -39,6 +38,8 @@ pub enum Drag {
 #[derive(Debug, Clone, Default)]
 pub struct MouseState {
     pub drag: Option<Drag>,
+    /// Last pointer position (fold markers show on hover).
+    pub hover: Option<(u16, u16)>,
     last_click: Option<(Instant, u16, u16, u8)>,
 }
 
@@ -51,6 +52,7 @@ fn hit(r: Rect, x: u16, y: u16) -> bool {
 impl App {
     pub(crate) fn on_mouse(&mut self, m: MouseEvent) {
         let (x, y) = (m.column, m.row);
+        self.mouse.hover = Some((x, y));
         if !self.overlays.is_empty() {
             self.mouse_overlay(m);
             return;
@@ -187,19 +189,12 @@ impl App {
                 }
                 if let Some(g) = wl.groups.iter().find(|g| hit(g.rect, x, y)) {
                     let gid = g.id;
-                    if let Some(group) = self.layout.group(gid)
-                        && let Some(v) = group.active_view()
-                    {
-                        let lines = self.docs.doc(v.doc).map(|d| d.rope().len_lines()).unwrap_or(1);
+                    if m.modifiers.contains(KeyModifiers::SHIFT) {
                         if let Some(view) = self.layout.group_mut(gid).and_then(|gr| gr.active_view_mut()) {
-                            if m.modifiers.contains(KeyModifiers::SHIFT) {
-                                view.scroll_col = (view.scroll_col as isize + delta * 2).max(0) as usize;
-                            } else {
-                                view.scroll_line = (view.scroll_line as isize + delta)
-                                    .clamp(0, lines.saturating_sub(1) as isize)
-                                    as usize;
-                            }
+                            view.scroll_col = (view.scroll_col as isize + delta * 2).max(0) as usize;
                         }
+                    } else {
+                        self.scroll_view(gid, delta);
                     }
                 }
             }
@@ -404,20 +399,43 @@ impl App {
     }
 
     /// Char index under a screen position in a group's text area.
+    /// The display row under screen row `y` of a group.
+    fn row_at(&self, g: &ui::GroupLayout, y: u16) -> Option<(crate::display::Row, bool)> {
+        let group = self.layout.group(g.id)?;
+        let geo = self.view_geo(g.id, group.active)?;
+        let view = group.active_view()?;
+        let map = geo.map();
+        let dy = y.saturating_sub(g.content.y) as usize;
+        let rows = map.rows(view.top(), dy + 1);
+        let row = *rows.last()?;
+        Some((row, rows.len() <= dy))
+    }
+
     fn position_at(&self, g: &ui::GroupLayout, x: u16, y: u16) -> Option<usize> {
         let group = self.layout.group(g.id)?;
+        let geo = self.view_geo(g.id, group.active)?;
         let view = group.active_view()?;
-        let doc = self.docs.doc(view.doc)?;
-        let rope = doc.rope();
-        let line = (view.scroll_line + y.saturating_sub(g.content.y) as usize).min(rope.len_lines().saturating_sub(1));
-        let col = view.scroll_col + x.saturating_sub(g.text_x) as usize;
-        let tw = self.settings_for(doc.path()).editor.tab_size.max(1);
-        Some(rope.line_to_char(line) + char_at_visual_col(line_without_ending(rope, line), col, tw))
+        let map = geo.map();
+        let (row, past_end) = self.row_at(g, y)?;
+        if past_end {
+            return Some(geo.rope.len_chars());
+        }
+        let scroll_col = if map.wraps() { 0 } else { view.scroll_col };
+        Some(map.char_at(row, scroll_col + x.saturating_sub(g.text_x) as usize))
     }
 
     fn mouse_editor(&mut self, g: &ui::GroupLayout, x: u16, y: u16, count: u8, mods: KeyModifiers) {
         self.layout.active = g.id;
         self.focus_editor();
+        // The fold marker column of the gutter toggles folds.
+        if x == g.content.x + g.gutter.saturating_sub(2)
+            && x < g.text_x
+            && let Some((row, false)) = self.row_at(g, y)
+            && row.sub == 0
+            && self.toggle_fold_line(g.id, row.line)
+        {
+            return;
+        }
         let Some(pos) = self.position_at(g, x, y) else { return };
         let Some((_, v, d)) = self.active() else { return };
         let Some(rope) = self.docs.doc(d).map(|x| x.rope().clone()) else { return };
