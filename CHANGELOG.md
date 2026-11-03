@@ -13,6 +13,8 @@ Security, Performance.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-03
+
 ### Changed
 
 - Claude Code worktrees (`**/.claude/worktrees`) are excluded from Quick
@@ -234,6 +236,7 @@ Reproduce with `scripts/bench.sh` and `scripts/bench_interactive.py`.
 - Very large files are read on the main thread.
 - There's no crash recovery for unsaved edits yet.
 
-[Unreleased]: https://github.com/OWNER/yace/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/OWNER/yace/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/OWNER/yace/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/OWNER/yace/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/OWNER/yace/releases/tag/v0.1.0
