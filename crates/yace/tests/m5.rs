@@ -251,3 +251,23 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
         }
     }
 }
+
+#[test]
+fn f6_cycles_editor_terminal_sidebar() {
+    let m = multi_root();
+    let mut h = Harness::with_config(SH);
+    open_ws(&mut h, &m.ws_file);
+    h.app.open_file(&m.api.join("package.json"), false);
+    h.key("ctrl+`");
+    assert!(h.wait_for(T, |h| screen_has(h, "$ ")));
+    assert_eq!(h.app.focus, Focus::Terminal);
+    h.key("f6");
+    assert_eq!(h.app.focus, Focus::Explorer, "terminal → sidebar");
+    h.key("f6");
+    assert_eq!(h.app.focus, Focus::Editor, "sidebar → editor");
+    assert!(h.app.panel.visible, "the panel stays open");
+    h.key("f6");
+    assert_eq!(h.app.focus, Focus::Terminal, "editor → terminal");
+    h.key("shift+f6");
+    assert_eq!(h.app.focus, Focus::Editor, "Shift+F6 goes back to the editor");
+}

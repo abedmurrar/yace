@@ -19,6 +19,7 @@ yace-keymap = { path = "crates/yace-keymap" }
 yace-config = { path = "crates/yace-config" }
 yace-search = { path = "crates/yace-search" }
 yace-terminal = { path = "crates/yace-terminal" }
+yace-syntax = { path = "crates/yace-syntax" }
 
 ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "underline-color", "layout-cache"] }
 crossterm = "0.29"

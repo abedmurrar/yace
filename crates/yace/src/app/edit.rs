@@ -11,63 +11,6 @@ use yace_buffer::{
 use super::{App, Severity};
 use crate::editor::{DocId, GroupId};
 
-/// Line-comment token by file extension (replaced by language services in M7).
-pub fn comment_token(path: Option<&std::path::Path>) -> &'static str {
-    let ext = path.and_then(|p| p.extension()).and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    let name = path.and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
-    match ext.as_str() {
-        "py" | "sh" | "bash" | "zsh" | "fish" | "rb" | "pl" | "toml" | "yaml" | "yml" | "r" | "conf" | "ini" | "mk"
-        | "cmake" | "nix" | "ps1" | "tf" | "dockerignore" | "gitignore" | "env" => "#",
-        "sql" | "lua" | "hs" | "elm" | "ada" => "--",
-        "vim" => "\"",
-        "lisp" | "clj" | "el" | "scm" => ";",
-        "erl" | "tex" | "m" => "%",
-        "bat" | "cmd" => "REM",
-        _ => match name {
-            "Dockerfile" | "Makefile" | "makefile" | "CMakeLists.txt" | ".gitignore" | ".env" | ".bashrc"
-            | ".zshrc" | ".gitconfig" => "#",
-            _ => "//",
-        },
-    }
-}
-
-/// Human-readable language name by extension (status bar).
-pub fn language_name(path: Option<&std::path::Path>) -> &'static str {
-    let ext = path.and_then(|p| p.extension()).and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    let name = path.and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
-    match ext.as_str() {
-        "rs" => "Rust",
-        "js" | "mjs" | "cjs" => "JavaScript",
-        "jsx" => "JavaScript JSX",
-        "ts" | "mts" | "cts" => "TypeScript",
-        "tsx" => "TypeScript JSX",
-        "json" => "JSON",
-        "jsonc" | "code-workspace" => "JSON with Comments",
-        "yaml" | "yml" => "YAML",
-        "toml" => "TOML",
-        "html" | "htm" => "HTML",
-        "css" => "CSS",
-        "scss" => "SCSS",
-        "md" | "markdown" => "Markdown",
-        "sql" => "SQL",
-        "sh" | "bash" | "zsh" => "Shell Script",
-        "py" => "Python",
-        "go" => "Go",
-        "c" | "h" => "C",
-        "cpp" | "cc" | "hpp" | "cxx" => "C++",
-        "java" => "Java",
-        "rb" => "Ruby",
-        "lua" => "Lua",
-        "txt" => "Plain Text",
-        _ => match name {
-            "Dockerfile" => "Dockerfile",
-            "Makefile" | "makefile" => "Makefile",
-            ".gitconfig" | ".gitattributes" | ".gitignore" => "Git",
-            _ => "Plain Text",
-        },
-    }
-}
-
 impl App {
     /// The focused view: (group, view index, document).
     pub fn active(&self) -> Option<(GroupId, usize, DocId)> {
@@ -83,6 +26,10 @@ impl App {
             insert_spaces: s.editor.insert_spaces,
             auto_close: s.editor.auto_closing_brackets,
             eol: d.map(|d| d.eol()).unwrap_or(LineEnding::Lf),
+            rules: {
+                let r = self.syntax.language(doc).rules;
+                ops::LanguageRules { pairs: r.auto_close, indent_after: r.indent_after }
+            },
         }
     }
 
@@ -212,7 +159,7 @@ impl App {
     pub(crate) fn run_op(&mut self, op: Op) {
         let Some((_, _, d, rope, sel)) = self.rope_and_sel() else { return };
         let opts = self.edit_options(d);
-        let path = self.docs.doc(d).and_then(|x| x.path().map(|p| p.to_path_buf()));
+        let rules = self.syntax.language(d).rules;
         let edit = match op {
             Op::Newline => ops::insert_newline(&rope, &sel, &opts),
             Op::Backspace => ops::backspace(&rope, &sel, &opts),
@@ -229,7 +176,19 @@ impl App {
             Op::CopyLinesUp => ops::copy_lines(&rope, &sel, Direction::Backward, &opts),
             Op::CopyLinesDown => ops::copy_lines(&rope, &sel, Direction::Forward, &opts),
             Op::DeleteLines => ops::delete_lines(&rope, &sel),
-            Op::ToggleComment => ops::toggle_line_comment(&rope, &sel, comment_token(path.as_deref())),
+            // Languages without line comments (CSS, HTML) use block comments.
+            Op::ToggleComment => match (rules.line_comment, rules.block_comment) {
+                (Some(tok), _) => ops::toggle_line_comment(&rope, &sel, tok),
+                (None, Some((open, close))) => ops::toggle_block_comment(&rope, &sel, open, close),
+                (None, None) => return,
+            },
+            Op::ToggleBlockComment => match rules.block_comment {
+                Some((open, close)) => ops::toggle_block_comment(&rope, &sel, open, close),
+                None => match rules.line_comment {
+                    Some(tok) => ops::toggle_line_comment(&rope, &sel, tok),
+                    None => return,
+                },
+            },
             Op::TrimWhitespace => {
                 let cs = ops::trim_trailing_whitespace(&rope);
                 let s = sel.map(&cs);
@@ -442,5 +401,6 @@ pub enum Op {
     CopyLinesDown,
     DeleteLines,
     ToggleComment,
+    ToggleBlockComment,
     TrimWhitespace,
 }

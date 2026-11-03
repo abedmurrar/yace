@@ -249,6 +249,13 @@ pub fn from_vscode_settings(json: &serde_json::Value) -> Table {
                     .collect();
                 put("search", "exclude", Value::Array(list))
             }
+            ("files.associations", J::Object(map)) => {
+                let t: Table = map
+                    .iter()
+                    .filter_map(|(g, id)| id.as_str().map(|id| (g.clone(), Value::String(id.into()))))
+                    .collect();
+                put("files", "associations", Value::Table(t))
+            }
             ("search.useIgnoreFiles", J::Bool(b)) => put("search", "useIgnoreFiles", Value::Boolean(*b)),
             ("files.autoSave", J::String(s)) => {
                 let mapped = match s.as_str() {

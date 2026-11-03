@@ -35,6 +35,7 @@ pub const DEFAULT_SKIP_SHELL: &[&str] = &[
     "workbench.view.explorer",
     "workbench.action.findInFiles",
     "workbench.action.focusFirstEditorGroup",
+    "workbench.action.focusActiveEditorGroup",
     "workbench.action.focusSecondEditorGroup",
     "workbench.action.focusThirdEditorGroup",
     "workbench.action.focusNextPart",

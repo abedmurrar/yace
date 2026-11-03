@@ -92,6 +92,8 @@ pub struct FilesSettings {
     pub eol: Eol,
     /// Files larger than this (MiB) open in large-file mode after a prompt.
     pub large_file_threshold_mb: u64,
+    /// Glob (or file name) → language id, as VS Code's `files.associations`.
+    pub associations: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for FilesSettings {
@@ -111,6 +113,7 @@ impl Default for FilesSettings {
             trim_trailing_whitespace: false,
             eol: Eol::Auto,
             large_file_threshold_mb: 50,
+            associations: Default::default(),
         }
     }
 }

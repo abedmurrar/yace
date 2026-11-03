@@ -320,6 +320,30 @@ pub fn spawn_find_worker(events: Sender<AppEvent>) -> Sender<FindJob> {
     tx
 }
 
+/// The syntax worker: parses documents off the UI thread. Queued jobs for
+/// the same document collapse to the newest.
+pub fn spawn_syntax_worker(events: Sender<AppEvent>) -> Sender<crate::syntax::ParseJob> {
+    let (tx, rx): (Sender<crate::syntax::ParseJob>, Receiver<crate::syntax::ParseJob>) = unbounded();
+    thread::Builder::new()
+        .name("yace-syntax".into())
+        .spawn(move || {
+            while let Ok(first) = rx.recv() {
+                let mut batch = vec![first];
+                for job in rx.try_iter() {
+                    batch.retain(|j| j.doc != job.doc);
+                    batch.push(job);
+                }
+                for job in &batch {
+                    if events.send(crate::syntax::run_parse(job)).is_err() {
+                        return;
+                    }
+                }
+            }
+        })
+        .expect("spawn syntax worker");
+    tx
+}
+
 // ---------------------------------------------------------------------------
 // Async file loading (large files)
 

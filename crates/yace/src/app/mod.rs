@@ -40,7 +40,7 @@ use crate::{
     theme::{Glyphs, Theme, detect_depth},
 };
 
-pub use edit::{Move, Op, comment_token, language_name};
+pub use edit::{Move, Op};
 pub use find::FindField;
 pub use mouse::MouseState;
 pub use search_view::{Row as SearchRow, SearchField};
@@ -89,6 +89,14 @@ pub enum AppEvent {
     },
     /// From a terminal session (output, title, exit, bell).
     TerminalNotice(yace_terminal::Notice),
+    /// A background parse finished.
+    Parsed {
+        doc: DocId,
+        job: u64,
+        tree: Option<Box<yace_syntax::Tree>>,
+        /// Time the parse took (feeds the sync/async prediction).
+        cost: Duration,
+    },
 }
 
 /// Side effects requested by the application.
@@ -114,6 +122,8 @@ pub enum Effect {
     },
     /// Return freed heap memory to the OS (after background work).
     TrimMemory,
+    /// Parse a document on the syntax worker.
+    Parse(Box<crate::syntax::ParseJob>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,6 +230,8 @@ pub struct App {
     last_trim: Option<Instant>,
     /// The bottom panel and its terminals.
     pub panel: terminal::PanelState,
+    /// Per-document syntax trees and highlighting.
+    pub syntax: crate::syntax::SyntaxStore,
 }
 
 const FS_COALESCE: Duration = Duration::from_millis(100);
@@ -278,6 +290,7 @@ impl App {
             nav: Default::default(),
             last_trim: None,
             panel: Default::default(),
+            syntax: Default::default(),
             settings,
             paths: opts.paths,
         };
@@ -348,6 +361,7 @@ impl App {
         if self.notifications.len() != before {
             self.needs_render = true;
         }
+        self.sync_documents();
         self.sync_watches();
     }
 
@@ -496,6 +510,8 @@ impl App {
     pub fn handle(&mut self, event: AppEvent) {
         let start = Instant::now();
         let is_input = matches!(event, AppEvent::Terminal(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)));
+        // Documents opened outside an event get their language first.
+        self.sync_documents();
         match event {
             AppEvent::Terminal(Event::Key(k)) => self.on_key(k),
             AppEvent::Terminal(Event::Mouse(m)) => self.on_mouse(m),
@@ -538,7 +554,13 @@ impl App {
             AppEvent::FindDone { seq, result } => self.on_find_done(seq, result),
             AppEvent::FileLoaded { doc, path, result } => self.on_file_loaded(doc, path, result),
             AppEvent::TerminalNotice(n) => self.on_terminal_notice(n),
+            AppEvent::Parsed { doc, job, tree, cost } => {
+                if let Some(job) = self.syntax.on_parsed(&self.docs, doc, job, tree.map(|t| *t), cost) {
+                    self.emit(Effect::Parse(Box::new(job)));
+                }
+            }
         }
+        self.sync_documents();
         self.refresh_find_if_stale();
         self.ensure_active_started();
         self.sync_terminal_size();
@@ -851,6 +873,14 @@ impl App {
     }
 
     /// Schedule auto-save after an edit (setting `files.autoSave`).
+    /// Feed document edits to incremental consumers (syntax; later LSP).
+    pub fn sync_documents(&mut self) {
+        let jobs = self.syntax.sync(&mut self.docs, &self.settings.files.associations);
+        for job in jobs {
+            self.effects.push(Effect::Parse(Box::new(job)));
+        }
+    }
+
     pub(crate) fn on_document_edited(&mut self) {
         if self.settings.files.auto_save == yace_config::AutoSave::AfterDelay {
             self.autosave_deadline =

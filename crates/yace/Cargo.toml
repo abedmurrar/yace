@@ -22,6 +22,7 @@ yace-keymap.workspace = true
 yace-config.workspace = true
 yace-search.workspace = true
 yace-terminal.workspace = true
+yace-syntax.workspace = true
 ratatui.workspace = true
 crossbeam-channel.workspace = true
 notify.workspace = true

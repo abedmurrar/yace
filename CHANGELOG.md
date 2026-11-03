@@ -13,6 +13,39 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- Syntax highlighting with tree-sitter for Rust, JavaScript/JSX,
+  TypeScript/TSX, JSON/JSONC, YAML, TOML, HTML, CSS, SCSS, Markdown, SQL,
+  Bash, Python, Go, Dockerfile, C, C++, Java and Ruby, including embedded
+  languages (Markdown code fences, `<script>`/`<style>`). Grammars are
+  built in but only loaded when a file of that language opens.
+- Language detection from `files.associations` (also read from
+  `.vscode/settings.json`), file name, extension and `#!` line; the status
+  bar shows the detected language.
+- Language-aware editing: comment tokens, auto-closing pairs and
+  indentation come from the language (`:` indents in Python and YAML,
+  Enter between HTML tags splits the line). New **Toggle Block Comment**
+  (`Shift+Alt+A`); in CSS and HTML `Ctrl+/` uses block comments.
+
+### Changed
+
+- `F6` / `Shift+F6` cycle Editor → Panel → Sidebar (skipping hidden parts),
+  so `F6` from the terminal goes to the editor's side of the cycle instead
+  of always jumping to the Explorer.
+- `Ctrl+/` in plain-text files no longer inserts `//` (plain text has no
+  comment syntax, as in VS Code).
+
+### Performance
+
+- Typing never waits for the parser: cheap reparses (predicted under
+  0.5 ms) run inline, larger ones on a background thread while the screen
+  is drawn from the shifted previous tree. Typing at the top of a 10k-line
+  TypeScript file: input p50 0.074 ms, p95 ≤ 1 ms. Highlighting only covers
+  the visible lines and is cached. Startup and idle memory are essentially
+  unchanged (+0.3 ms, +0.5 MiB); the binary grows from 7.2 MB to 24.4 MB
+  because of the built-in grammars.
+
 ## [0.3.1] - 2026-11-03
 
 ### Fixed

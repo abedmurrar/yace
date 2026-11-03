@@ -13,6 +13,7 @@ pub mod mem;
 pub mod metrics;
 pub mod overlay;
 pub mod run;
+pub mod syntax;
 pub mod terminal;
 pub mod theme;
 pub mod ui;

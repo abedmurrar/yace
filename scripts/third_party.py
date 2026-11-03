@@ -23,6 +23,28 @@ while stack:
             stack.append(d["pkg"])
 crates = sorted((pkgs[i] for i in seen if pkgs[i]["source"] is not None), key=lambda p: (p["name"], p["version"]))
 
+MIT = """MIT License
+
+Copyright (c) {holders}
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE."""
+
 texts = {}  # hash -> (text, [crate names])
 rows = []
 for p in crates:
@@ -37,7 +59,16 @@ for p in crates:
         h = hashlib.sha256(t.encode()).hexdigest()[:12]
         texts.setdefault(h, (f, t, []))[2].append(f'{p["name"]} {p["version"]}')
         refs.append(f"[{f}](#t-{h})")
-    rows.append((p["name"], p["version"], p.get("license") or "see files", p.get("repository") or "", refs))
+    lic = p.get("license") or "see files"
+    if not refs and "MIT" in lic.replace("OR", " ").split():
+        # The crate ships no licence file: reproduce the MIT terms with the
+        # copyright holders from its metadata, as the licence requires.
+        holders = ", ".join(a.split(" <")[0] for a in p.get("authors") or []) or f'the {p["name"]} authors'
+        t = MIT.format(holders=holders)
+        h = hashlib.sha256(t.encode()).hexdigest()[:12]
+        texts.setdefault(h, ("MIT (from Cargo metadata)", t, []))[2].append(f'{p["name"]} {p["version"]}')
+        refs.append(f"[MIT](#t-{h})")
+    rows.append((p["name"], p["version"], lic, p.get("repository") or "", refs))
 
 out = [
     "# Third-party licences",

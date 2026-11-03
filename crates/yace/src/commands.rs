@@ -94,8 +94,34 @@ fn open_config_file(app: &mut App, path: std::path::PathBuf, template: &str) {
 }
 
 /// With two parts (Explorer, editor groups) next and previous are the same.
-fn toggle_part(app: &mut App) {
-    if app.focus == Focus::Explorer { app.focus_editor() } else { app.focus_explorer() }
+/// F6 / Shift+F6: cycle Editor → Panel → Sidebar (VS Code order), skipping
+/// hidden parts. The find bar counts as the editor.
+fn cycle_part(app: &mut App, forward: bool) {
+    #[derive(PartialEq, Clone, Copy)]
+    enum Part {
+        Editor,
+        Panel,
+        Sidebar,
+    }
+    let mut parts = vec![Part::Editor];
+    if app.panel.visible && !app.panel.tabs.is_empty() {
+        parts.push(Part::Panel);
+    }
+    if app.sidebar_visible {
+        parts.push(Part::Sidebar);
+    }
+    let current = match app.focus {
+        Focus::Editor | Focus::Find => Part::Editor,
+        Focus::Terminal => Part::Panel,
+        Focus::Explorer => Part::Sidebar,
+    };
+    let i = parts.iter().position(|p| *p == current).unwrap_or(0) as isize;
+    let n = parts.len() as isize;
+    match parts[(i + if forward { 1 } else { -1 }).rem_euclid(n) as usize] {
+        Part::Editor => app.focus_editor(),
+        Part::Panel => app.show_terminal(),
+        Part::Sidebar => app.focus_explorer(),
+    }
 }
 
 fn focus_group_n(app: &mut App, n: usize) {
@@ -474,8 +500,8 @@ fn builtin_commands() -> Vec<Command> {
             a.layout.split(SplitAxis::Vertical);
             a.focus_editor();
         }),
-        c!("workbench.action.focusNextPart", "View", "Focus Next Part", |a, _| toggle_part(a)),
-        c!("workbench.action.focusPreviousPart", "View", "Focus Previous Part", |a, _| toggle_part(a)),
+        c!("workbench.action.focusNextPart", "View", "Focus Next Part", |a, _| cycle_part(a, true)),
+        c!("workbench.action.focusPreviousPart", "View", "Focus Previous Part", |a, _| cycle_part(a, false)),
         c!("workbench.action.focusActiveEditorGroup", "View", "Focus Active Editor Group", |a, _| a.focus_editor()),
         c!("workbench.action.focusFirstEditorGroup", "View", "Focus First Editor Group", |a, _| focus_group_n(a, 0)),
         c!("workbench.action.focusSecondEditorGroup", "View", "Focus Second Editor Group", |a, _| focus_group_n(a, 1)),
@@ -706,6 +732,7 @@ fn builtin_commands() -> Vec<Command> {
         c!("editor.action.copyLinesDownAction", "Selection", "Copy Line Down", |a, _| a.run_op(Op::CopyLinesDown)),
         c!("editor.action.deleteLines", "Editor", "Delete Line", |a, _| a.run_op(Op::DeleteLines)),
         c!("editor.action.commentLine", "Editor", "Toggle Line Comment", |a, _| a.run_op(Op::ToggleComment)),
+        c!("editor.action.blockComment", "Editor", "Toggle Block Comment", |a, _| a.run_op(Op::ToggleBlockComment)),
         c!("editor.action.jumpToBracket", "Go", "Go to Bracket", |a, _| a.jump_to_bracket()),
         c!("editor.action.trimTrailingWhitespace", "Editor", "Trim Trailing Whitespace", |a, _| a
             .run_op(Op::TrimWhitespace)),

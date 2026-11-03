@@ -4,6 +4,7 @@
 
 use ratatui::style::{Color, Modifier, Style};
 use yace_config::{ColorDepth, Glyphs as GlyphSetting};
+use yace_syntax::Scope;
 
 #[derive(Clone, Debug)]
 pub struct Theme {
@@ -58,8 +59,60 @@ pub struct Theme {
     pub terminal_fg: Color,
     /// ANSI 0–15 for the integrated terminal.
     pub terminal_ansi: [Color; 16],
+    /// Syntax colours, indexed by `yace_syntax::Scope`.
+    pub syntax: [Color; Scope::COUNT],
     /// Colour depth the theme was converted for.
     pub depth: Depth,
+}
+
+/// Syntax colours for YACE Dark (VS Code Dark+ inspired, so VS Code users
+/// feel at home).
+fn dark_syntax(fg: Color) -> [Color; Scope::COUNT] {
+    let mut s = [fg; Scope::COUNT];
+    let rgb = |r, g, b| Color::Rgb(r, g, b);
+    let blue = rgb(0x56, 0x9c, 0xd6);
+    let teal = rgb(0x4e, 0xc9, 0xb0);
+    let yellow = rgb(0xdc, 0xdc, 0xaa);
+    let light_blue = rgb(0x9c, 0xdc, 0xfe);
+    let orange = rgb(0xce, 0x91, 0x78);
+    for (scope, c) in [
+        (Scope::Comment, rgb(0x6a, 0x99, 0x55)),
+        (Scope::String, orange),
+        (Scope::StringSpecial, rgb(0xd1, 0x69, 0x69)),
+        (Scope::Escape, rgb(0xd7, 0xba, 0x7d)),
+        (Scope::Character, orange),
+        (Scope::Number, rgb(0xb5, 0xce, 0xa8)),
+        (Scope::Boolean, blue),
+        (Scope::Constant, rgb(0x4f, 0xc1, 0xff)),
+        (Scope::ConstantBuiltin, blue),
+        (Scope::Keyword, blue),
+        (Scope::KeywordControl, rgb(0xc5, 0x86, 0xc0)),
+        (Scope::Operator, fg),
+        (Scope::Punctuation, fg),
+        (Scope::PunctuationBracket, fg),
+        (Scope::Function, yellow),
+        (Scope::FunctionBuiltin, yellow),
+        (Scope::FunctionMethod, yellow),
+        (Scope::Macro, teal),
+        (Scope::Type, teal),
+        (Scope::TypeBuiltin, teal),
+        (Scope::Constructor, teal),
+        (Scope::Variable, light_blue),
+        (Scope::VariableBuiltin, blue),
+        (Scope::VariableParameter, light_blue),
+        (Scope::Property, light_blue),
+        (Scope::Attribute, light_blue),
+        (Scope::Tag, blue),
+        (Scope::Namespace, teal),
+        (Scope::Label, rgb(0xc8, 0xc8, 0xc8)),
+        (Scope::Heading, blue),
+        (Scope::Link, rgb(0x4d, 0xaa, 0xfc)),
+        (Scope::Raw, orange),
+        (Scope::ListMarker, rgb(0x67, 0x96, 0xe6)),
+    ] {
+        s[scope as usize] = c;
+    }
+    s
 }
 
 impl Theme {
@@ -132,6 +185,7 @@ impl Theme {
                 Color::Rgb(0x66, 0xc6, 0xd2),
                 Color::Rgb(0xff, 0xff, 0xff),
             ],
+            syntax: dark_syntax(Color::Rgb(0xd4, 0xd6, 0xdc)),
             depth: Depth::TrueColor,
         }
     }
@@ -168,6 +222,9 @@ impl Theme {
             self.terminal_ansi = N;
         } else if depth == Depth::Mono {
             self.terminal_ansi = [Color::Reset; 16];
+        }
+        for c in &mut self.syntax {
+            *c = downgrade(*c, depth);
         }
         macro_rules! conv {
             ($($f:ident),*) => { $( self.$f = downgrade(self.$f, depth); )* };

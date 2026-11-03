@@ -114,6 +114,7 @@ impl Harness {
     pub fn settle(&mut self) {
         use yace_app::workers::{self, IndexCmd};
         self.app.drain_terminal_notices();
+        self.app.sync_documents();
         for _ in 0..200 {
             let effects = self.app.take_effects();
             if effects.is_empty() {
@@ -154,6 +155,7 @@ impl Harness {
                         events.extend(out.into_inner().unwrap());
                     }
                     Effect::Find(job) => events.push(workers::run_find(&job)),
+                    Effect::Parse(job) => events.push(yace_app::syntax::run_parse(&job)),
                     Effect::LoadFile { doc, path, eol } => {
                         let ev = workers::load_file(doc, path, eol);
                         if self.defer_loads {
@@ -220,6 +222,14 @@ impl Harness {
         self.app.handle(AppEvent::FsChanged(paths));
         self.app.on_tick(Instant::now() + Duration::from_secs(1));
         self.settle();
+    }
+
+    /// Render and return the cell buffer (for colour assertions).
+    #[allow(dead_code)]
+    pub fn render(&mut self) -> ratatui::buffer::Buffer {
+        let app = &self.app;
+        self.term.draw(|f| yace_app::ui::draw(app, f)).unwrap();
+        self.term.backend().buffer().clone()
     }
 
     pub fn screen(&mut self) -> String {

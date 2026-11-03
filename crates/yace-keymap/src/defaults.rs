@@ -185,6 +185,7 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+shift+alt+down", "editor.action.copyLinesDownAction", ED),
     ("ctrl+shift+k", "editor.action.deleteLines", ED),
     ("ctrl+/", "editor.action.commentLine", ED),
+    ("shift+alt+a", "editor.action.blockComment", ED),
     ("ctrl+shift+\\", "editor.action.jumpToBracket", ED),
     ("ctrl+k ctrl+x", "editor.action.trimTrailingWhitespace", ED),
     // --- Explorer -------------------------------------------------------------

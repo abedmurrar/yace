@@ -525,6 +525,20 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         &[]
     };
     let current_match = app.find.current.and_then(|i| app.find.matches.get(i)).copied();
+    // Syntax spans for the visible bytes only (cached until the tree changes).
+    let spans = if doc.large_file {
+        None
+    } else {
+        let sb = rope.line_to_byte(view.scroll_line.min(len_lines.saturating_sub(1)));
+        let eb = if view.scroll_line + height < len_lines {
+            rope.line_to_byte(view.scroll_line + height)
+        } else {
+            rope.len_bytes()
+        };
+        app.syntax.spans(view.doc, rope, sb..eb)
+    };
+    let spans: &[yace_syntax::Span] = spans.as_deref().unwrap_or(&[]);
+    let mut si = 0usize;
     for row in 0..height {
         let line = view.scroll_line + row;
         let y = gl.content.y + row as u16;
@@ -560,6 +574,7 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         let line_heads: Vec<usize> = heads.iter().copied().filter(|h| *h >= line_start && *h <= line_end).collect();
         let mut col = 0usize;
         let mut ci = line_start;
+        let mut bi = rope.char_to_byte(line_start);
         let max_col = view.scroll_col + gl.text_width as usize;
         for g in text.graphemes(true) {
             if col >= max_col {
@@ -567,9 +582,14 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             }
             let w = grapheme_width(g, col, tw);
             let n = g.chars().count();
+            while si < spans.len() && spans[si].end <= bi {
+                si += 1;
+            }
+            let scope = spans.get(si).filter(|s| s.start <= bi).map(|s| s.scope);
+            bi += g.len();
             if col + w > view.scroll_col {
                 let selected = active_ranges.iter().any(|(a, b)| ci >= *a && ci < *b);
-                let mut style = Style::new().fg(t.fg).bg(line_bg);
+                let mut style = syntax_style(t, scope).bg(line_bg);
                 if let Some(m) = find_matches.iter().find(|(a, b)| ci >= *a && ci < *b) {
                     style = style.bg(if Some(*m) == current_match { t.find_current_bg } else { t.find_match_bg });
                 }
@@ -625,6 +645,18 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
     }
     if find_active {
         draw_find_bar(app, buf, gl);
+    }
+}
+
+fn syntax_style(t: &crate::theme::Theme, scope: Option<yace_syntax::Scope>) -> Style {
+    use yace_syntax::Scope;
+    let Some(s) = scope else { return Style::new().fg(t.fg) };
+    let style = Style::new().fg(t.syntax[s as usize]);
+    match s {
+        Scope::Heading | Scope::Bold => style.add_modifier(Modifier::BOLD),
+        Scope::Italic => style.add_modifier(Modifier::ITALIC),
+        Scope::Link => style.add_modifier(Modifier::UNDERLINED),
+        _ => style,
     }
 }
 
@@ -725,7 +757,7 @@ fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {
         });
         right.push(if doc.has_bom { "UTF-8 with BOM".into() } else { "UTF-8".into() });
         right.push(doc.line_ending.label().into());
-        right.push(crate::app::language_name(doc.path()).into());
+        right.push(app.syntax.language(view.doc).name.into());
     } else if !app.workspace.roots().is_empty() {
         left = format!(" {}", app.workspace.name());
     } else {

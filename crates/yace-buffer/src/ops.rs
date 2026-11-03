@@ -23,11 +23,43 @@ pub struct EditOptions {
     pub insert_spaces: bool,
     pub auto_close: bool,
     pub eol: LineEnding,
+    /// Per-language pairs and indentation triggers.
+    pub rules: LanguageRules,
+}
+
+/// Language-dependent editing rules (from the language registry).
+#[derive(Debug, Clone, Copy)]
+pub struct LanguageRules {
+    /// Auto-closing pairs (brackets and quotes).
+    pub pairs: &'static [(char, char)],
+    /// A line break right after one of these indents the new line.
+    pub indent_after: &'static [char],
+}
+
+impl Default for LanguageRules {
+    fn default() -> Self {
+        Self { pairs: PAIRS, indent_after: &['(', '[', '{'] }
+    }
+}
+
+impl LanguageRules {
+    fn closer_for(&self, c: char) -> Option<char> {
+        self.pairs.iter().find(|(o, _)| *o == c).map(|(_, c)| *c)
+    }
+    fn is_closer(&self, c: char) -> bool {
+        self.pairs.iter().any(|(o, cl)| *cl == c && o != cl) || is_quote(c) && self.closer_for(c) == Some(c)
+    }
 }
 
 impl Default for EditOptions {
     fn default() -> Self {
-        Self { tab_width: 4, insert_spaces: true, auto_close: true, eol: LineEnding::Lf }
+        Self {
+            tab_width: 4,
+            insert_spaces: true,
+            auto_close: true,
+            eol: LineEnding::Lf,
+            rules: LanguageRules::default(),
+        }
     }
 }
 
@@ -52,12 +84,6 @@ impl Edit {
 
 const PAIRS: &[(char, char)] = &[('(', ')'), ('[', ']'), ('{', '}'), ('"', '"'), ('\'', '\''), ('`', '`')];
 
-fn closer_for(c: char) -> Option<char> {
-    PAIRS.iter().find(|(o, _)| *o == c).map(|(_, c)| *c)
-}
-fn is_closer(c: char) -> bool {
-    PAIRS.iter().any(|(_, cl)| *cl == c)
-}
 fn is_quote(c: char) -> bool {
     matches!(c, '"' | '\'' | '`')
 }
@@ -103,13 +129,14 @@ pub fn type_char(rope: &Rope, sel: &Selection, ch: char, opts: &EditOptions) -> 
     for r in sel.ranges() {
         let next = (r.to() < len).then(|| rope.char(r.to()));
         let prev = (r.from() > 0).then(|| rope.char(r.from() - 1));
-        if opts.auto_close && r.is_empty() && is_closer(ch) && next == Some(ch) {
+        let rules = &opts.rules;
+        if opts.auto_close && r.is_empty() && rules.is_closer(ch) && next == Some(ch) {
             // Type over an existing closer.
             new_ranges.push(Placement::Shift(r.head, 1));
             continue;
         }
         if opts.auto_close
-            && let Some(close) = closer_for(ch)
+            && let Some(close) = rules.closer_for(ch)
         {
             if !r.is_empty() {
                 // Surround the selection.
@@ -118,7 +145,8 @@ pub fn type_char(rope: &Rope, sel: &Selection, ch: char, opts: &EditOptions) -> 
                 new_ranges.push(Placement::Wrap(r.from(), r.to()));
                 continue;
             }
-            let next_ok = next.is_none_or(|c| c.is_whitespace() || is_closer(c) || matches!(c, ',' | ';' | '.' | ':'));
+            let next_ok =
+                next.is_none_or(|c| c.is_whitespace() || rules.is_closer(c) || matches!(c, ',' | ';' | '.' | ':'));
             let prev_ok = !is_quote(ch) || prev.is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == ch));
             if next_ok && prev_ok {
                 changes.push(Change::insert(r.head, format!("{ch}{close}")));
@@ -162,8 +190,11 @@ pub fn insert_newline(rope: &Rope, sel: &Selection, opts: &EditOptions) -> Edit 
         };
         let prev = (r.from() > line_start).then(|| rope.char(r.from() - 1));
         let next = (r.to() < len).then(|| rope.char(r.to()));
-        let opens = prev.is_some_and(|c| matches!(c, '(' | '[' | '{'));
-        if opens && next.is_some_and(|c| closer_for(prev.unwrap()) == Some(c)) {
+        let opens = prev.is_some_and(|c| opts.rules.indent_after.contains(&c));
+        // `{|}` and `<div>|</div>` split into three lines.
+        let between_pair = next.is_some_and(|n| prev.and_then(|p| opts.rules.closer_for(p)) == Some(n))
+            || prev == Some('>') && next == Some('<') && r.to() + 1 < len && rope.char(r.to() + 1) == '/';
+        if opens && between_pair {
             let inner = format!("{eol}{indent}{}", opts.indent_unit());
             let text = format!("{inner}{eol}{indent}");
             let cursor = inner.chars().count();
@@ -202,7 +233,7 @@ pub fn backspace(rope: &Rope, sel: &Selection, opts: &EditOptions) -> Edit {
             continue;
         }
         let prev = rope.char(pos - 1);
-        if opts.auto_close && pos < len && closer_for(prev).is_some_and(|c| c == rope.char(pos)) {
+        if opts.auto_close && pos < len && opts.rules.closer_for(prev).is_some_and(|c| c == rope.char(pos)) {
             changes.push(Change::delete(pos - 1, pos + 1));
             continue;
         }
@@ -531,6 +562,55 @@ pub fn toggle_line_comment(rope: &Rope, sel: &Selection, token: &str) -> Edit {
     Edit::new(cs, selection, EditKind::Other)
 }
 
+/// Shift+Alt+A: wrap each selection in `open … close`, or unwrap it when it
+/// already is (whitespace inside the markers is tolerated). An empty
+/// selection comments its line's content.
+pub fn toggle_block_comment(rope: &Rope, sel: &Selection, open: &str, close: &str) -> Edit {
+    let (ol, cl) = (open.chars().count(), close.chars().count());
+    let mut changes = Vec::new();
+    for r in sel.ranges() {
+        let (mut from, mut to) = (r.from(), r.to());
+        if from == to {
+            let line = rope.char_to_line(from);
+            let c = line_without_ending(rope, line);
+            let start = rope.line_to_char(line);
+            let i = indent_len(c);
+            from = start + i;
+            to = start + c.len_chars();
+            while to > from && rope.char(to - 1).is_whitespace() {
+                to -= 1;
+            }
+        }
+        // Trim whitespace to find existing markers.
+        let (mut a, mut b) = (from, to);
+        while a < b && rope.char(a).is_whitespace() {
+            a += 1;
+        }
+        while b > a && rope.char(b - 1).is_whitespace() {
+            b -= 1;
+        }
+        let text: String = rope.slice(a..b).into();
+        if b - a >= ol + cl && text.starts_with(open) && text.ends_with(close) {
+            let mut oe = a + ol;
+            if oe < b && rope.char(oe) == ' ' {
+                oe += 1;
+            }
+            let mut cs = b - cl;
+            if cs > oe && rope.char(cs - 1) == ' ' {
+                cs -= 1;
+            }
+            changes.push(Change::delete(a, oe));
+            changes.push(Change::delete(cs, b));
+        } else {
+            changes.push(Change::insert(from, format!("{open} ")));
+            changes.push(Change::insert(to, format!(" {close}")));
+        }
+    }
+    let cs = ChangeSet::new(changes, rope.len_chars());
+    let selection = sel.map(&cs);
+    Edit::new(cs, selection, EditKind::Other)
+}
+
 /// Ctrl+L: select the current line(s); repeated presses extend downwards.
 pub fn select_line(rope: &Rope, sel: &Selection) -> Selection {
     sel.transform(|r| {
@@ -800,6 +880,38 @@ mod tests {
     }
     fn opts() -> EditOptions {
         EditOptions::default()
+    }
+
+    #[test]
+    fn language_rules_drive_pairs_and_indent() {
+        let py = EditOptions {
+            rules: LanguageRules { pairs: &[('(', ')'), ('"', '"')], indent_after: &[':', '('] },
+            ..opts()
+        };
+        let t = "def f():";
+        let e = insert_newline(&Rope::from_str(t), &Selection::point(8), &py);
+        assert_eq!(apply(t, &e), "def f():\n    ");
+        // No backtick pairing in this language.
+        let e = type_char(&Rope::from_str(""), &Selection::point(0), '`', &py);
+        assert_eq!(apply("", &e), "`");
+        // HTML: Enter between tags splits into three lines.
+        let html = EditOptions { rules: LanguageRules { pairs: &[('<', '>')], indent_after: &['>'] }, ..opts() };
+        let t = "<div></div>";
+        let e = insert_newline(&Rope::from_str(t), &Selection::point(5), &html);
+        assert_eq!(apply(t, &e), "<div>\n    \n</div>");
+    }
+
+    #[test]
+    fn block_comment_toggle() {
+        let t = "  a = 1;";
+        let e = toggle_block_comment(&Rope::from_str(t), &Selection::point(3), "/*", "*/");
+        let once = apply(t, &e);
+        assert_eq!(once, "  /* a = 1; */");
+        let e = toggle_block_comment(&Rope::from_str(&once), &Selection::point(5), "/*", "*/");
+        assert_eq!(apply(&once, &e), t);
+        let t = "x <b>y</b> z";
+        let e = toggle_block_comment(&Rope::from_str(t), &Selection::single(Range::new(2, 10)), "<!--", "-->");
+        assert_eq!(apply(t, &e), "x <!-- <b>y</b> --> z");
     }
 
     #[test]

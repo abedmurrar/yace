@@ -20,7 +20,7 @@ pub mod selection;
 pub mod text;
 
 pub use changes::{Assoc, Change, ChangeSet};
-pub use document::{Applied, DiskState, Document};
+pub use document::{Applied, DiskState, DocEdit, Document};
 pub use history::EditKind;
 pub use line_ending::{LineEnding, LineEndingInfo};
 pub use ropey::{Rope, RopeSlice};

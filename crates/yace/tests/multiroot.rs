@@ -291,7 +291,7 @@ fn explorer_file_operations() {
 #[test]
 fn multi_cursor_and_clipboard_in_app() {
     let dir = tempfile::tempdir().unwrap();
-    let f = dir.path().join("a.txt");
+    let f = dir.path().join("a.js");
     fs::write(&f, "foo bar\nfoo baz\nfoo qux\n").unwrap();
     let mut h = Harness::new();
     let launch = Launch {

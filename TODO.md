@@ -129,7 +129,7 @@ Legend:
 - [x] [M1] `Focus` enum: Explorer / EditorGroup(id) / Overlay / (Panel reserved for M5)
 - [x] [M1] Visible focus indicator (border colour or title) from theme tokens
 - [x] [M1] Focus changes never alter the active file
-- [x] [M1] Commands: Focus Explorer (`Ctrl+Shift+E`), Focus Active Editor Group, Focus Next/Previous Part (`F6` / `Shift+F6`)
+- [x] [M1] Commands: Focus Explorer (`Ctrl+Shift+E`), Focus Active Editor Group, Focus Next/Previous Part (`F6` / `Shift+F6`; since M7 a real cycle Editor → Panel → Sidebar, skipping hidden parts)
 
 ### Overlay layer (§3.1)
 - [x] [M1] Overlay stack drawn above the workbench without replacing it
@@ -522,14 +522,17 @@ Legend:
 ## M7 — Syntax and development intelligence (§12, §13)
 
 ### Syntax (§12)
-- [ ] [M7] Language detection (extension, filename, shebang)
-- [ ] [M7] Tree-sitter integration; grammars loaded lazily per language (§12.2)
-- [ ] [M7] Incremental reparse on edits, off the input path (§12.1)
-- [ ] [M7] Viewport-first highlighting for large files
-- [ ] [M7] Highlight cache invalidated by edit ranges (§22.4)
-- [ ] [M7] Languages: Rust, JS, TS, TSX, JSX, JSON, JSONC, YAML, TOML, HTML, CSS, SCSS, Markdown, SQL, Bash, Python, Go, Dockerfile, git config, plain text (§12.2)
-- [ ] [M7] Embedded languages (injections) (§12.3)
-- [ ] [M7] Comment tokens, brackets and indentation rules from language config (replaces the M3 table)
+- [x] [M7] Language detection: `files.associations` (VS Code key, also imported from `.vscode/settings.json`) → file name (`Dockerfile.dev` too) → extension → `#!` line (incl. `/usr/bin/env`) → plain text (`yace-syntax/src/language.rs`)
+- [x] [M7] Tree-sitter 0.27 integration (`crates/yace-syntax`); grammars compiled in but constructed, and their queries compiled, only when a file of that language opens (§12.2)
+- [x] [M7] Incremental reparse fed from rope chunks (no copy). Each document keeps a running estimate of its reparse cost: predicted < 0.5 ms runs on the UI thread (1 ms cap), otherwise the syntax worker (lazy thread) parses and edits made meanwhile are replayed onto its tree; frames are drawn from the edited old tree, so input never waits (§12.1)
+- [x] [M7] Edits reach syntax through a buffer-level edit log (`Document::track_edits`/`take_edits`, O(1) rope snapshots): typing, undo/redo, reload, save transforms, replace-all all included
+- [x] [M7] Viewport-only highlighting (`QueryCursor` byte range), later-pattern-wins precedence (Neovim-style), spans cached per tree generation and viewport (§22.3, §22.4)
+- [x] [M7] Languages with grammars: Rust, JS, JSX, TS, TSX, JSON, JSONC, YAML, TOML, HTML, CSS, SCSS, Markdown (+inline), SQL, Bash, Python, Go, Dockerfile, C, C++, Java, Ruby. Rules only (no grammar yet): Makefile, ignore files, `.env`/ini/properties/git config, Lua, plain text (§12.2)
+- [ ] [M7] Grammar for git config / Makefile / Lua (write our own if no maintained crate fits)
+- [x] [M7] Embedded languages (injections, depth ≤ 2, parsed lazily per visible region): Markdown code fences and inline, `<script>`/`<style>` in HTML, JS template/regex/JSDoc injections (§12.3)
+- [x] [M7] Comment tokens, brackets, auto-close pairs and indent triggers from the language registry (replaces the M3 extension table); Toggle Block Comment (`Shift+Alt+A`); CSS/HTML `Ctrl+/` uses block comments; Enter between `<div></div>` splits into three lines; `:` indents in Python/YAML
+- [x] [M7] Status bar language from detection
+- [x] [M7] Syntax colours in the theme (`Theme::syntax`, YACE Dark ≈ VS Code Dark+), downgraded for 256/16 colours; large-file mode disables highlighting
 - [ ] [M7] Code folding from syntax tree
 - [ ] [M7] Word wrap
 
@@ -552,6 +555,7 @@ Legend:
 ## M8 — Native plugin system (§18)
 
 - [ ] [M8] Decide in-process vs out-of-process (open question)
+- [ ] [M8] **Ask the user first:** switch tree-sitter grammars from built into the binary (M7) to downloadable/installable grammars (shared libraries, possibly as plugins)? Bring the measured binary-size cost from M7.
 - [ ] [M8] `yace-plugin-api`: C ABI, versioned function tables, struct sizes, optional capabilities, error codes, allocation ownership, UTF-8 strings, lifetimes, threading rules, cancellation (§18.8)
 - [ ] [M8] `yace-plugin-host`: discovery, manifest validation (before loading code), ABI checking, `dlopen`, activation, cleanup (§18.5)
 - [ ] [M8] Manifest format (TOML): id, name, version, description, author, OS/arch, min YACE version, ABI version, entry library, commands, keybindings, config schema, activation events, capabilities, dependencies (§18.7)
@@ -618,6 +622,8 @@ Legend:
 - [ ] [M10] Terminal compatibility matrix: GNOME Terminal, Kitty, Alacritty, WezTerm, Foot, Konsole, tmux (§22.5)
 
 ### Measured results vs §23.1 targets
+
+Syntax (M7, 2026-11-03, i5-1135G7). `cargo bench -p yace-syntax` on a 10k-line TypeScript file: full parse 80 ms (worker), incremental reparse after one keystroke 0.92 ms, highlight a 60-line viewport 0.58 ms (cached until the tree changes). `scripts/bench_interactive.py 300 big.ts` (typing at the top of the 10k-line file, the worst case for incremental parsing): input p50 0.074 ms / p95 0.55–1.0 ms (v0.3.1 without highlighting: 0.055 / 0.4–1.1 ms), render p95 0.13 ms. First frame (`--startup-time`, 15 runs): folder 4.8 ms (v0.3.1 4.5), small `.rs` 6.2 ms (5.7), 10k-line `.ts` 6.6 ms (5.1); RSS +0.4–0.6 MiB. Binary 7.2 MB → 24.4 MB: grammar tables are read-only data paged in only when used (largest: C++ 3.3 MB, TypeScript+TSX 2.7, SQL 2.3, Ruby 2.0, Bash 1.3, Rust 1.1). Revisit at M8 (downloadable grammars).
 
 Terminal (`scripts/bench_terminal.py`, 2026-11-03): editor RSS 6.4 MiB idle, 7.9 MiB with 1 terminal, 26.7 MiB with a full 10k-line scrollback during `seq 1 2000000`, 30.9 MiB with 4 terminals (shells are separate processes).
 

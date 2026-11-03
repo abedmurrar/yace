@@ -113,6 +113,8 @@ pub struct Runtime {
     index: Sender<crate::workers::IndexCmd>,
     search: crate::workers::SearchRunner,
     find: Sender<crate::workers::FindJob>,
+    /// Started on the first background parse.
+    syntax: Option<Sender<crate::syntax::ParseJob>>,
 }
 
 impl Runtime {
@@ -139,7 +141,17 @@ impl Runtime {
             .expect("spawn notice forwarder");
         let index = crate::workers::spawn_index_actor(tx.clone());
         let find = crate::workers::spawn_find_worker(tx.clone());
-        Self { tx, rx, pool, watcher, watch_errors_reported: false, index, search: Default::default(), find }
+        Self {
+            tx,
+            rx,
+            pool,
+            watcher,
+            watch_errors_reported: false,
+            index,
+            search: Default::default(),
+            find,
+            syntax: None,
+        }
     }
 
     pub fn spawn_input_thread(&self) {
@@ -197,6 +209,11 @@ impl Runtime {
                     let _ = self.find.send(*job);
                 }
                 Effect::TrimMemory => crate::mem::trim(),
+                Effect::Parse(job) => {
+                    let tx = self.tx.clone();
+                    let worker = self.syntax.get_or_insert_with(|| crate::workers::spawn_syntax_worker(tx));
+                    let _ = worker.send(*job);
+                }
                 Effect::LoadFile { doc, path, eol } => {
                     let tx = self.tx.clone();
                     thread::Builder::new()

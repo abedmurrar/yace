@@ -41,6 +41,19 @@ pub struct Document {
     saved_revision: u64,
     /// Opened in reduced-feature mode (very large file).
     pub large_file: bool,
+    /// Edits since the last `take_edits` (only when tracking is on).
+    edit_log: Option<Vec<DocEdit>>,
+}
+
+/// One applied change set together with the text it was applied to, for
+/// incremental consumers (syntax trees, language servers). Rope clones share
+/// nodes, so this is O(1) in memory per edit.
+#[derive(Debug, Clone)]
+pub struct DocEdit {
+    pub before: Rope,
+    pub changes: ChangeSet,
+    /// Document version after the edit.
+    pub version: u64,
 }
 
 /// The result of an edit, for syncing other views.
@@ -72,6 +85,7 @@ impl Document {
             version: 0,
             saved_revision: 0,
             large_file: false,
+            edit_log: None,
         }
     }
 
@@ -112,6 +126,30 @@ impl Document {
         self.line_ending.dominant
     }
 
+    /// Start recording edits for `take_edits` (idempotent).
+    pub fn track_edits(&mut self) {
+        if self.edit_log.is_none() {
+            self.edit_log = Some(Vec::new());
+        }
+    }
+    pub fn is_tracking_edits(&self) -> bool {
+        self.edit_log.is_some()
+    }
+    /// Edits applied since the previous call, oldest first.
+    pub fn take_edits(&mut self) -> Vec<DocEdit> {
+        self.edit_log.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    /// Apply a change set to the rope, logging it for incremental consumers.
+    fn mutate(&mut self, cs: &ChangeSet) {
+        let before = self.edit_log.is_some().then(|| self.rope.clone());
+        cs.apply(&mut self.rope);
+        self.version += 1;
+        if let (Some(log), Some(before)) = (self.edit_log.as_mut(), before) {
+            log.push(DocEdit { before, changes: cs.clone(), version: self.version });
+        }
+    }
+
     /// Prevent the next edit from coalescing with the previous one.
     pub fn seal_history(&mut self) {
         self.history.seal();
@@ -137,8 +175,7 @@ impl Document {
                     && self.rope.char(c.from - 1).is_whitespace()
             });
         let inverse = changes.invert(&self.rope);
-        changes.apply(&mut self.rope);
-        self.version += 1;
+        self.mutate(&changes);
         let sel_after = sel_after.clamp(self.rope.len_chars());
         self.history.record(changes.clone(), inverse, sel_before.clone(), sel_after.clone(), kind, breaks_word);
         Applied { changes, selection: sel_after }
@@ -150,10 +187,9 @@ impl Document {
         let rev = self.history.pop_undo()?;
         let mut applied = Vec::with_capacity(rev.inverse.len());
         for inv in rev.inverse.iter().rev() {
-            inv.apply(&mut self.rope);
+            self.mutate(inv);
             applied.push(inv.clone());
         }
-        self.version += 1;
         let sel = rev.sel_before.clamp(self.rope.len_chars());
         self.history.push_redo(rev);
         Some((applied, sel))
@@ -163,10 +199,9 @@ impl Document {
         let rev = self.history.pop_redo()?;
         let mut applied = Vec::with_capacity(rev.forward.len());
         for fwd in &rev.forward {
-            fwd.apply(&mut self.rope);
+            self.mutate(fwd);
             applied.push(fwd.clone());
         }
-        self.version += 1;
         let sel = rev.sel_after.clamp(self.rope.len_chars());
         self.history.push_undo(rev);
         Some((applied, sel))
@@ -228,6 +263,23 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edit_log_records_every_mutation() {
+        let mut d = Document::from_text("abc");
+        let sel = Selection::point(0);
+        d.apply(ChangeSet::new(vec![crate::changes::Change::insert(0, "x")], 3), &sel, sel.clone(), EditKind::Other);
+        assert!(d.take_edits().is_empty(), "off until tracking starts");
+        d.track_edits();
+        d.apply(ChangeSet::new(vec![crate::changes::Change::insert(1, "y")], 4), &sel, sel.clone(), EditKind::Other);
+        d.undo();
+        let log = d.take_edits();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].before.to_string(), "xabc");
+        assert_eq!(log[1].before.to_string(), "xyabc");
+        assert_eq!(log[1].version, d.version());
+        assert!(d.take_edits().is_empty());
+    }
     use crate::{changes::Change, selection::Range};
 
     fn insert(doc: &mut Document, at: usize, s: &str, kind: EditKind) {

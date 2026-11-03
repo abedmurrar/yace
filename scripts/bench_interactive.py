@@ -5,22 +5,33 @@ Runs the release binary in a pseudo-terminal, measures CPU time consumed
 while idle, then types N characters and reads the editor's own per-event
 input-handling and render latencies (YACE_METRICS_FILE).
 
-Usage: scripts/bench_interactive.py [N_KEYS]
+Usage: scripts/bench_interactive.py [N_KEYS] [FILE]
+
+FILE (default: a generated 6,000-line Rust file) is copied and opened, so
+syntax highlighting is exercised. YACE_BENCH_BIN overrides the binary
+(e.g. to compare with an older release).
 """
 import os, pty, sys, tempfile, time, select, subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 300
-subprocess.run(["cargo", "build", "--release", "-q", "-p", "yace"], cwd=ROOT, check=True)
-binary = os.path.join(ROOT, "target", "release", "yace")
+binary = os.environ.get("YACE_BENCH_BIN")
+if not binary:
+    subprocess.run(["cargo", "build", "--release", "-q", "-p", "yace"], cwd=ROOT, check=True)
+    binary = os.path.join(ROOT, "target", "release", "yace")
 
 tmp = tempfile.mkdtemp()
 os.makedirs(f"{tmp}/config")
 with open(f"{tmp}/config/config.toml", "w") as f:
     f.write("[keyboard]\nenhancedProtocol = false\n")
-target = f"{tmp}/sample.rs"
-with open(target, "w") as f:
-    f.write("fn main() {\n    println!(\"hello\");\n}\n" * 2000)
+if len(sys.argv) > 2:
+    import shutil
+    target = os.path.join(tmp, os.path.basename(sys.argv[2]))
+    shutil.copy(sys.argv[2], target)
+else:
+    target = f"{tmp}/sample.rs"
+    with open(target, "w") as f:
+        f.write("fn main() {\n    println!(\"hello\");\n}\n" * 2000)
 metrics = f"{tmp}/metrics.txt"
 env = dict(os.environ, YACE_CONFIG_DIR=f"{tmp}/config", YACE_STATE_DIR=f"{tmp}/state",
            YACE_CACHE_DIR=f"{tmp}/cache", YACE_METRICS_FILE=metrics, TERM="xterm-256color")
@@ -65,5 +76,5 @@ while time.time() < deadline:
 print(f"idle CPU over 5 s: {idle_cpu:.2f}% of one core")
 with open(metrics) as f:
     vals = dict(l.strip().split("=") for l in f if "=" in l)
-print(f"typing ({N} keys into a 6,000-line file): input handling p50 {vals['input_p50_ms']} ms, p95 {vals['input_p95_ms']} ms, max {vals['input_max_ms']} ms")
+print(f"typing ({N} keys into {os.path.basename(target)}): input handling p50 {vals['input_p50_ms']} ms, p95 {vals['input_p95_ms']} ms, max {vals['input_max_ms']} ms")
 print(f"render: p50 {vals['render_p50_ms']} ms, p95 {vals['render_p95_ms']} ms, max {vals['render_max_ms']} ms ({vals['frames']} frames)")
