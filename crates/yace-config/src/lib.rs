@@ -523,6 +523,7 @@ pub const DEFAULT_CONFIG_TEMPLATE: &str = r#"# YACE user settings. See docs/conf
 [workbench]
 # enablePreview = true
 # glyphs = "unicode"        # "unicode" | "nerdFont" | "ascii"
+# fileIcons = true          # file-type icons (devicons need a Nerd Font)
 "#;
 
 /// Edit a TOML file in place, keeping comments, order and formatting of

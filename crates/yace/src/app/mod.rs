@@ -1182,6 +1182,23 @@ impl App {
     // ------------------------------------------------------------------
     // Focus
 
+    /// The icon to draw before a file name (colour adapted to the terminal).
+    pub fn file_icon(&self, name: &str) -> Option<crate::icons::Icon> {
+        let w = &self.settings.workbench;
+        crate::icons::for_file(name, w.glyphs, w.file_icons)
+            .map(|i| crate::icons::Icon { color: crate::theme::downgrade(i.color, self.theme.depth), ..i })
+    }
+
+    /// A Nerd Font file icon (tabs, special folders); `None` otherwise.
+    pub fn nerd_icon(&self, name: &str, folder: bool) -> Option<crate::icons::Icon> {
+        let w = &self.settings.workbench;
+        if !w.file_icons || w.glyphs != yace_config::Glyphs::NerdFont {
+            return None;
+        }
+        let i = if folder { crate::icons::folder_type(name) } else { crate::icons::file_type(name) }?;
+        Some(crate::icons::Icon { color: crate::theme::downgrade(i.color, self.theme.depth), ..i })
+    }
+
     pub fn focus_explorer(&mut self) {
         if !self.sidebar_visible {
             self.sidebar_visible = true;

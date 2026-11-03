@@ -157,6 +157,8 @@ pub struct TabCell {
     pub width: u16,
     pub label: String,
     pub close_x: u16,
+    /// Nerd Font type icon, drawn before the label (2 cells).
+    pub icon: Option<crate::icons::Icon>,
 }
 
 /// Labels for tabs, disambiguated when file names collide (spec §6.7).
@@ -192,14 +194,16 @@ pub fn tab_cells(app: &App, group: &Group, area: Rect) -> Vec<TabCell> {
         return Vec::new();
     }
     let names = name_counts(app);
-    let mut widths: Vec<(usize, String, u16)> = group
+    let mut widths: Vec<(usize, String, u16, Option<crate::icons::Icon>)> = group
         .views
         .iter()
         .enumerate()
         .map(|(i, v)| {
             let label = tab_label(app, v.doc, &names);
-            let w = (UnicodeWidthStr::width(label.as_str()) as u16 + 4).min(area.width.max(8));
-            (i, label, w)
+            let icon = app.nerd_icon(&app.docs.name(v.doc), false);
+            let iw = if icon.is_some() { 2 } else { 0 };
+            let w = (UnicodeWidthStr::width(label.as_str()) as u16 + 4 + iw).min(area.width.max(8));
+            (i, label, w, icon)
         })
         .collect();
     // Scroll so the active tab is visible.
@@ -216,12 +220,12 @@ pub fn tab_cells(app: &App, group: &Group, area: Rect) -> Vec<TabCell> {
     }
     let mut x = area.x;
     let mut out = Vec::new();
-    for (i, label, w) in widths.drain(start..) {
+    for (i, label, w, icon) in widths.drain(start..) {
         if x >= area.right() {
             break;
         }
         let w = w.min(area.right() - x);
-        out.push(TabCell { view: i, x, width: w, label, close_x: x + w.saturating_sub(2) });
+        out.push(TabCell { view: i, x, width: w, label, close_x: x + w.saturating_sub(2), icon });
         x += w;
     }
     out
@@ -475,6 +479,11 @@ fn draw_scm_view(app: &App, buf: &mut Buffer, list: Rect, focused: bool) {
                     Some((d, n)) => (d, n),
                     None => ("", trimmed),
                 };
+                if !path.ends_with('/')
+                    && let Some(ic) = app.file_icon(name)
+                {
+                    put(buf, x - 2, y, ic.glyph, 1, style.fg(ic.color));
+                }
                 let name = if path.ends_with('/') { format!("{name}/") } else { name.to_string() };
                 let letter_w = 2;
                 let room = avail(x).saturating_sub(letter_w + 1);
@@ -678,16 +687,38 @@ fn draw_sidebar(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
                 put(buf, x + 2, y, &ellipsize(&row.label, avail(x + 2) as usize, g.ellipsis), avail(x + 2), s);
             }
             kind => {
-                let (marker, icon) = match kind {
-                    RowKind::Dir | RowKind::SymlinkDir => (
+                let name = row.path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+                let is_dir = matches!(kind, RowKind::Dir | RowKind::SymlinkDir);
+                let (marker, icon) = if is_dir {
+                    (
                         if row.expanded { g.expanded } else { g.collapsed },
                         if row.expanded { g.folder_open } else { g.folder },
-                    ),
-                    _ => (" ", g.file),
+                    )
+                } else {
+                    (" ", g.file)
                 };
-                x += put(buf, x, y, marker, avail(x), style);
-                x += put(buf, x, y, " ", avail(x), style);
-                x += put(buf, x, y, icon, avail(x), style);
+                // Unicode: a coloured dot in the (empty) marker column of a
+                // file; Nerd Font: the type's devicon in the icon column.
+                let typed = if is_dir { app.nerd_icon(&name, true) } else { app.file_icon(&name) };
+                let nerd = app.settings.workbench.glyphs == yace_config::Glyphs::NerdFont;
+                match typed {
+                    Some(ic) if !nerd => {
+                        x += put(buf, x, y, ic.glyph, avail(x), style.fg(ic.color));
+                        x += put(buf, x, y, " ", avail(x), style);
+                        x += put(buf, x, y, icon, avail(x), style);
+                    }
+                    Some(ic) => {
+                        x += put(buf, x, y, marker, avail(x), style);
+                        x += put(buf, x, y, " ", avail(x), style);
+                        x += put(buf, x, y, ic.glyph, avail(x), style.fg(ic.color));
+                        x += put(buf, x, y, " ", avail(x), style);
+                    }
+                    None => {
+                        x += put(buf, x, y, marker, avail(x), style);
+                        x += put(buf, x, y, " ", avail(x), style);
+                        x += put(buf, x, y, icon, avail(x), style);
+                    }
+                }
                 let dirty =
                     app.docs.find_by_path(&row.path).and_then(|d| app.docs.doc(d)).is_some_and(|d| d.is_dirty());
                 let mut s = style;
@@ -759,13 +790,17 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             style = style.add_modifier(Modifier::ITALIC);
         }
         fill(buf, Rect { x: cell.x, y: gl.tabs.y, width: cell.width, height: 1 }, style);
-        let label = ellipsize(&cell.label, cell.width.saturating_sub(4) as usize, app.glyphs.ellipsis);
+        let iw = if cell.icon.is_some() && cell.width > 8 { 2 } else { 0 };
+        let label = ellipsize(&cell.label, cell.width.saturating_sub(4 + iw) as usize, app.glyphs.ellipsis);
         let doc = app.docs.doc(v.doc);
+        if let (Some(ic), true) = (cell.icon, iw > 0) {
+            put(buf, cell.x + 1, gl.tabs.y, ic.glyph, 1, style.fg(ic.color));
+        }
         let label_style = match doc.map(|d| d.disk_state) {
             Some(DiskState::Deleted) => style.add_modifier(Modifier::CROSSED_OUT),
             _ => style,
         };
-        put(buf, cell.x + 1, gl.tabs.y, &label, cell.width.saturating_sub(3), label_style);
+        put(buf, cell.x + 1 + iw, gl.tabs.y, &label, cell.width.saturating_sub(3 + iw), label_style);
         let dirty = doc.is_some_and(|d| d.is_dirty());
         let mark = if dirty {
             app.glyphs.dirty
@@ -1639,8 +1674,24 @@ fn draw_overlay(app: &App, buf: &mut Buffer, area: Rect, o: &Overlay) -> Option<
                     if selected { t.overlay_selected() } else { Style::new().fg(t.overlay_fg).bg(t.overlay_bg) };
                 fill(buf, Rect { x: list.x, y, width: list.width, height: 1 }, style);
                 let hint_w = UnicodeWidthStr::width(it.hint.as_str()) as u16;
-                let room = list.width.saturating_sub(hint_w + 3);
+                let mut room = list.width.saturating_sub(hint_w + 3);
                 let mut x = list.x + 1;
+                let mut icon_w = 0;
+                // File rows of Quick Open: the type icon, in a 2-cell column
+                // (blank for unknown types, so names stay aligned).
+                if p.action == crate::actions::PickerAction::QuickOpen
+                    && app.settings.workbench.file_icons
+                    && app.settings.workbench.glyphs != yace_config::Glyphs::Ascii
+                    && app.quick_open_is_file(it.data)
+                    && room > 12
+                {
+                    if let Some(ic) = app.file_icon(&it.label) {
+                        put(buf, x, y, ic.glyph, 1, style.fg(ic.color));
+                    }
+                    x += 2;
+                    room -= 2;
+                    icon_w = 2;
+                }
                 x += put_highlighted(
                     buf,
                     x,
@@ -1652,7 +1703,7 @@ fn draw_overlay(app: &App, buf: &mut Buffer, area: Rect, o: &Overlay) -> Option<
                     p.highlight(*idx),
                 );
                 if !it.detail.is_empty() {
-                    let left = room.saturating_sub(x - list.x);
+                    let left = (room + icon_w).saturating_sub(x - list.x);
                     if left > 4 {
                         put(
                             buf,

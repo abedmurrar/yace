@@ -307,6 +307,9 @@ pub struct WorkbenchSettings {
     /// `yace` with no arguments reopens the most recent workspace.
     pub restore_workspace: bool,
     pub glyphs: Glyphs,
+    /// File-type icons: devicons with `glyphs = "nerdFont"`, a coloured
+    /// dot with `"unicode"`.
+    pub file_icons: bool,
     pub color_depth: ColorDepth,
     /// Initial sidebar width in cells.
     pub sidebar_width: u16,
@@ -332,6 +335,7 @@ impl Default for WorkbenchSettings {
             enable_preview: true,
             restore_workspace: true,
             glyphs: Glyphs::Unicode,
+            file_icons: true,
             color_depth: ColorDepth::Auto,
             sidebar_width: 32,
             color_theme: "YACE Dark".into(),

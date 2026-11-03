@@ -125,6 +125,7 @@ starts one in the selected folder.
 | `?` | list the modes |
 | `Alt+I` | include git-ignored files |
 | `Up`/`Down`, `PgUp`/`PgDn`, `Enter`, `Escape` | navigate, open, close |
+| `Ctrl+Enter` | open the file to the side |
 
 ### Find / replace in the editor (`Ctrl+F`, `Ctrl+H`)
 
@@ -239,6 +240,9 @@ the terminal; completion still opens on its own while you type (or run
 | `Delete` | move to Trash, after confirmation (on a root: remove it from the workspace) |
 | `Ctrl+Alt+N` | new file |
 | `Shift+Alt+C` / `Ctrl+Shift+Alt+C` | copy path / relative path |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | copy / cut / paste the file or folder (paste goes into the selected folder, or the selected file's folder; an existing name gets " copy", " copy 2"…; copying runs in the background) |
+| `Ctrl+Enter` | open to the side (in the group to the right, splitting if needed) |
+| `Shift+Alt+R` | reveal in the file manager (opens the containing folder; works from the editor too) |
 
 ## Customising
 
@@ -283,7 +287,29 @@ when = "editorFocus"
 [[bindings]]
 command = "-workbench.action.quickOpen"
 key = "ctrl+p"
+
+# Commands that take arguments:
+[[bindings]]
+key = "ctrl+alt+l"
+command = "workbench.action.terminal.sendSequence"
+args = { text = "npm test\n" }
 ```
+
+Commands that take `args`:
+
+| Command | `args` |
+|---|---|
+| `type` | `{ text = "…" }`: type into the editor |
+| `editor.action.insertSnippet` | `{ snippet = "console.log($1)$0" }`: VS Code snippet syntax |
+| `workbench.action.terminal.sendSequence` | `{ text = "…" }`: written to the active terminal as is (`\u001b` escapes work) |
+| `workbench.action.quickOpen` | `">"`, `"@"`, `":"`…: open Quick Open with this prefix |
+| `workbench.action.gotoLine` | `{ line = 42, column = 8 }`, `42` or `"42:8"` |
+| `workbench.action.files.openFile`, `vscode.open` | `"path"` or `{ path = "…", line = 1, column = 1 }` (relative to the first folder) |
+| `git.checkout` | `{ branch = "main" }` (the active file's repository) |
+
+A binding whose `args` don't fit says so when you press it, naming this
+file. Plugins pass arguments the same way (`execute_command`); a failure
+is written to the plugin's log.
 
 Problems in this file are reported with the entry number, and the valid
 entries still apply. Saving the file — in YACE or any other editor —

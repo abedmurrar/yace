@@ -397,3 +397,22 @@ fn real_binary_shows_git_branch_and_changes() {
     r.writer.flush().unwrap();
     assert!(wait_for(Duration::from_secs(5), || r.child.try_wait().ok().flatten().is_some()));
 }
+
+/// The real binary draws Nerd Font devicons when asked (spec §8.6).
+#[test]
+fn real_binary_draws_file_type_icons() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("main.rs");
+    std::fs::write(&file, "fn main() {}\n").unwrap();
+    std::fs::write(dir.path().join("package.json"), "{}\n").unwrap();
+    let (r, _state) = spawn_yace(&file, "[workbench]\nglyphs = \"nerdFont\"\n", &[]);
+    assert!(
+        wait_for(Duration::from_secs(10), || {
+            let s = r.parser.lock().unwrap().screen().contents();
+            s.contains("\u{e7a8} main.rs") && s.contains("\u{e71e} package.json")
+        }),
+        "{}",
+        r.parser.lock().unwrap().screen().contents()
+    );
+    quit(r);
+}

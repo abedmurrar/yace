@@ -28,12 +28,19 @@ Security, Performance.
   as links; a cut item is dimmed until pasted and open editors follow it.
 - **Open to the Side** (`Ctrl+Enter`) in the Explorer and Quick Open.
 - **Reveal in File Manager** (`Shift+Alt+R`) opens the containing folder.
+- **File-type icons** (`workbench.fileIcons`, on by default): with
+  `workbench.glyphs = "nerdFont"`, coloured devicons for ~120 file types
+  and special folders in the Explorer, Quick Open, tabs and Source
+  Control; in Unicode mode a coloured `●` in the Explorer and Quick Open.
+  Names never move when icons are turned on or off.
 - A command that can't run says why ("no editor is open", the expected
   arguments); a key binding with wrong `args` names `keybindings.toml`;
   a plugin's failed `executeCommand` is written to its log.
 
 ### Fixed
 
+- Nerd Font mode drew no expand/collapse chevrons on folders (they were
+  empty), so folder names sat one column left of file names.
 - A file created while the Explorer was reading its folder (a checkout, a
   build) could stay missing until the next change; the folder is now read
   again.

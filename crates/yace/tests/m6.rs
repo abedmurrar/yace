@@ -375,7 +375,8 @@ fn every_small_terminal_size_renders_without_panicking() {
     std::fs::create_dir(d.path().join("src")).unwrap();
     let long = "fn main() { let x = \"a very long line that needs wrapping or scrolling ✓ 你好\"; }\n".repeat(30);
     std::fs::write(d.path().join("src").join("main.rs"), &long).unwrap();
-    let mut h = Harness::with_config("[workbench]\nsideBarLocation = \"right\"\n");
+    // Nerd Font glyphs: file-type icons in tabs, the Explorer and Quick Open too.
+    let mut h = Harness::with_config("[workbench]\nsideBarLocation = \"right\"\nglyphs = \"nerdFont\"\n");
     open_folder(&mut h, d.path());
     h.app.open_file(&d.path().join("src").join("main.rs"), false);
     h.settle();
@@ -386,6 +387,7 @@ fn every_small_terminal_size_renders_without_panicking() {
         ("split", Box::new(|h| h.command("workbench.action.splitEditor"))),
         ("find", Box::new(|h| h.key("ctrl+f"))),
         ("palette", Box::new(|h| h.key("ctrl+shift+p"))),
+        ("quick open", Box::new(|h| h.command("workbench.action.quickOpen"))),
         ("theme picker", Box::new(|h| h.command("workbench.action.selectTheme"))),
         ("keybindings", Box::new(|h| h.command("workbench.action.openGlobalKeybindings"))),
         (

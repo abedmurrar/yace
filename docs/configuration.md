@@ -104,6 +104,7 @@ in "Developer: Show Configuration Errors".
 | `enablePreview` | `true` | single-click / Space opens a reusable preview tab | `workbench.editor.enablePreview` |
 | `restoreWorkspace` | `true` | `yace` with no arguments reopens the most recent workspace | — |
 | `glyphs` | `"unicode"` | `"unicode"`, `"nerdFont"`, `"ascii"`: icon and border characters | — |
+| `fileIcons` | `true` | file-type icons: with `"nerdFont"`, a coloured devicon in the Explorer, Quick Open, tabs and Source Control (needs a [Nerd Font](https://www.nerdfonts.com) in the terminal); with `"unicode"`, a coloured `●` in the Explorer and Quick Open; none with `"ascii"` | — |
 | `colorDepth` | `"auto"` | `"auto"`, `"truecolor"`, `"256"`, `"16"`, `"mono"` (`NO_COLOR` forces mono) | — |
 | `sidebarWidth` | `32` | initial side bar width in cells | — |
 | `colorTheme` | `"YACE Dark"` | theme name or file id ([themes.md](themes.md)); VS Code theme names map to the closest built-in | `workbench.colorTheme` |

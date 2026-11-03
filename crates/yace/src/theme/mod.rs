@@ -505,8 +505,8 @@ impl Glyphs {
                 warning: "⚠",
             },
             GlyphSetting::NerdFont => Self {
-                expanded: "",
-                collapsed: "",
+                expanded: "\u{f078}",
+                collapsed: "\u{f054}",
                 folder: "\u{f07b} ",
                 folder_open: "\u{f07c} ",
                 file: "\u{f15b} ",
@@ -549,6 +549,20 @@ impl Glyphs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Markers must take one cell, or rows shift (an empty chevron did).
+    #[test]
+    fn glyph_markers_take_one_cell() {
+        use unicode_width::UnicodeWidthStr;
+        for s in [GlyphSetting::Unicode, GlyphSetting::NerdFont, GlyphSetting::Ascii] {
+            let g = Glyphs::from_setting(s);
+            for (name, v) in
+                [("expanded", g.expanded), ("collapsed", g.collapsed), ("dirty", g.dirty), ("close", g.close)]
+            {
+                assert_eq!(UnicodeWidthStr::width(v), 1, "{s:?} {name}");
+            }
+        }
+    }
 
     #[test]
     fn downgrades() {

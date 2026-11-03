@@ -11,6 +11,7 @@ pub mod display;
 pub mod editor;
 pub mod explorer;
 pub mod git;
+pub mod icons;
 pub mod keybindings_editor;
 pub mod lsp;
 pub mod mem;

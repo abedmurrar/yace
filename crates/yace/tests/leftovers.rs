@@ -255,3 +255,67 @@ fn quick_open_ctrl_enter_opens_beside() {
     assert_eq!(h.app.layout.groups().len(), 2);
     assert!(h.active_text().starts_with('2'));
 }
+
+/// Column of `needle` in the sidebar (left of the first `│`).
+fn column_of(screen: &str, needle: &str) -> Option<usize> {
+    screen.lines().find_map(|l| {
+        let side = l.split(['│', '|']).next().unwrap_or("");
+        side.find(needle).map(|b| side[..b].chars().count())
+    })
+}
+
+/// File-type icons in the Explorer, Quick Open, tabs and Source Control
+/// never move names; each glyph mode draws what it can (spec §8.6).
+#[test]
+fn file_icons_in_every_glyph_mode() {
+    let d = tempfile::tempdir().unwrap();
+    files(d.path(), &[("main.rs", "fn main() {}\n"), ("notes.unknownext", "x\n"), ("src/lib.rs", "\n")]);
+    let mut cols = Vec::new();
+    let modes = [("unicode", true), ("unicode", false), ("nerdFont", true), ("nerdFont", false), ("ascii", true)];
+    for (mode, icons) in modes {
+        let mut h = Harness::with_config(&format!("[workbench]\nglyphs = \"{mode}\"\nfileIcons = {icons}\n"));
+        let _ws = open_ws(&mut h, &[d.path()]);
+        h.app.open_file(&d.path().join("main.rs"), false);
+        h.settle();
+        h.app.focus_explorer();
+        let screen = h.screen();
+        let rs = column_of(&screen, "main.rs").unwrap();
+        let other = column_of(&screen, "notes.unknownext").unwrap();
+        let folder = column_of(&screen, "src").unwrap();
+        assert_eq!(rs, other, "{mode}: known and unknown types line up\n{screen}");
+        assert_eq!(rs, folder, "{mode}: files line up with folders\n{screen}");
+        let side = |needle: &str| -> String {
+            let l =
+                screen.lines().map(|l| l.split(['│', '|']).next().unwrap_or("")).find(|l| l.contains(needle)).unwrap();
+            l.chars().take(rs).collect()
+        };
+        let before = side("notes.unknownext");
+        let main_before = side("main.rs");
+        match (mode, icons) {
+            ("unicode", true) => assert!(main_before.contains('●') && !before.contains('●'), "{screen}"),
+            ("nerdFont", true) => {
+                assert!(main_before.contains('\u{e7a8}'), "rust devicon\n{screen}");
+                // The tab gets the icon too.
+                assert!(screen.lines().next().unwrap().contains("\u{e7a8} main.rs"), "{screen}");
+            }
+            _ => assert!(!main_before.contains('●') && !main_before.contains('\u{e7a8}'), "{mode}\n{screen}"),
+        }
+        cols.push(rs);
+        // Quick Open: the icon column keeps names aligned.
+        h.app.execute("workbench.action.quickOpen", None);
+        h.settle();
+        h.type_text("s");
+        h.settle();
+        let qo = h.screen();
+        if (mode, icons) == ("unicode", true) {
+            let row = qo.lines().find(|l| l.contains("lib.rs") && !l.contains("main.rs")).unwrap();
+            assert!(row.contains("● lib.rs"), "{qo}");
+        }
+        h.key("escape");
+    }
+    // Icons on or off never move names (Nerd Font mode always has an icon
+    // column; Unicode and ASCII share the plain layout).
+    assert_eq!(cols[0], cols[1], "{cols:?}");
+    assert_eq!(cols[2], cols[3], "{cols:?}");
+    assert_eq!(cols[0], cols[4], "{cols:?}");
+}

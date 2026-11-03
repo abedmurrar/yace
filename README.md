@@ -41,7 +41,11 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
 - **Explorer.** One lazily loaded tree per root. Each directory is read only
   when it's expanded, on worker threads, and only expanded directories are
   watched. It supports type-to-filter, reveal active file, new file/folder,
-  rename, move, delete-to-trash, copy path / relative path, and the mouse.
+  rename, move, copy/cut/paste (in the background), delete-to-trash, open
+  to the side, reveal in the file manager, copy path / relative path, and
+  the mouse. File-type icons: coloured devicons with a Nerd Font
+  (`workbench.glyphs = "nerdFont"`), a coloured dot otherwise — no special
+  font is ever required.
 - **Editing.** VS Code-style, non-modal editing:
   - multiple cursors (Ctrl+D, Ctrl+Shift+L, Ctrl+Shift+Up/Down, Alt+Click)
   - word-wise undo/redo

@@ -444,7 +444,7 @@ Legend:
 - [x] [M4] Ranking: exact name, prefix, sequence quality, path segments, recently opened, recently selected, active root, depth (§6.3)
 - [x] [M4] Deterministic ranking
 - [x] [M4] Bounded result set; no unlimited allocation (§6.5)
-- [~] [M4] Result rows: filename, parent dir, ROOT NAME, file-type glyph, match highlighting (§4.5, §6.7) — filename (fuzzy-highlighted), parent dir and ROOT NAME shown; file-type glyphs arrive with M6 icon themes
+- [x] [M4] Result rows: filename, parent dir, ROOT NAME, file-type glyph, match highlighting (§4.5, §6.7) — icons in Nerd Font and Unicode modes (`workbench.fileIcons`)
 - [x] [M4] Collisions clearly disambiguated (§6.7)
 - [x] [M4] Exclusions: `files.exclude`, `search.exclude`, `.gitignore`; toggle to include ignored or hidden (§6.6)
 - [x] [M4] Mode prefixes: `>` commands, `@` symbols in file, `#` workspace symbols, `:N` go to line, `file:L`, `file:L:C`, `?` help, plus plugin prefixes (§6.4)
