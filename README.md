@@ -8,12 +8,12 @@ work across all of them in one Explorer with VS Code keyboard shortcuts.
 No Electron, no Node.js, no JavaScript runtime, no cloud account, no
 telemetry.
 
-> **Status:** milestones M1–M8 are implemented: multi-root workspaces,
+> **Status:** milestones M1–M9 are implemented: multi-root workspaces,
 > Explorer, full editing, fuzzy Quick Open and workspace search, the
 > integrated terminal, themes and a keybinding editor, tree-sitter syntax
 > highlighting, folding, word wrap, language servers (completion,
 > diagnostics, go to definition, rename, symbols, code actions,
-> formatting) and native plugins. Git integration is next. See [`TODO.md`](TODO.md) for the complete, itemised status.
+> formatting), native plugins and Git. Next: preparing the public release. See [`TODO.md`](TODO.md) for the complete, itemised status.
 
 ## Build and run
 
@@ -84,6 +84,13 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
   built in, with embedded languages; C/C++, Go, Java, Ruby, SCSS, SQL and
   Dockerfile from the installable grammar package (loaded on first use).
   Code folding and word wrap (Alt+Z).
+- **Git, per repository.** Each workspace folder shows its own branch in
+  the status bar, changed files in the Explorer and change bars in the
+  gutter (as you type); a Source Control view lists conflicts, staged
+  changes, changes and untracked files of every repository, with diffs,
+  stage/unstage, commit and branch switching. Uses your `git`; reads never
+  lock the index and nothing changes a repository unless you ask. See
+  [`docs/git.md`](docs/git.md).
 - **Native plugins.** Rust (or C ABI) shared libraries with commands,
   keybindings, settings, sidebar views, status items, Explorer badges,
   Quick Open providers, terminals, themes, grammars and background jobs.

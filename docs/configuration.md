@@ -196,6 +196,16 @@ Node.js servers are external tools like any other: their memory is not
 YACE's and is shown separately by "Developer: Show Running Language
 Servers". Restart, stop and output commands are under "Developer:".
 
+### `[git]`
+
+| Key | Default | Meaning | VS Code key |
+|---|---|---|---|
+| `enabled` | `true` | Git status, decorations, gutter and Source Control ([git.md](git.md)) | `git.enabled` |
+| `path` | `"git"` | the git program (user settings only) | — |
+| `decorationsEnabled` | `true` | colour and mark changed files in the Explorer | `git.decorations.enabled` |
+| `autoRefresh` | `true` | refresh on file and repository changes, focus, and while Source Control is visible | `git.autorefresh` |
+| `diffDecorations` | `"all"` | `"all"`/`"gutter"`: change bars in the gutter; `"none"`: off | `scm.diffDecorations` |
+
 ### `[plugins]` (user settings only) and `[plugin."<id>"]`
 
 | Key | Default | Meaning |

@@ -13,6 +13,37 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- **Git** (M9), per repository: every workspace folder uses its own
+  repository's state (spec §4.7). Uses your installed `git`; see
+  `docs/git.md`.
+  - Status bar: the active file's branch, `*` for changes, `↑`/`↓`
+    ahead/behind, conflicts.
+  - Explorer: changed files coloured and marked (M, A, U, D, R, !),
+    folders with changes marked, ignored files dimmed.
+  - Gutter: change bars against the index, updated as you type;
+    `Alt+F5` / `Shift+Alt+F5` jump between changes; "Show Change Under
+    Cursor".
+  - Source Control view (`Ctrl+Shift+G`): conflicts, staged changes,
+    changes and untracked files of every repository; diffs, stage/unstage
+    (`s`/`u`), commit (`c`, with "commit all" when nothing is staged),
+    switch or create branches (`b`).
+  - Changes appear when repositories change outside YACE (the `.git`
+    folder is watched), when the window regains focus and after saves.
+  - Opening a workspace only reads repositories (without taking the index
+    lock); "Git: Show Output" lists every git command run.
+  - Settings `git.enabled`, `git.path`, `git.decorationsEnabled`,
+    `git.autoRefresh`, `git.diffDecorations` (VS Code keys imported).
+- Plugins receive `gitStatusChanged`; the Task Runner rescans its tasks
+  when the branch changes.
+- `.diff` / `.patch` files are coloured by line.
+
+### Fixed
+
+- Debounced work (gutter diffs, plugin event coalescing) waited for the
+  next key press instead of running on time.
+
 ## [0.6.0] - 2026-11-03
 
 ### Added

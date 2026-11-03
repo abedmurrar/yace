@@ -182,6 +182,7 @@ impl Harness {
                             events.push(ev);
                         }
                     }
+                    Effect::Git(git, job) => events.push(AppEvent::Git(Box::new(yace_app::git::run_job(&git, job)))),
                     Effect::DiscoverPlugins(dir) => {
                         events.push(AppEvent::PluginsDiscovered(yace_plugin_host::store::discover(&dir)))
                     }

@@ -93,7 +93,16 @@ impl App {
                 if let Some(list) = wl.explorer_list
                     && hit(list, x, y)
                 {
-                    if self.sidebar_view == super::SidebarView::Plugin && self.plugins.active_view.is_some() {
+                    if self.sidebar_view == super::SidebarView::Git {
+                        self.focus_changed(super::Focus::Explorer);
+                        let height = list.height as usize;
+                        let sel = self.scm.selected;
+                        let scroll = if sel >= height { sel + 1 - height } else { 0 };
+                        let row = scroll + (y - list.y) as usize;
+                        if row < self.scm_rows().len() {
+                            self.scm_open(row, false);
+                        }
+                    } else if self.sidebar_view == super::SidebarView::Plugin && self.plugins.active_view.is_some() {
                         self.focus_changed(super::Focus::Explorer);
                         let ui = self.plugin_view_ui();
                         let height = list.height as usize;

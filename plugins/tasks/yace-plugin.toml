@@ -11,7 +11,7 @@ abi = 1
 library = "lib/libyace_plugin_tasks.so"
 activation = ["workspaceContains:package.json", "workspaceContains:Cargo.toml", "workspaceContains:Makefile"]
 capabilities = ["workspace.read", "terminal", "filesystem"]
-events = ["rootAdded", "rootRemoved", "documentSaved"]
+events = ["rootAdded", "rootRemoved", "documentSaved", "gitStatusChanged"]
 external_programs = ["npm", "pnpm", "yarn", "bun", "cargo", "make"]
 
 [[commands]]

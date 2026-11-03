@@ -314,6 +314,73 @@ fn ellipsize(s: &str, max: usize, ell: &str) -> String {
     out
 }
 
+/// The gutter mark for `line`: added/modified bar, or a deletion marker on
+/// the line after removed lines.
+fn change_mark(
+    app: &App,
+    hunks: &[yace_git::Hunk],
+    line: u32,
+    line_count: u32,
+) -> Option<(&'static str, ratatui::style::Color)> {
+    use yace_git::HunkKind;
+    let t = &app.theme;
+    let ascii = app.glyphs.vbar == "|";
+    let mono = t.is_mono();
+    // Hunks are sorted; find the first that ends after `line`.
+    let i = hunks.partition_point(|h| h.lines.end <= line && !(h.lines.is_empty() && h.lines.start == line));
+    let h = hunks.get(i)?;
+    match h.kind {
+        HunkKind::Added if h.lines.contains(&line) => Some((
+            if mono {
+                "+"
+            } else if ascii {
+                "|"
+            } else {
+                "▎"
+            },
+            t.git_added,
+        )),
+        HunkKind::Modified if h.lines.contains(&line) => Some((
+            if mono {
+                "~"
+            } else if ascii {
+                "|"
+            } else {
+                "▎"
+            },
+            t.git_modified,
+        )),
+        HunkKind::Deleted if h.lines.start == line || (h.lines.start >= line_count && line + 1 == line_count) => {
+            let below = h.lines.start >= line_count;
+            Some((
+                if mono {
+                    "-"
+                } else if ascii {
+                    "_"
+                } else if below {
+                    "▁"
+                } else {
+                    "▔"
+                },
+                t.git_deleted,
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// Colour of a Git state (spec §8.5).
+fn git_color(t: &crate::theme::Theme, k: yace_git::Kind) -> ratatui::style::Color {
+    use yace_git::Kind;
+    match k {
+        Kind::Conflicted => t.error,
+        Kind::Modified | Kind::Renamed => t.git_modified,
+        Kind::Added | Kind::Untracked => t.git_added,
+        Kind::Deleted => t.git_deleted,
+        Kind::Ignored => t.muted,
+    }
+}
+
 /// A theme colour named by a plugin (`error`, `warning`, `info`, `muted`,
 /// `gitModified`, …); unknown names use the normal text colour.
 fn token_color(t: &crate::theme::Theme, name: &str) -> ratatui::style::Color {
@@ -327,6 +394,111 @@ fn token_color(t: &crate::theme::Theme, name: &str) -> ratatui::style::Color {
         "gitDeleted" | "deleted" => t.git_deleted,
         "accent" | "focus" => t.focus_border,
         _ => t.sidebar_fg,
+    }
+}
+
+/// The Source Control view: per repository, its branch and its conflicts,
+/// staged changes, changes and untracked files (spec §15.1, §4.7).
+fn draw_scm_view(app: &App, buf: &mut Buffer, list: Rect, focused: bool) {
+    use crate::app::{ScmGroup, ScmRow};
+    let t = &app.theme;
+    let muted = Style::new().fg(t.muted).bg(t.sidebar_bg);
+    if app.git.repos.is_empty() {
+        let msg = if app.git.missing {
+            "Git was not found (git.path)"
+        } else if !app.settings.git.enabled {
+            "Git is turned off (git.enabled)"
+        } else if app.git.detecting {
+            "Looking for repositories…"
+        } else {
+            "No Git repository in this workspace"
+        };
+        put(buf, list.x + 2, list.y, msg, list.width.saturating_sub(2), muted.add_modifier(Modifier::ITALIC));
+        return;
+    }
+    let rows = app.scm_rows();
+    let height = list.height as usize;
+    let sel = app.scm.selected.min(rows.len().saturating_sub(1));
+    let scroll = if sel >= height { sel + 1 - height } else { 0 };
+    let g = &app.glyphs;
+    for (i, row) in rows.iter().enumerate().skip(scroll).take(height) {
+        let y = list.y + (i - scroll) as u16;
+        let mut style = t.sidebar();
+        if i == sel {
+            style = t.sidebar().patch(t.list_selected(focused));
+            fill(buf, Rect { x: list.x, y, width: list.width, height: 1 }, style);
+        }
+        let avail = |x: u16| list.right().saturating_sub(x);
+        let mut x = list.x + 1;
+        match row {
+            ScmRow::Repo(r) => {
+                let repo = &app.git.repos[*r];
+                let open = !app.scm.collapsed.contains(&repo.info.toplevel.display().to_string());
+                x += put(buf, x, y, if open { g.expanded } else { g.collapsed }, avail(x), style);
+                x += put(buf, x, y, " ", avail(x), style);
+                x += put(
+                    buf,
+                    x,
+                    y,
+                    &ellipsize(&repo.name.to_uppercase(), avail(x) as usize, g.ellipsis),
+                    avail(x),
+                    style.add_modifier(Modifier::BOLD),
+                );
+                let info = match (&repo.status, &repo.error) {
+                    (_, Some(e)) => format!("{} {}", g.warning, e.lines().next().unwrap_or("")),
+                    (Some(st), _) => st.label(),
+                    (None, None) => "…".into(),
+                };
+                let s = if repo.error.is_some() {
+                    style.fg(t.error)
+                } else if i == sel {
+                    style
+                } else {
+                    style.fg(t.muted)
+                };
+                put(buf, x + 2, y, &ellipsize(&info, avail(x + 2) as usize, g.ellipsis), avail(x + 2), s);
+            }
+            ScmRow::Group { repo, group, count } => {
+                let key = format!("{}#{group:?}", app.git.repos[*repo].info.toplevel.display());
+                let open = !app.scm.collapsed.contains(&key);
+                x += 2;
+                x += put(buf, x, y, if open { g.expanded } else { g.collapsed }, avail(x), style);
+                x += put(buf, x, y, " ", avail(x), style);
+                let s = if *group == ScmGroup::Conflicts { style.fg(t.error) } else { style };
+                x += put(buf, x, y, group.title(), avail(x), s.add_modifier(Modifier::BOLD));
+                put(buf, x + 1, y, &count.to_string(), avail(x + 1), if i == sel { style } else { style.fg(t.muted) });
+            }
+            ScmRow::File { path, kind, .. } => {
+                x += 5;
+                let trimmed = path.trim_end_matches('/');
+                let (dir, name) = match trimmed.rsplit_once('/') {
+                    Some((d, n)) => (d, n),
+                    None => ("", trimmed),
+                };
+                let name = if path.ends_with('/') { format!("{name}/") } else { name.to_string() };
+                let letter_w = 2;
+                let room = avail(x).saturating_sub(letter_w + 1);
+                let used = put(
+                    buf,
+                    x,
+                    y,
+                    &ellipsize(&name, room as usize, g.ellipsis),
+                    room,
+                    style.fg(if i == sel && focused { t.list_active_fg } else { git_color(t, *kind) }),
+                );
+                if !dir.is_empty() && room > used + 2 {
+                    put(
+                        buf,
+                        x + used + 1,
+                        y,
+                        &ellipsize(dir, (room - used - 1) as usize, g.ellipsis),
+                        room - used - 1,
+                        if i == sel { style } else { muted.bg(style.bg.unwrap_or(t.sidebar_bg)) },
+                    );
+                }
+                put(buf, list.right().saturating_sub(letter_w + 1), y, kind.letter(), 1, style.fg(git_color(t, *kind)));
+            }
+        }
     }
 }
 
@@ -384,6 +556,27 @@ fn draw_sidebar(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
     let t = &app.theme;
     let focused = app.focus == Focus::Explorer && app.overlays.is_empty();
     fill(buf, sb, t.sidebar());
+    if app.sidebar_view == SidebarView::Git {
+        let n: usize = app
+            .git
+            .repos
+            .iter()
+            .filter_map(|r| r.status.as_ref())
+            .map(|s| s.files.iter().filter(|f| !f.ignored).count())
+            .sum();
+        let head = if n > 0 { format!(" SOURCE CONTROL ({n})") } else { " SOURCE CONTROL".into() };
+        put(buf, title.x, title.y, &head, title.width, t.title(focused));
+        if let Some(b) = wl.sidebar_border {
+            fill_with(
+                buf,
+                b,
+                app.glyphs.vbar,
+                Style::new().fg(if focused { t.focus_border } else { t.border }).bg(t.bg),
+            );
+        }
+        draw_scm_view(app, buf, list, focused);
+        return;
+    }
     if app.sidebar_view == SidebarView::Plugin && app.plugins.active_view.is_some() {
         put(buf, title.x, title.y, &format!(" {}", app.plugin_view_title()), title.width, t.title(focused));
         if let Some(b) = wl.sidebar_border {
@@ -501,19 +694,32 @@ fn draw_sidebar(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
                 if matches!(kind, RowKind::Broken) {
                     s = s.fg(t.error).add_modifier(Modifier::CROSSED_OUT);
                 }
+                let git = app.git_decoration(&row.path);
+                if let Some(k) = git {
+                    s = s.fg(git_color(t, k));
+                }
                 let mut label = row.label.clone();
                 if matches!(kind, RowKind::SymlinkDir | RowKind::SymlinkFile) {
                     label = format!("{label} {}", g.symlink);
                 }
                 let badge = app.plugin_decorations.get(&crate::editor::path_key(&row.path));
-                let badge_w = badge.map(|(b, _)| UnicodeWidthStr::width(b.as_str()) as u16 + 1).unwrap_or(0);
+                // Git letter (files) or dot (folders with changes), then plugin badges.
+                let git_mark = git
+                    .filter(|k| *k != yace_git::Kind::Ignored)
+                    .map(|k| if row.is_dir_like() { "•" } else { k.letter() });
+                let badge_w = badge.map(|(b, _)| UnicodeWidthStr::width(b.as_str()) as u16 + 1).unwrap_or(0)
+                    + git_mark.map(|_| 2).unwrap_or(0);
                 let room = avail(x).saturating_sub(if dirty { 2 } else { 0 } + badge_w);
                 x += put(buf, x, y, &ellipsize(&label, room as usize, g.ellipsis), room, s);
                 if dirty {
                     put(buf, x + 1, y, g.dirty, avail(x + 1), style.fg(t.dirty));
                 }
+                let mut bx = list.right().saturating_sub(badge_w + 1);
+                if let (Some(m), Some(k)) = (git_mark, git) {
+                    put(buf, bx, y, m, 1, style.fg(git_color(t, k)));
+                    bx += 2;
+                }
                 if let Some((b, color)) = badge {
-                    let bx = list.right().saturating_sub(badge_w + 1);
                     put(buf, bx, y, b, badge_w, style.fg(token_color(t, color)));
                 }
             }
@@ -670,6 +876,11 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
                 .is_some_and(|(x, y)| x >= gl.content.x && x < gl.text_x && gl.content.contains((x, y).into())),
         };
     let marker_x = gl.content.x + gl.gutter.saturating_sub(2);
+    let is_diff = app.syntax.language(view.doc).id == "diff";
+    // Git change bars in the gutter's last column (spec §15.1).
+    let hunks = app.git_hunks(view.doc);
+    let change_x = gl.content.x + gl.gutter.saturating_sub(1);
+    let line_count = rope.len_lines().saturating_sub(1).max(1) as u32;
     for ri in 0..height {
         let y = gl.content.y + ri as u16;
         let Some(&drow) = rows.get(ri) else {
@@ -701,6 +912,12 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
                 let style = Style::new().fg(fg).bg(t.bg);
                 put(buf, gl.content.x, y, &s, gl.gutter, style);
             }
+            if !hunks.is_empty()
+                && gl.gutter >= 3
+                && let Some((glyph, color)) = change_mark(app, hunks, line as u32, line_count)
+            {
+                put(buf, change_x, y, glyph, 1, Style::new().fg(color).bg(t.bg));
+            }
             let folded = map.is_folded_header(line);
             if folded || show_foldable && app.fold_range(view.doc, rope, line, tw).is_some() {
                 let glyph = if folded { app.glyphs.collapsed } else { app.glyphs.expanded };
@@ -723,6 +940,8 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         let mut ci = line_start + seg.start;
         let mut bi = rope.char_to_byte(ci);
         let max_col = scroll_col + gl.text_width as usize;
+        // Unified diffs are coloured by line prefix (no parser needed).
+        let diff_style = is_diff.then(|| diff_line_style(t, &content.chars().take(4).collect::<String>())).flatten();
         for g in text.graphemes(true) {
             if col >= max_col {
                 break;
@@ -736,7 +955,7 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             bi += g.len();
             if col + w > scroll_col {
                 let selected = active_ranges.iter().any(|(a, b)| ci >= *a && ci < *b);
-                let mut style = syntax_style(t, scope).bg(line_bg);
+                let mut style = diff_style.unwrap_or_else(|| syntax_style(t, scope)).bg(line_bg);
                 if !vis_diags.is_empty()
                     && let Some(sev) = vis_diags.iter().filter(|(a, b, _)| ci >= *a && ci < *b).map(|x| x.2).min()
                 {
@@ -935,6 +1154,28 @@ fn draw_lsp_popups(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout, area: Rect
     }
 }
 
+/// Style of a unified-diff line from its first characters.
+fn diff_line_style(t: &crate::theme::Theme, start: &str) -> Option<Style> {
+    let s = Style::new();
+    Some(
+        if start.starts_with("+++")
+            || start.starts_with("---")
+            || start.starts_with("diff")
+            || start.starts_with("index")
+        {
+            s.fg(t.muted).add_modifier(Modifier::BOLD)
+        } else if start.starts_with("@@") {
+            s.fg(t.info)
+        } else if start.starts_with('+') {
+            s.fg(t.git_added)
+        } else if start.starts_with('-') {
+            s.fg(t.git_deleted)
+        } else {
+            return None;
+        },
+    )
+}
+
 fn syntax_style(t: &crate::theme::Theme, scope: Option<yace_syntax::Scope>) -> Style {
     t.syntax_style(scope)
 }
@@ -1067,6 +1308,8 @@ fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {
             Severity::Info => base,
         };
     }
+    // The branch stays at the far left, even under notifications.
+    let branch = app.git_status_label().map(|b| format!(" {b} "));
     let (pl, pr) = app.plugin_status_texts();
     if !pl.is_empty() {
         left = format!("{left}   {}", pl.join("   "));
@@ -1078,10 +1321,17 @@ fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {
     let rw = UnicodeWidthStr::width(right_text.as_str()) as u16;
     let lw_max = r.width.saturating_sub(rw + 1);
     let shown_right = if lw_max < 10 { 0 } else { rw };
-    let left_max = r.width.saturating_sub(shown_right);
+    let mut left_max = r.width.saturating_sub(shown_right);
+    let mut lx = r.x;
+    if let Some(b) = &branch {
+        let bw = (UnicodeWidthStr::width(b.as_str()) as u16).min(left_max / 2);
+        put(buf, lx, r.y, b, bw, base);
+        lx += bw;
+        left_max = left_max.saturating_sub(bw);
+    }
     let left = ellipsize(&left, left_max as usize, app.glyphs.ellipsis);
-    fill(buf, Rect { width: (UnicodeWidthStr::width(left.as_str()) as u16 + 1).min(left_max), ..r }, left_style);
-    put(buf, r.x, r.y, &left, left_max, left_style);
+    fill(buf, Rect { x: lx, width: (UnicodeWidthStr::width(left.as_str()) as u16 + 1).min(left_max), ..r }, left_style);
+    put(buf, lx, r.y, &left, left_max, left_style);
     if shown_right > 0 {
         put(buf, r.right().saturating_sub(rw), r.y, &right_text, rw, base);
     }

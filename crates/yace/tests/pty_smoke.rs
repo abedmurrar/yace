@@ -348,3 +348,52 @@ fn real_binary_installs_and_runs_a_plugin() {
     );
     quit(r);
 }
+
+/// The real binary in a Git repository: branch in the status bar, and a
+/// change bar in the gutter after typing (spec §15.1).
+#[test]
+fn real_binary_shows_git_branch_and_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .env("GIT_AUTHOR_NAME", "T")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "T")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    };
+    let file = dir.path().join("notes.md");
+    std::fs::write(&file, "first line\nsecond line\n").unwrap();
+    run(&["init", "-q", "-b", "trunk"]);
+    run(&["add", "-A"]);
+    run(&["-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"]);
+    let (mut r, _state) = spawn_yace(&file, "", &[]);
+    assert!(
+        wait_for(Duration::from_secs(10), || cell_at(&r.parser, "trunk").is_some()),
+        "branch in the status bar: {}",
+        r.parser.lock().unwrap().screen().contents()
+    );
+    r.writer.write_all(b"edited ").unwrap(); // types at the start of line 1
+    r.writer.flush().unwrap();
+    assert!(
+        wait_for(Duration::from_secs(10), || {
+            let p = r.parser.lock().unwrap();
+            p.screen().contents().lines().any(|l| l.contains("▎edited first line"))
+        }),
+        "{}",
+        r.parser.lock().unwrap().screen().contents()
+    );
+    assert!(wait_for(Duration::from_secs(5), || cell_at(&r.parser, "trunk*").is_some()
+        || cell_at(&r.parser, "trunk").is_some()));
+    // Quit without saving: Ctrl+Q then "Don't Save".
+    r.writer.write_all(b"\x11").unwrap();
+    r.writer.flush().unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    r.writer.write_all(b"d").unwrap();
+    r.writer.flush().unwrap();
+    assert!(wait_for(Duration::from_secs(5), || r.child.try_wait().ok().flatten().is_some()));
+}

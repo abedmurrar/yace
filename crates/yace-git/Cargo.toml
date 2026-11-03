@@ -1,0 +1,17 @@
+[package]
+name = "yace-git"
+description = "YACE Git support: runs the git CLI (read-only inspection and explicit operations), porcelain v2 status parsing, line diffs for the gutter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+imara-diff = { version = "0.1", default-features = false }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

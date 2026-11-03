@@ -185,6 +185,17 @@ starts one in the selected folder.
 | `Ctrl+Shift+\` | jump to matching bracket |
 | `Ctrl+K Ctrl+X` | trim trailing whitespace |
 
+### Git (see [git.md](git.md))
+
+| Keys | Command | Id |
+|---|---|---|
+| `Ctrl+Shift+G` | Show Source Control | `workbench.view.scm` |
+| `Alt+F5` / `Shift+Alt+F5` | Go to Next / Previous Change | `workbench.action.editor.nextChange` … |
+
+In the Source Control view: `Enter` opens changes, `o` the file, `s`/`u`
+stage/unstage, `c` commit, `b` switch branch, `r` refresh, arrows move and
+collapse/expand.
+
 ### Notifications
 
 | Keys | Command |

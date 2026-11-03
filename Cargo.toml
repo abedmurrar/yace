@@ -22,6 +22,7 @@ yace-terminal = { path = "crates/yace-terminal" }
 yace-syntax = { path = "crates/yace-syntax" }
 yace-lsp = { path = "crates/yace-lsp" }
 yace-plugin-api = { path = "crates/yace-plugin-api" }
+yace-git = { path = "crates/yace-git" }
 yace-plugin-host = { path = "crates/yace-plugin-host" }
 yace-plugin = { path = "crates/yace-plugin" }
 

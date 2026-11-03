@@ -44,6 +44,7 @@ impl App {
         self.touch_recent();
         self.emit_title();
         self.plugins_workspace_changed(true);
+        self.git_workspace_changed();
         for r in self.workspace.roots().to_vec() {
             if let RootStatus::Missing(why) = &r.status {
                 self.notify(
@@ -244,6 +245,7 @@ impl App {
         self.touch_recent();
         self.emit_title();
         self.plugins_workspace_changed(false);
+        self.git_workspace_changed();
     }
 
     pub(crate) fn save_workspace_as(&mut self, text: &str) -> Result<(), String> {

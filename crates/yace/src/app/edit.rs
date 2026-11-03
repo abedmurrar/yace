@@ -8,7 +8,7 @@ use yace_buffer::{
     text::line_without_ending,
 };
 
-use super::App;
+use super::{App, Severity};
 use crate::editor::{DocId, GroupId};
 
 impl App {
@@ -48,6 +48,10 @@ impl App {
     }
 
     pub(crate) fn apply_edit_at(&mut self, g: GroupId, v: usize, d: DocId, edit: Edit) {
+        if !edit.changes.is_empty() && self.docs.is_read_only(d) {
+            self.notify(Severity::Info, "This view is read-only");
+            return;
+        }
         if edit.changes.is_empty() {
             self.set_view_selection(g, v, edit.selection);
             return;
@@ -70,7 +74,7 @@ impl App {
     /// Apply changes not tied to a view (save-time transforms); every view
     /// of the document is mapped.
     pub(crate) fn apply_doc_changes(&mut self, d: DocId, cs: ChangeSet) {
-        if cs.is_empty() {
+        if cs.is_empty() || self.docs.is_read_only(d) {
             return;
         }
         let sel = self

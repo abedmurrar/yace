@@ -26,6 +26,17 @@ pub struct DocEntry {
     pub loading: bool,
     /// Cursor (line, column) to apply once loading finishes.
     pub pending_cursor: Option<(usize, usize)>,
+    /// A generated, read-only document (Git changes).
+    pub virtual_doc: Option<VirtualDoc>,
+}
+
+/// What a read-only generated document shows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VirtualDoc {
+    /// Tab title, e.g. `index.ts (Working Tree)`.
+    pub title: String,
+    /// The file it describes (Enter in a diff jumps there).
+    pub file: Option<PathBuf>,
 }
 
 #[derive(Debug, Default)]
@@ -55,7 +66,7 @@ impl DocumentStore {
         if let Some(k) = &key {
             self.by_key.insert(k.clone(), id);
         }
-        self.docs.insert(id, DocEntry { doc, untitled, key, loading: false, pending_cursor: None });
+        self.docs.insert(id, DocEntry { doc, untitled, key, loading: false, pending_cursor: None, virtual_doc: None });
         id
     }
     pub fn get(&self, id: DocId) -> Option<&DocEntry> {
@@ -110,9 +121,14 @@ impl DocumentStore {
     pub fn is_empty(&self) -> bool {
         self.docs.is_empty()
     }
+    pub fn is_read_only(&self, id: DocId) -> bool {
+        self.docs.get(&id).is_some_and(|e| e.virtual_doc.is_some())
+    }
+
     /// Display name: file name or `Untitled-N`.
     pub fn name(&self, id: DocId) -> String {
         match self.docs.get(&id) {
+            Some(e) if e.virtual_doc.is_some() => e.virtual_doc.as_ref().map(|v| v.title.clone()).unwrap_or_default(),
             Some(e) => match e.doc.path() {
                 Some(p) => p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
                 None => format!("Untitled-{}", e.untitled.unwrap_or(1)),

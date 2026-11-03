@@ -1037,6 +1037,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "imara-diff"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17d34b7d42178945f775e84bc4c36dde7c1c6cdfea656d3354d009056f2bb3d2"
+dependencies = [
+ "hashbrown 0.15.5",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3554,6 +3563,7 @@ dependencies = [
  "vt100",
  "yace-buffer",
  "yace-config",
+ "yace-git",
  "yace-keymap",
  "yace-lsp",
  "yace-plugin",
@@ -3591,6 +3601,14 @@ dependencies = [
  "toml",
  "toml_edit",
  "yace-keymap",
+]
+
+[[package]]
+name = "yace-git"
+version = "0.6.0"
+dependencies = [
+ "imara-diff",
+ "tempfile",
 ]
 
 [[package]]

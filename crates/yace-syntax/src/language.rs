@@ -370,6 +370,8 @@ pub static LANGUAGES: std::sync::LazyLock<Vec<LanguageConfig>> = std::sync::Lazy
             rules: HASH_RULES, grammar: None, hl: &[], inj: &[]),
         lang!("lua", "Lua", ext: &["lua"], files: &[], shebang: &["lua"],
             rules: rules(Some("--"), Some(("--[[", "]]")), NO_BACKTICK, &['{', '(']), grammar: None, hl: &[], inj: &[]),
+        lang!("diff", "Diff", ext: &["diff", "patch", "rej"], files: &[], shebang: &[],
+            rules: rules(Some("#"), None, &[], &[]), grammar: None, hl: &[], inj: &[]),
         lang!("plaintext", "Plain Text", ext: &["txt", "text", "log"], files: &["LICENSE", "COPYING"], shebang: &[],
             rules: rules(None, None, &[('(', ')'), ('[', ']'), ('{', '}'), ('"', '"')], &[]), grammar: None, hl: &[], inj: &[]),
     ]
@@ -460,6 +462,11 @@ pub fn detect(path: Option<&Path>, first_line: &str, assoc: &Associations) -> &'
                 return l;
             }
         }
+    }
+    if (first_line.starts_with("diff --git ") || first_line.starts_with("--- a/"))
+        && let Some(l) = by_id("diff")
+    {
+        return l;
     }
     if let Some(rest) = first_line.strip_prefix("#!") {
         let mut words = rest.split_whitespace();

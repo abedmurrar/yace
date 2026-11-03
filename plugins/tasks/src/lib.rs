@@ -201,7 +201,8 @@ impl Plugin for Tasks {
 
     fn event(&mut self, event: Value) {
         let refresh = match event["type"].as_str() {
-            Some("rootAdded" | "rootRemoved") => true,
+            // A branch switch can change package.json, Cargo.toml or the Makefile.
+            Some("rootAdded" | "rootRemoved" | "gitStatusChanged") => true,
             Some("documentSaved") => event["path"]
                 .as_str()
                 .is_some_and(|p| ["package.json", "Cargo.toml", "Makefile"].iter().any(|f| p.ends_with(f))),

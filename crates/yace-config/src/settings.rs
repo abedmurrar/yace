@@ -14,10 +14,46 @@ pub struct Settings {
     pub search: SearchSettings,
     pub terminal: TerminalSettings,
     pub lsp: LspSettings,
+    pub git: GitSettings,
     pub plugins: PluginsSettings,
     /// Each plugin's own settings: `[plugin."dev.example.hello"]`, keys as
     /// declared in its manifest (validated when the plugin reads them).
     pub plugin: std::collections::BTreeMap<String, toml::Table>,
+}
+
+/// Git integration (spec §15).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct GitSettings {
+    pub enabled: bool,
+    /// The git program (user settings only).
+    pub path: String,
+    /// Colour changed files in the Explorer.
+    pub decorations_enabled: bool,
+    /// Refresh status on file and repository changes and focus.
+    pub auto_refresh: bool,
+    /// Change bars in the editor gutter: `all`, `gutter` or `none`.
+    pub diff_decorations: DiffDecorations,
+}
+
+impl Default for GitSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            path: "git".into(),
+            decorations_enabled: true,
+            auto_refresh: true,
+            diff_decorations: DiffDecorations::All,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DiffDecorations {
+    All,
+    Gutter,
+    None,
 }
 
 /// Plugin enablement (spec §18.11). User scope; per-workspace overrides
@@ -454,6 +490,8 @@ pub fn scope_of(section: &str, key: &str) -> Scope {
         ("lsp", _) => Scope::Application,
         // Which native code runs is the user's decision only (§18.9).
         ("plugins", _) => Scope::Application,
+        // Which program runs is the user's decision only (§4.12).
+        ("git", "path") => Scope::Application,
         ("plugin", _) => Scope::Window,
         ("search", "exclude" | "useIgnoreFiles") => Scope::Resource,
         ("workbench", "restoreWorkspace" | "colorDepth" | "glyphs") => Scope::Application,

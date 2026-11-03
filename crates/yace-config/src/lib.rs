@@ -367,6 +367,12 @@ pub fn from_vscode_settings(json: &serde_json::Value) -> Table {
                     put("editor", "tokenColorCustomizations", t)
                 }
             }
+            ("git.enabled", J::Bool(b)) => put("git", "enabled", Value::Boolean(*b)),
+            ("git.decorations.enabled", J::Bool(b)) => put("git", "decorationsEnabled", Value::Boolean(*b)),
+            ("git.autorefresh", J::Bool(b)) => put("git", "autoRefresh", Value::Boolean(*b)),
+            ("scm.diffDecorations", J::String(s)) if matches!(s.as_str(), "all" | "gutter" | "none") => {
+                put("git", "diffDecorations", Value::String(s.clone()))
+            }
             ("workbench.sideBar.location", J::String(s)) if matches!(s.as_str(), "left" | "right") => {
                 put("workbench", "sideBarLocation", Value::String(s.clone()))
             }

@@ -18,6 +18,8 @@ do the heavy lifting; thank you to their authors and contributors.
 | [jsonc-parser](https://github.com/dprint/jsonc-parser) | Reading and non-destructively editing `.code-workspace` files | David Sherret | MIT |
 | [notify](https://github.com/notify-rs/notify) | Filesystem watching | Félix Saparelli, Daniel Faust and contributors | CC0-1.0 |
 | [unicode-segmentation](https://github.com/unicode-rs/unicode-segmentation) and [unicode-width](https://github.com/unicode-rs/unicode-width) | Grapheme-correct cursors and display widths | kwantam, Manish Goregaokar | MIT OR Apache-2.0 |
+| [Git](https://git-scm.com) | Repository status, diffs and operations (run as an external program, not bundled) | the Git developers | GPL-2.0 (not linked) |
+| [imara-diff](https://github.com/pascalkuthe/imara-diff) | Line diffs for the gutter | Pascal Kuthe | Apache-2.0 |
 | [libloading](https://github.com/nagisa/rust_libloading) | Loading native plugins and grammar libraries | Simonas Kazlauskas and contributors | ISC |
 | [sha2](https://github.com/RustCrypto/hashes), [tar](https://github.com/alexcrichton/tar-rs), [flate2](https://github.com/rust-lang/flate2-rs), [semver](https://github.com/dtolnay/semver) | Plugin approval hashes, packages, version requirements | RustCrypto developers, Alex Crichton, David Tolnay and contributors | MIT OR Apache-2.0 |
 | [arboard](https://github.com/1Password/arboard) | System clipboard | 1Password and contributors | MIT OR Apache-2.0 |

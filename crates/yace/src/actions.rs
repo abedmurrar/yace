@@ -42,6 +42,14 @@ pub enum PromptAction {
     ImportThemeFile,
     /// Extensions: Install from Directory / Package.
     InstallPlugin,
+    /// Commit message for the repository at `toplevel`.
+    GitCommit {
+        toplevel: PathBuf,
+        all: bool,
+    },
+    GitCreateBranch {
+        toplevel: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,6 +70,8 @@ pub enum ConfirmAction {
     UninstallPlugin(String),
     /// Approve a plugin folder already in the plugins folder.
     TrustPlugin(PathBuf),
+    /// Smart commit: commit every change of the repository at this path.
+    GitCommitAll(PathBuf),
     Close(CloseChoice),
     Trash(PathBuf),
     DeletePermanently(PathBuf),
@@ -128,6 +138,10 @@ pub enum PickerAction {
     PluginUninstall,
     /// Show `PluginHost::views()[data]`.
     PluginView,
+    /// Run a repository command on repository `data`.
+    GitRepo(crate::app::RepoCmd),
+    /// Switch to `GitState::branch_pick` entry `data - 1` (0 = create).
+    GitBranch,
 }
 
 #[derive(Debug, Clone, PartialEq)]

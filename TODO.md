@@ -58,6 +58,7 @@ Legend:
 | D23 | External language servers allowed, including Node-based ones (user's choice); YACE never bundles or installs them and reports their memory separately | best-in-class TypeScript support needs tsserver; YACE itself stays JS-free | §2.2, §13.4, §34.7 |
 | D24 | Own minimal LSP types + typed decoding on the reader thread, instead of `lsp-types` | smaller binary; large replies (completion lists) never parsed on the UI thread; lenient parsing of the shapes servers really send | §13, §21.4 |
 | D25 | One server instance per (server, workspace root), `workspaceFolders` = that root | never share server state across unrelated repositories; simple and correct for every server | §13.3 |
+| D30 | Git through the installed `git` CLI on two worker threads, not a Git library (user's choice) | behaves exactly like the user's git (config, hooks, LFS, worktrees); no large dependency (+0.3 MB binary); reads use `--no-optional-locks`; status of 9 real repos in 0.2 s total | §15 |
 | D28 | Plugins are in-process native libraries behind a versioned C ABI (`yace-plugin-api`), with JSON for structured data; out-of-process host left for later (user's choice) | fastest calls (76 ns) and no per-plugin process memory; honest that they are not sandboxed; JSON keeps the ABI small and append-only | §18.1, §18.8, §18.9 |
 | D29 | Hybrid grammars (user's choice): Rust, JS/TS/TSX, JSON, YAML, TOML, HTML, CSS, Markdown, Python, Bash built in; C, C++, Go, Java, Ruby, SCSS, SQL, Dockerfile in the installable `yace-grammars` package, loaded on first use; `all-grammars` feature compiles all in | binary 25.4 → 17.6 MB; the package is 1.0 MB compressed | §12.2, §18.3 |
 | D27 | Theme files use VS Code colour ids for UI keys and tree-sitter scope names for syntax; built-ins compiled from their TOML at build time via a generated, test-checked module | one mapping table serves themes, overrides and VS Code import; startup parses no theme (measured 40–90 µs warm / ≤0.3 ms cold → 0.8 µs) | §16.2, §23.1 |
@@ -617,17 +618,23 @@ Legend:
 
 ## M9 — Git and advanced workflow (§15)
 
-- [ ] [M9] `yace-git` crate; per-root repository detection (§4.7)
-- [ ] [M9] Current branch per root in the status bar for the active root
-- [ ] [M9] Working tree status (modified, added, deleted, untracked, ignored, conflicted), lazily and independently scheduled per root (§15.3)
-- [ ] [M9] Explorer decorations scoped to the right repository (§8.5)
-- [ ] [M9] Git status view; staged and unstaged diffs (§15.1)
-- [ ] [M9] Refresh triggers: fs events in `.git`, focus regain, bounded interval only when visible
-- [ ] [M9] Read-only inspection automatic; mutations only on explicit user action (§15.4)
-- [ ] [M9] Never run checkout / commit / reset on open (§15.4)
-- [ ] [M9] Diff navigation in editor gutter
-- [~] [M9+] Stage / unstage file and hunk, commit, branch switch / create, history, compare, stash (§15.2)
-- [ ] [M9] Test: branches in two roots stay independent (§28.5)
+- [x] [M9] `yace-git` crate: runs the user's `git` (timeouts, no prompt/pager/editor, `--no-optional-locks` reads, command log), porcelain v2 `-z` status parser, `imara-diff` line hunks, operations (D30) (§4.7)
+- [x] [M9] Per-root repository detection; roots in one repository share it; non-repo roots and a missing git program handled (one hint)
+- [x] [M9] Current branch (ahead/behind, dirty, detached, conflicts) of the active file's repository in the status bar, always visible
+- [x] [M9] Working tree status (modified, added, deleted, renamed, untracked, ignored, conflicted), per repository, independently scheduled (one in flight, coalesced, 300 ms debounce), after the first frame (§15.3)
+- [x] [M9] Explorer decorations scoped to each root's repository: colours, letters, folder propagation, ignored dimmed; map built off the UI thread (§8.5)
+- [x] [M9] Source Control view (`Ctrl+Shift+G`): per repository conflicts / staged / changes / untracked with counts; keys and mouse (§15.1)
+- [x] [M9] Staged and unstaged diffs as read-only changes documents, coloured by line; Enter jumps to the file line (§15.1)
+- [x] [M9] Refresh triggers: `.git` watched non-recursively, file events and saves, focus regained, 10 s while the view is visible, after operations; git due times are event-loop deadlines
+- [x] [M9] Read-only inspection automatic; mutations only from commands; opening a workspace runs only `rev-parse`/`status`/`show` (tested) (§15.4)
+- [x] [M9] Never runs checkout / commit / reset on open (§15.4)
+- [x] [M9] Gutter change bars vs the index (unsaved edits included, recomputed on a worker 150 ms after typing), Next/Previous Change (`Alt+F5`), Show Change Under Cursor
+- [x] [M9] Stage / unstage file, group or repository; commit (message prompt, smart commit when nothing is staged), Commit All; switch branch (local or remote → tracking), create branch; failures show git's message (§15.2)
+- [x] [M9] Commands ask which repository when ambiguous (never "the workspace")
+- [x] [M9] `gitStatusChanged` plugin event (the Task Runner rescans on branch switches)
+- [x] [M9] Test: branches in two roots stay independent; switching one leaves the other (§28.5)
+- [~] [M9+] Stage/unstage hunks, discard changes, history, compare revisions, stash/apply, side-by-side diff, conflict navigation (§15.2)
+- [ ] [M9] Status bar branch clickable (opens Checkout to…)
 
 ---
 
@@ -661,6 +668,8 @@ Legend:
 - [ ] [M10] Terminal compatibility matrix: GNOME Terminal, Kitty, Alacritty, WezTerm, Foot, Konsole, tmux (§22.5)
 
 ### Measured results vs §23.1 targets
+
+Git (M9, 2026-11-03, i5-1135G7, release). `cargo run --release --example bench_m9`: parsing 50,000 status records (2.5 MB) 6.1 ms and building their decoration map 7 ms — both on a git worker; gutter diff of a 10,000-line file with 20 hunks 1.4 ms (worker, after a 150 ms typing pause). The user's 9-folder workspace: first frame 8.21 ms with Git vs 8.23 ms without (30 runs each, interleaved); all 9 statuses arrive 0.2 s after start (`git status` per repo 2–57 ms); idle CPU 0% over 5 s; RSS 9.3 MiB (heap 1.28 MiB), two more threads. Typing in a 1,700-line file inside a repository: input p95 0.73–0.74 ms with Git, 0.64–0.77 ms without. Binary 17.63 → 17.95 MB.
 
 Plugins (M8, 2026-11-03, i5-1135G7, release). `cargo run --release --example bench_m8`: load + init of a plugin 0.07 ms; editor → plugin call 76 ns; event delivery (JSON) 0.36 µs; a command making three host calls with JSON both ways 0.58 µs. First frame, 40 interleaved runs: v0.4.2 median 4.69 ms, M8 4.48 ms; with 20 installed plugins 4.77 ms vs 4.75 ms with none (manifests are read on a worker). Heap at idle identical to v0.4.2 (1,152 kB `RssAnon`); one more thread (plugin message forwarder). Binary 25.35 MB (v0.4.2) → 17.63 MB with hybrid grammars; the grammar package is 9.6 MB of libraries, 1.0 MB compressed. C++ grammar on first `.cpp` open: SHA-256 check 8.8 ms, `dlopen` 0.07 ms, query compilation 29.5 ms (the built-in grammar paid the same compilation).
 

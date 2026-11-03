@@ -9,6 +9,8 @@ mod explorer_ops;
 mod files;
 mod find;
 mod folding;
+mod git;
+mod git_ops;
 mod history;
 mod keybindings;
 mod live_reload;
@@ -51,6 +53,7 @@ use crate::{
 pub use completion::completion_kind;
 pub use edit::{Move, Op};
 pub use find::FindField;
+pub use git_ops::{RepoCmd, ScmGroup, ScmRow, ScmUi};
 pub use mouse::MouseState;
 pub use search_view::{Row as SearchRow, SearchField};
 pub use terminal::{DEFAULT_PANEL_HEIGHT, PanelState, TermTab, snapshot as terminal_snapshot};
@@ -102,6 +105,8 @@ pub enum AppEvent {
     PluginsDiscovered(Vec<yace_plugin_host::Discovered>),
     /// A plugin job posted a message.
     Plugin(crate::plugins::PluginMsg),
+    /// A git job finished.
+    Git(Box<crate::git::GitResult>),
     /// A message from a language server.
     Lsp {
         server: u32,
@@ -144,6 +149,8 @@ pub enum Effect {
     Parse(Box<crate::syntax::ParseJob>),
     /// Read plugin manifests in this folder (no code is loaded).
     DiscoverPlugins(PathBuf),
+    /// Run git (on a git worker).
+    Git(yace_git::Git, crate::git::GitJob),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,6 +171,8 @@ pub enum SidebarView {
     Search,
     /// A plugin view (`App::plugins.active_view`).
     Plugin,
+    /// Source Control.
+    Git,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -293,6 +302,10 @@ pub struct App {
     pub(crate) user_theme_files: Vec<(String, PathBuf)>,
     /// Native plugins (spec §18).
     pub plugins: crate::plugins::PluginHost,
+    /// Git repositories of the workspace (spec §15).
+    pub git: crate::git::GitState,
+    /// Source Control view state.
+    pub scm: ScmUi,
     /// Plugins enabled / disabled for this workspace only (session state).
     pub plugin_ws_enabled: Vec<String>,
     pub plugin_ws_disabled: Vec<String>,
@@ -387,6 +400,8 @@ impl App {
             vscode_themes: Vec::new(),
             user_theme_files: Vec::new(),
             plugins: Default::default(),
+            git: Default::default(),
+            scm: Default::default(),
             plugin_ws_enabled: Vec::new(),
             plugin_ws_disabled: Vec::new(),
             plugin_decorations: HashMap::new(),
@@ -441,6 +456,8 @@ impl App {
             self.search.debounce,
             self.notifications.iter().filter_map(|n| n.expires).min(),
             self.lsp_deadline(),
+            self.git_deadline(),
+            self.plugins.pending_deadline,
         ]
         .into_iter()
         .flatten()
@@ -473,6 +490,7 @@ impl App {
         self.sync_documents();
         self.check_new_languages();
         self.deliver_plugin_events(now);
+        self.git_pump(now);
         self.sync_watches();
     }
 
@@ -584,6 +602,7 @@ impl App {
 
     /// Recompute window and per-root settings.
     pub(crate) fn reload_settings(&mut self) {
+        let old_git = (self.settings.git.enabled, self.settings.git.path.clone());
         let user_path = self.paths.user_settings();
         let (user_layer, mut errors) = yace_config::load_toml_layer(&user_path, Level::User);
         if errors.is_empty() {
@@ -636,6 +655,11 @@ impl App {
         self.glyphs = Glyphs::from_setting(self.settings.workbench.glyphs);
         errors.extend(self.load_theme_from_settings());
         self.plugin_event("configurationChanged", serde_json::json!({}));
+        if old_git != (self.settings.git.enabled, self.settings.git.path.clone()) && !self.workspace.roots().is_empty()
+        {
+            self.git.missing = false;
+            self.git_workspace_changed();
+        }
         self.config_errors.clear();
         self.report_config_errors(errors);
         self.needs_render = true;
@@ -701,7 +725,12 @@ impl App {
             AppEvent::Terminal(Event::Mouse(m)) => self.on_mouse(m),
             AppEvent::Terminal(Event::Paste(s)) => self.on_paste(&s),
             AppEvent::Terminal(Event::Resize(w, h)) => self.resize(w, h),
-            AppEvent::Terminal(Event::FocusGained) => self.check_open_docs_on_disk(),
+            AppEvent::Terminal(Event::FocusGained) => {
+                self.check_open_docs_on_disk();
+                if self.settings.git.auto_refresh {
+                    self.git_schedule_all(git::STATUS_DEBOUNCE);
+                }
+            }
             AppEvent::Terminal(Event::FocusLost) => {
                 if self.settings.files.auto_save == yace_config::AutoSave::OnFocusChange {
                     self.autosave_all();
@@ -741,6 +770,7 @@ impl App {
             AppEvent::Lsp { server, msg } => self.on_lsp(server, *msg),
             AppEvent::PluginsDiscovered(found) => self.on_plugins_discovered(found),
             AppEvent::Plugin(msg) => self.on_plugin_message(msg),
+            AppEvent::Git(r) => self.on_git(*r),
             AppEvent::Parsed { doc, job, tree, cost } => {
                 if let Some(job) = self.syntax.on_parsed(&self.docs, doc, job, tree.map(|t| *t), cost) {
                     self.emit(Effect::Parse(Box::new(job)));
@@ -752,6 +782,7 @@ impl App {
         self.check_new_languages();
         self.observe_for_plugins();
         self.deliver_plugin_events(Instant::now());
+        self.git_pump(Instant::now());
         self.refresh_find_if_stale();
         self.ensure_active_started();
         self.sync_terminal_size();
@@ -799,6 +830,23 @@ impl App {
             && self.sidebar_view == SidebarView::Plugin
             && !self.resolver.is_pending()
             && self.plugin_view_key(key)
+        {
+            return;
+        }
+        if self.focus == Focus::Explorer
+            && self.sidebar_view == SidebarView::Git
+            && self.sidebar_visible
+            && !self.resolver.is_pending()
+            && self.scm_key(key, ch)
+        {
+            return;
+        }
+        if self.focus == Focus::Editor
+            && key.code == yace_keymap::KeyCode::Enter
+            && key.mods.is_empty()
+            && !self.resolver.is_pending()
+            && self.active().is_some_and(|(_, _, d)| self.docs.is_read_only(d))
+            && self.git_diff_jump()
         {
             return;
         }
@@ -941,6 +989,8 @@ impl App {
         match action {
             PromptAction::RenameSymbol { doc, pos } => self.lsp_rename(doc, pos, &text),
             PromptAction::InstallPlugin => self.plugins_install_from(&text),
+            PromptAction::GitCommit { toplevel, all } => self.git_commit_submit(toplevel, all, &text),
+            PromptAction::GitCreateBranch { toplevel } => self.git_create_branch_submit(toplevel, &text),
             PromptAction::ImportThemeFile => {
                 let path = yace_workspace::paths::expand_tilde(&text);
                 if !path.is_file() {
@@ -978,6 +1028,7 @@ impl App {
             ConfirmAction::Nothing => {}
             ConfirmAction::RestoreDefaultKeybindings => self.restore_default_keybindings(),
             ConfirmAction::InstallPlugin => self.plugins_install_confirmed(),
+            ConfirmAction::GitCommitAll(top) => self.git_commit_prompt(top, true),
             ConfirmAction::UninstallPlugin(id) => self.uninstall_plugin(&id),
             ConfirmAction::TrustPlugin(dir) => self.trust_plugin(dir),
             ConfirmAction::Close(choice) => self.on_close_choice(choice),
@@ -1032,6 +1083,8 @@ impl App {
             PickerAction::EditUserTheme => self.edit_user_theme_pick(data),
             PickerAction::PluginOp(id) => self.plugin_op_pick(id, data),
             PickerAction::PluginView => self.plugin_view_pick(data),
+            PickerAction::GitRepo(cmd) => self.git_run_repo_cmd(data, cmd),
+            PickerAction::GitBranch => self.git_branch_pick(data),
             a @ (PickerAction::PluginList
             | PickerAction::PluginEnable
             | PickerAction::PluginDisable
@@ -1091,6 +1144,7 @@ impl App {
     pub(crate) fn sync_watches(&mut self) {
         let mut want: BTreeSet<PathBuf> = self.explorer.expanded_dirs().into_iter().collect();
         want.extend(self.config_watch_dirs());
+        want.extend(self.git_watch_dirs());
         for (_, e) in self.docs.iter() {
             if let Some(parent) = e.doc.path().and_then(Path::parent) {
                 want.insert(parent.to_path_buf());

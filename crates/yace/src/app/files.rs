@@ -288,6 +288,11 @@ impl App {
     fn after_save(&mut self, doc: DocId, path: &Path) {
         self.conflict_prompted.remove(&doc);
         self.plugin_event("documentSaved", serde_json::json!({ "doc": doc, "path": path.display().to_string() }));
+        if self.settings.git.auto_refresh
+            && let Some((repo, _)) = self.git_repo_of(path)
+        {
+            self.git_schedule(repo, super::git::STATUS_DEBOUNCE);
+        }
         self.lsp_did_save(doc);
         if let Some(parent) = path.parent() {
             self.explorer.refresh_dir(parent);
@@ -590,6 +595,14 @@ impl App {
         }
     }
 
+    /// Close every view of a document that has no unsaved changes
+    /// (generated documents).
+    pub(crate) fn close_doc_views(&mut self, doc: DocId) {
+        for (g, _) in self.layout.views_of(doc) {
+            self.remove_view(g, doc);
+        }
+    }
+
     fn remove_view(&mut self, gid: GroupId, doc: DocId) {
         let path = self.docs.doc(doc).and_then(|d| d.path().map(Path::to_path_buf));
         let Some(group) = self.layout.group_mut(gid) else { return };
@@ -646,6 +659,7 @@ impl App {
 
     pub(crate) fn process_fs_changes(&mut self, paths: Vec<PathBuf>) {
         self.on_config_files_changed(&paths);
+        self.git_paths_changed(&paths);
         let mut dirs: Vec<PathBuf> = Vec::new();
         for p in &paths {
             if let Some(parent) = p.parent() {

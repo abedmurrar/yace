@@ -115,6 +115,7 @@ pub struct Runtime {
     find: Sender<crate::workers::FindJob>,
     /// Started on the first background parse.
     syntax: Option<Sender<crate::syntax::ParseJob>>,
+    git: Option<Sender<crate::git::GitTask>>,
 }
 
 impl Runtime {
@@ -177,6 +178,7 @@ impl Runtime {
             search: Default::default(),
             find,
             syntax: None,
+            git: None,
         }
     }
 
@@ -246,6 +248,11 @@ impl Runtime {
                         .name("yace-load".into())
                         .spawn(move || drop(tx.send(crate::workers::load_file(doc, path, eol))))
                         .ok();
+                }
+                Effect::Git(git, job) => {
+                    let tx = self.tx.clone();
+                    let workers = self.git.get_or_insert_with(|| crate::git::spawn_git_workers(tx));
+                    let _ = workers.send((git, job));
                 }
                 Effect::DiscoverPlugins(dir) => {
                     let tx = self.tx.clone();

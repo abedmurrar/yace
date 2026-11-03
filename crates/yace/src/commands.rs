@@ -589,6 +589,22 @@ fn builtin_commands() -> Vec<Command> {
             a.layout.even_sizes();
             a.notify(Severity::Info, "Layout reset (sidebar, panel and editor group sizes)");
         }),
+        // --- Git (spec §15) ---------------------------------------------------------
+        c!("git.refresh", "Git", "Refresh", |a, _| a.git_refresh()),
+        c!("workbench.action.editor.nextChange", "Git", "Go to Next Change", |a, _| a.git_goto_change(true)),
+        c!("workbench.action.editor.previousChange", "Git", "Go to Previous Change", |a, _| a.git_goto_change(false)),
+        c!("yace.git.showChange", "Git", "Show Change Under Cursor", |a, _| a.git_show_change()),
+        c!("workbench.view.scm", "View", "Show Source Control", |a, _| a.show_scm()),
+        c!("git.openChange", "Git", "Open Changes", |a, _| a.git_open_changes_cmd()),
+        c!("git.stage", "Git", "Stage Changes", |a, _| a.git_stage_active(true)),
+        c!("git.unstage", "Git", "Unstage Changes", |a, _| a.git_stage_active(false)),
+        c!("git.stageAll", "Git", "Stage All Changes", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::StageAll)),
+        c!("git.unstageAll", "Git", "Unstage All Changes", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::UnstageAll)),
+        c!("git.commit", "Git", "Commit", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::Commit { all: false })),
+        c!("git.commitAll", "Git", "Commit All", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::Commit { all: true })),
+        c!("git.checkout", "Git", "Checkout to…", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::Checkout)),
+        c!("git.branch", "Git", "Create Branch…", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::CreateBranch)),
+        c!("git.showOutput", "Git", "Show Output", |a, _| a.git_show_output()),
         // --- Extensions (spec §18.14) -------------------------------------------
         c!("workbench.extensions.action.listInstalled", "Extensions", "List Installed", |a, _| a.plugins_list()),
         c!("yace.extensions.installFromDirectory", "Extensions", "Install from Directory…", |a, _| a

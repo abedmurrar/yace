@@ -184,6 +184,27 @@ crates/yace       plugins.rs (host functions, the only unsafe plugin code),
   built-in table; the app loads a plugin grammar the first time a document
   of its language is open, then re-attaches those documents.
 
+## Git (M9)
+
+- `yace-git`: runs the `git` program (timeouts, no prompts/pager/editor,
+  `--no-optional-locks` for reads, a command log), parses `status
+  --porcelain=v2 -z`, line diffs with `imara-diff`, and the operations.
+- `crates/yace/src/git.rs`: jobs and the per-repository / per-document
+  state; jobs run on two lazily created git worker threads
+  (`Effect::Git`), results come back as `AppEvent::Git`. Results are keyed
+  by repository top level, so a re-detection never mixes repositories up.
+  Status parsing and the Explorer decoration map are built on the worker.
+- `app/git.rs`: detection per root (roots in one repository share it),
+  scheduling (one status per repository in flight, extra requests
+  coalesced, 300 ms debounce, due times part of the event loop's next
+  deadline), triggers (`.git` watched non-recursively, file events, saves,
+  focus, the visible Source Control view), document bases (index, else
+  HEAD; refetched when the index or HEAD changes) and gutter hunks
+  (recomputed on a worker 150 ms after typing).
+- `app/git_ops.rs`: Source Control view, changes documents (read-only
+  generated documents, `diff` language coloured by line prefix), stage,
+  commit, branches — only from commands.
+
 ## Documents, views, groups
 
 - `DocumentStore` owns documents, keyed by canonical path, so one file is
