@@ -300,6 +300,20 @@ impl Runtime {
                     let workers = self.git.get_or_insert_with(|| crate::git::spawn_git_workers(tx));
                     let _ = workers.send((git, job));
                 }
+                Effect::CopyPaths(pairs) => {
+                    let tx = self.tx.clone();
+                    thread::Builder::new()
+                        .name("yace-copy".into())
+                        .spawn(move || {
+                            drop(tx.send(AppEvent::PathsCopied(crate::app::explorer_ops::copy_paths(pairs))))
+                        })
+                        .ok();
+                }
+                Effect::OpenExternal(dir) => {
+                    if let Err(e) = crate::app::explorer_ops::open_external(&dir) {
+                        let _ = self.tx.send(AppEvent::OpenExternalFailed(e));
+                    }
+                }
                 Effect::DiscoverPlugins(dir) => {
                     let tx = self.tx.clone();
                     thread::Builder::new()

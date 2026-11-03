@@ -32,6 +32,8 @@ pub struct Harness {
     /// When set, background file loads are queued instead of completing.
     pub defer_loads: bool,
     pub pending_loads: Vec<AppEvent>,
+    /// Folders "opened in the file manager".
+    pub opened: Vec<PathBuf>,
 }
 
 impl Harness {
@@ -92,6 +94,7 @@ impl Harness {
             pending_walks: Vec::new(),
             defer_loads: false,
             pending_loads: Vec::new(),
+            opened: Vec::new(),
         }
     }
 
@@ -186,6 +189,10 @@ impl Harness {
                     Effect::DiscoverPlugins(dir) => {
                         events.push(AppEvent::PluginsDiscovered(yace_plugin_host::store::discover(&dir)))
                     }
+                    Effect::CopyPaths(pairs) => {
+                        events.push(AppEvent::PathsCopied(yace_app::app::explorer_ops::copy_paths(pairs)))
+                    }
+                    Effect::OpenExternal(dir) => self.opened.push(dir),
                     Effect::SearchCancel
                     | Effect::Watch(_)
                     | Effect::Unwatch(_)

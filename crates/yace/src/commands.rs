@@ -881,6 +881,11 @@ fn builtin_commands() -> Vec<Command> {
             }
         }),
         // --- Editor groups ------------------------------------------------------
+        c!("filesExplorer.copy", "Explorer", "Copy", |a, _| a.explorer_copy_files(false)),
+        c!("filesExplorer.cut", "Explorer", "Cut", |a, _| a.explorer_copy_files(true)),
+        c!("filesExplorer.paste", "Explorer", "Paste", |a, _| a.explorer_paste()),
+        c!("explorer.openToSide", "Explorer", "Open to the Side", |a, _| a.explorer_open_beside()),
+        c!("revealFileInOS", "File", "Reveal in File Manager", |a, _| a.reveal_in_os()),
         c!("workbench.action.splitEditor", "View", "Split Editor Right", |a, _| {
             a.layout.split(SplitAxis::Horizontal);
             a.focus_editor();

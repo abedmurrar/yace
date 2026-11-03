@@ -22,6 +22,12 @@ Security, Performance.
   `workbench.action.quickOpen "<prefix>"`, `workbench.action.gotoLine
   { line, column }`, `workbench.action.files.openFile` / `vscode.open
   { path, line, column }`, `git.checkout { branch }`.
+- Explorer: **Copy, Cut and Paste** files and folders (`Ctrl+C`, `Ctrl+X`,
+  `Ctrl+V`), across workspace folders. Copies run in the background; an
+  existing name gets " copy" / " copy 2" like VS Code; symlinks are copied
+  as links; a cut item is dimmed until pasted and open editors follow it.
+- **Open to the Side** (`Ctrl+Enter`) in the Explorer and Quick Open.
+- **Reveal in File Manager** (`Shift+Alt+R`) opens the containing folder.
 - A command that can't run says why ("no editor is open", the expected
   arguments); a key binding with wrong `args` names `keybindings.toml`;
   a plugin's failed `executeCommand` is written to its log.

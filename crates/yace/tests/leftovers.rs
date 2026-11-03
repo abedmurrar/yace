@@ -151,3 +151,107 @@ fn commands_take_arguments_and_report_errors() {
     let n: Vec<String> = h.app.notifications.iter().map(|n| n.text.clone()).collect();
     assert!(n.iter().any(|m| m.contains("keybindings.toml")), "{n:?}");
 }
+
+#[test]
+fn copy_names_follow_vs_code() {
+    use yace_app::app::explorer_ops::unique_destination;
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path();
+    files(p, &[("a.txt", ""), ("Makefile", ""), (".env", ""), ("dir/x", ""), ("a.tar.gz", "")]);
+    assert_eq!(unique_destination(p, "new.txt"), p.join("new.txt"));
+    assert_eq!(unique_destination(p, "a.txt"), p.join("a copy.txt"));
+    std::fs::write(p.join("a copy.txt"), "").unwrap();
+    assert_eq!(unique_destination(p, "a.txt"), p.join("a copy 2.txt"));
+    assert_eq!(unique_destination(p, "Makefile"), p.join("Makefile copy"));
+    assert_eq!(unique_destination(p, ".env"), p.join(".env copy"));
+    assert_eq!(unique_destination(p, "dir"), p.join("dir copy"));
+    assert_eq!(unique_destination(p, "a.tar.gz"), p.join("a.tar copy.gz"));
+}
+
+/// Explorer copy / cut / paste, Open to the Side, Reveal (spec §8.2).
+#[test]
+fn explorer_copy_cut_paste_beside_and_reveal() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    files(a.path(), &[("src/a.txt", "A\n"), ("sub/inner/deep.txt", "deep\n"), ("move.txt", "move me\n")]);
+    files(b.path(), &[("readme.md", "b\n")]);
+    std::os::unix::fs::symlink("deep.txt", a.path().join("sub/inner/link")).unwrap();
+    let mut h = Harness::new();
+    let _ws = open_ws(&mut h, &[a.path(), b.path()]);
+    h.app.focus_explorer();
+
+    // Copy a file and paste it into its own folder twice.
+    let src_a = a.path().join("src/a.txt");
+    h.select_explorer(&src_a);
+    h.key("ctrl+c");
+    h.key("ctrl+v");
+    h.key("ctrl+v");
+    assert_eq!(std::fs::read_to_string(a.path().join("src/a copy.txt")).unwrap(), "A\n");
+    assert!(a.path().join("src/a copy 2.txt").exists());
+    assert!(h.explorer_labels().iter().any(|l| l.trim() == "a copy 2.txt"), "{:#?}", h.explorer_labels());
+
+    // Copy a folder (with a symlink inside) into the other root.
+    let sub = a.path().join("sub");
+    h.select_explorer(&sub);
+    h.key("ctrl+c");
+    h.select_explorer(b.path());
+    h.key("ctrl+v");
+    assert_eq!(std::fs::read_to_string(b.path().join("sub/inner/deep.txt")).unwrap(), "deep\n");
+    let link = b.path().join("sub/inner/link");
+    assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink(), "symlinks are copied as links");
+    // …but never into itself.
+    h.select_explorer(&a.path().join("sub/inner"));
+    h.app.notifications.clear();
+    h.key("ctrl+v");
+    assert!(h.app.notifications.iter().any(|n| n.text.contains("into itself")));
+    assert!(!a.path().join("sub/inner/sub").exists());
+
+    // Cut a file that is open, paste it into the other root: the editor follows.
+    let mv = a.path().join("move.txt");
+    h.app.open_file(&mv, false);
+    h.settle();
+    h.app.focus_explorer();
+    h.select_explorer(&mv);
+    h.key("ctrl+x");
+    assert!(h.app.is_cut(&mv));
+    h.select_explorer(&b.path().join("readme.md"));
+    h.key("ctrl+v");
+    let moved = b.path().join("move.txt");
+    assert!(moved.exists() && !mv.exists());
+    let (_, _, d) = h.app.active().unwrap();
+    assert_eq!(h.app.docs.doc(d).unwrap().path(), Some(moved.as_path()));
+    assert!(h.app.file_clipboard.is_none(), "a cut is pasted once");
+
+    // Ctrl+Enter opens beside, in a new group to the right.
+    h.app.focus_explorer();
+    h.select_explorer(&src_a);
+    let groups = h.app.layout.groups().len();
+    h.key("ctrl+enter");
+    assert_eq!(h.app.layout.groups().len(), groups + 1);
+    let (_, _, d) = h.app.active().unwrap();
+    assert_eq!(h.app.docs.doc(d).unwrap().path(), Some(src_a.as_path()));
+
+    // Reveal opens the containing folder, never the file.
+    h.app.focus_explorer();
+    h.select_explorer(&src_a);
+    h.key("shift+alt+r");
+    assert_eq!(h.opened, vec![a.path().join("src")]);
+}
+
+/// Ctrl+Enter in Quick Open opens the file beside.
+#[test]
+fn quick_open_ctrl_enter_opens_beside() {
+    let d = tempfile::tempdir().unwrap();
+    files(d.path(), &[("one.rs", "1\n"), ("two.rs", "2\n")]);
+    let mut h = Harness::new();
+    let _ws = open_ws(&mut h, &[d.path()]);
+    h.app.open_file(&d.path().join("one.rs"), false);
+    h.settle();
+    h.app.execute("workbench.action.quickOpen", None);
+    h.settle();
+    h.type_text("two");
+    h.settle();
+    h.key("ctrl+enter");
+    assert_eq!(h.app.layout.groups().len(), 2);
+    assert!(h.active_text().starts_with('2'));
+}

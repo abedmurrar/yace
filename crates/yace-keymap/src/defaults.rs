@@ -213,6 +213,11 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("delete", "deleteFile", "explorerFocus"),
     ("ctrl+alt+n", "explorer.newFile", "explorerFocus"),
     ("shift+alt+c", "copyFilePath", "explorerFocus"),
+    ("ctrl+c", "filesExplorer.copy", "explorerFocus && !explorerFilterActive"),
+    ("ctrl+x", "filesExplorer.cut", "explorerFocus && !explorerFilterActive"),
+    ("ctrl+v", "filesExplorer.paste", "explorerFocus && !explorerFilterActive"),
+    ("ctrl+enter", "explorer.openToSide", "explorerFocus"),
+    ("shift+alt+r", "revealFileInOS", ""),
     ("ctrl+shift+alt+c", "copyRelativeFilePath", "explorerFocus"),
     ("shift+alt+f", "filesExplorer.findInFolder", "explorerFocus"),
     // --- Fallbacks for terminals without the enhanced keyboard protocol -------

@@ -698,6 +698,9 @@ fn draw_sidebar(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
                 if let Some(k) = git {
                     s = s.fg(git_color(t, k));
                 }
+                if app.is_cut(&row.path) {
+                    s = s.add_modifier(Modifier::DIM);
+                }
                 let mut label = row.label.clone();
                 if matches!(kind, RowKind::SymlinkDir | RowKind::SymlinkFile) {
                     label = format!("{label} {}", g.symlink);

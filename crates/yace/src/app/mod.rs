@@ -5,7 +5,7 @@
 
 mod completion;
 mod edit;
-mod explorer_ops;
+pub mod explorer_ops;
 mod files;
 mod find;
 mod folding;
@@ -62,6 +62,10 @@ pub use terminal::{DEFAULT_PANEL_HEIGHT, PanelState, TermTab, snapshot as termin
 #[derive(Debug)]
 pub enum AppEvent {
     Terminal(Event),
+    /// Background copies finished: each destination and its outcome.
+    PathsCopied(Vec<(PathBuf, Result<(), String>)>),
+    /// The file manager could not be started.
+    OpenExternalFailed(String),
     DirLoaded {
         dir: PathBuf,
         result: Result<Vec<Entry>, String>,
@@ -151,6 +155,10 @@ pub enum Effect {
     DiscoverPlugins(PathBuf),
     /// Run git (on a git worker).
     Git(yace_git::Git, crate::git::GitJob),
+    /// Copy files and folders in the background (Explorer paste).
+    CopyPaths(Vec<(PathBuf, PathBuf)>),
+    /// Open a folder in the system file manager.
+    OpenExternal(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -311,6 +319,8 @@ pub struct App {
     pub plugin_ws_disabled: Vec<String>,
     /// Explorer badges from plugins: path key → (badge, colour token).
     pub plugin_decorations: HashMap<PathBuf, (String, String)>,
+    /// Files copied or cut in the Explorer, for Paste.
+    pub file_clipboard: Option<explorer_ops::FileClipboard>,
     /// Path → canonical path, for watches (filled once per path).
     pub(crate) canon_cache: HashMap<PathBuf, PathBuf>,
     /// Watched (canonical) directory → the paths it is shown under.
@@ -411,6 +421,7 @@ impl App {
             plugin_decorations: HashMap::new(),
             plugin_pick: Vec::new(),
             canon_cache: HashMap::new(),
+            file_clipboard: None,
             watch_alias: HashMap::new(),
             pending_install: None,
             pending_grammars: HashMap::new(),
@@ -745,6 +756,8 @@ impl App {
             AppEvent::DirLoaded { dir, result } => {
                 self.explorer.on_dir_loaded(&dir, result);
             }
+            AppEvent::PathsCopied(results) => self.on_paths_copied(results),
+            AppEvent::OpenExternalFailed(e) => self.notify(Severity::Error, e),
             AppEvent::FsChanged(paths) => {
                 self.pending_fs.extend(paths);
                 if self.fs_deadline.is_none() {
@@ -1021,6 +1034,14 @@ impl App {
             }
             OverlayOutcome::Pick(data) => {
                 let Some(Overlay::Picker(p)) = self.overlays.pop() else { return };
+                self.on_pick(p.action, data);
+            }
+            OverlayOutcome::PickBeside(data) => {
+                let Some(Overlay::Picker(p)) = self.overlays.pop() else { return };
+                if p.action == PickerAction::QuickOpen && self.quick_open_is_file(data) {
+                    let g = self.layout.next_group_or_split(true);
+                    self.layout.active = g;
+                }
                 self.on_pick(p.action, data);
             }
             OverlayOutcome::QueryChanged => self.quick_open_query_changed(),

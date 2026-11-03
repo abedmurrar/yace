@@ -270,6 +270,8 @@ pub enum OverlayOutcome {
     SubmitPrompt(String),
     Confirm(ConfirmAction),
     Pick(usize),
+    /// Ctrl+Enter: pick, opening a file in the group to the side.
+    PickBeside(usize),
     /// The input of a dynamic picker changed; the app must refresh items.
     QueryChanged,
     /// Quick Open: toggle including ignored files (Alt+I).
@@ -333,6 +335,10 @@ impl Overlay {
             },
             Overlay::Picker(p) => match key.code {
                 KeyCode::Escape => OverlayOutcome::Cancel,
+                KeyCode::Enter if key.mods == Mods::CTRL => match p.current() {
+                    Some(it) => OverlayOutcome::PickBeside(it.data),
+                    None => OverlayOutcome::Consumed,
+                },
                 KeyCode::Enter => match p.current() {
                     Some(it) => OverlayOutcome::Pick(it.data),
                     None => OverlayOutcome::Consumed,

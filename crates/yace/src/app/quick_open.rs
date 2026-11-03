@@ -530,6 +530,10 @@ impl App {
         self.quick_open_query_changed();
     }
 
+    pub(crate) fn quick_open_is_file(&self, data: usize) -> bool {
+        matches!(self.quick_open.targets.get(data), Some(Target::File { .. }))
+    }
+
     pub(crate) fn quick_open_pick(&mut self, data: usize) {
         let Some(t) = self.quick_open.targets.get(data).cloned() else { return };
         match t {

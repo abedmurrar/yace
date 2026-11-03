@@ -257,10 +257,10 @@ Legend:
 - [x] [M2] File ops: Copy Path, Copy Relative Path (relative to the owning root)
 - [x] [M2] Collision, permission and cross-device errors reported clearly (§8.2)
 - [x] [M2] Renaming or moving an open file updates its open tabs
-- [~] [M2+] Copy / paste of files and directories inside the Explorer (`Ctrl+C` / `Ctrl+V` in explorer context)
-- [~] [M2+] Open File Beside (opens in the next group; needs M3 splits)
+- [x] [M2+] Copy / cut / paste of files and folders in the Explorer (`Ctrl+C` / `Ctrl+X` / `Ctrl+V`): background copy, VS Code "copy" names, symlinks kept as links, no folder into itself, open documents follow a cut
+- [x] [M2+] Open File Beside (`Ctrl+Enter` in the Explorer and Quick Open; splits when there is no group to the right)
 - [x] [M5] Open Terminal in Directory — Explorer "Open in Integrated Terminal"
-- [~] [M2+] Reveal in system file manager (`xdg-open`) — needs a trust/confirmation decision
+- [x] [M2+] Reveal in File Manager (`Shift+Alt+R`): opens the containing folder with `xdg-open` (detached, own process group), never the file
 
 ### Filesystem watching (§8.4)
 - [x] [M2] notify watcher thread; non-recursive watches on expanded directories (D8)
