@@ -658,6 +658,18 @@ impl App {
     // External modification (spec §9.10)
 
     pub(crate) fn process_fs_changes(&mut self, paths: Vec<PathBuf>) {
+        // Events arrive under the watched (canonical) directory; report them
+        // under every path that directory is shown as (symlinked roots).
+        let mut paths = paths;
+        let mut extra = Vec::new();
+        for p in &paths {
+            for (canon, shown) in &self.watch_alias {
+                if let Ok(rel) = p.strip_prefix(canon) {
+                    extra.extend(shown.iter().filter(|s| *s != canon).map(|s| s.join(rel)));
+                }
+            }
+        }
+        paths.extend(extra);
         self.on_config_files_changed(&paths);
         self.git_paths_changed(&paths);
         let mut dirs: Vec<PathBuf> = Vec::new();

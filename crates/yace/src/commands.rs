@@ -14,7 +14,55 @@ use crate::{
     overlay::{Overlay, Picker, PickerItem},
 };
 
-pub type Handler = fn(&mut App, Option<&Value>);
+/// Why a command did not run (spec §19.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandError {
+    /// No command has this id.
+    Unknown(String),
+    /// The arguments don't have the expected shape.
+    InvalidArgs(String),
+    /// Not possible right now (no editor, no terminal, …).
+    Unavailable(String),
+    /// It ran and failed.
+    Failed(String),
+}
+
+impl std::fmt::Display for CommandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CommandError::Unknown(id) => write!(f, "command '{id}' not found"),
+            CommandError::InvalidArgs(m) | CommandError::Unavailable(m) | CommandError::Failed(m) => f.write_str(m),
+        }
+    }
+}
+
+pub type CmdResult = Result<(), CommandError>;
+pub type Handler = fn(&mut App, Option<&Value>) -> CmdResult;
+
+/// Lets handlers return `()` (always succeeds) or a [`CmdResult`].
+pub trait IntoCmdResult {
+    fn into_cmd(self) -> CmdResult;
+}
+impl IntoCmdResult for () {
+    fn into_cmd(self) -> CmdResult {
+        Ok(())
+    }
+}
+impl IntoCmdResult for CmdResult {
+    fn into_cmd(self) -> CmdResult {
+        self
+    }
+}
+
+/// Parse a command's arguments; `None` when there are none (or `null`).
+pub fn parse_args<T: serde::de::DeserializeOwned>(v: Option<&Value>, shape: &str) -> Result<Option<T>, CommandError> {
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => T::deserialize(v)
+            .map(Some)
+            .map_err(|e| CommandError::InvalidArgs(format!("expected arguments {shape} ({e})"))),
+    }
+}
 
 #[derive(Clone)]
 pub struct Command {
@@ -24,6 +72,8 @@ pub struct Command {
     pub handler: Handler,
     /// Listed in the command palette.
     pub palette: bool,
+    /// The arguments it accepts, e.g. `{ "text": string }`; empty for none.
+    pub args_doc: &'static str,
 }
 
 impl std::fmt::Debug for Command {
@@ -68,7 +118,9 @@ fn leak(s: &str) -> &'static str {
     v
 }
 
-fn plugin_handler(_: &mut App, _: Option<&Value>) {}
+fn plugin_handler(_: &mut App, _: Option<&Value>) -> CmdResult {
+    Ok(())
+}
 
 impl Registry {
     pub fn builtin() -> Self {
@@ -113,6 +165,7 @@ impl Registry {
                 title: leak(&title),
                 handler: plugin_handler,
                 palette,
+                args_doc: "",
             });
             self.index.insert(id, self.list.len() - 1);
             self.plugin.insert(id, kind);
@@ -138,11 +191,82 @@ impl Registry {
 
 macro_rules! c {
     ($id:literal, $cat:literal, $title:literal, $f:expr) => {
-        Command { id: $id, category: $cat, title: $title, handler: $f, palette: true }
+        c!(@ $id, $cat, $title, $f, true, "")
     };
     (hidden $id:literal, $cat:literal, $title:literal, $f:expr) => {
-        Command { id: $id, category: $cat, title: $title, handler: $f, palette: false }
+        c!(@ $id, $cat, $title, $f, false, "")
     };
+    (args $doc:literal, $id:literal, $cat:literal, $title:literal, $f:expr) => {
+        c!(@ $id, $cat, $title, $f, true, $doc)
+    };
+    (hidden args $doc:literal, $id:literal, $cat:literal, $title:literal, $f:expr) => {
+        c!(@ $id, $cat, $title, $f, false, $doc)
+    };
+    (@ $id:literal, $cat:literal, $title:literal, $f:expr, $palette:expr, $doc:expr) => {
+        Command {
+            id: $id,
+            category: $cat,
+            title: $title,
+            palette: $palette,
+            args_doc: $doc,
+            handler: {
+                fn handler(a: &mut App, v: Option<&Value>) -> CmdResult {
+                    let f: fn(&mut App, Option<&Value>) -> _ = $f;
+                    IntoCmdResult::into_cmd(f(a, v))
+                }
+                handler
+            },
+        }
+    };
+}
+
+/// Fails with "no editor is open" unless an editor is active.
+fn need_editor(app: &mut App) -> CmdResult {
+    if ed(app) { Ok(()) } else { Err(CommandError::Unavailable("no editor is open".into())) }
+}
+
+#[derive(serde::Deserialize)]
+struct TextArg {
+    text: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum LineArg {
+    Pos {
+        line: usize,
+        #[serde(default)]
+        column: Option<usize>,
+    },
+    Number(usize),
+    Text(String),
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum FileArg {
+    Path(String),
+    Pos {
+        path: String,
+        #[serde(default)]
+        line: Option<u32>,
+        #[serde(default)]
+        column: Option<u32>,
+    },
+}
+
+fn open_file_cmd(a: &mut App, v: Option<&Value>) -> CmdResult {
+    let shape = r#""path" or { "path": string, "line"?: number, "column"?: number }"#;
+    match parse_args::<FileArg>(v, shape)? {
+        None => {
+            a.prompt("Open File", "Path of the file to open", a.cwd_with_slash(), PromptAction::OpenFile, true);
+            Ok(())
+        }
+        Some(FileArg::Path(p)) => a.plugin_open_file(&p, 0, 0).map_err(CommandError::Failed),
+        Some(FileArg::Pos { path, line, column }) => {
+            a.plugin_open_file(&path, line.unwrap_or(0), column.unwrap_or(1)).map_err(CommandError::Failed)
+        }
+    }
 }
 
 fn ed(app: &mut App) -> bool {
@@ -417,7 +541,41 @@ fn builtin_commands() -> Vec<Command> {
     vec![
         // --- Workbench -------------------------------------------------------
         c!("workbench.action.showCommands", "View", "Show All Commands", show_commands),
-        c!("workbench.action.quickOpen", "Go", "Go to File…", |a, _| a.open_quick_open("")),
+        c!(args r#""prefix", e.g. ">" for commands"#, "workbench.action.quickOpen", "Go", "Go to File…", |a, v| {
+            let prefix = parse_args::<String>(v, r#""prefix" (a string)"#)?.unwrap_or_default();
+            a.open_quick_open(&prefix);
+            Ok(())
+        }),
+        c!(hidden args r#"{ "text": string }"#, "type", "Edit", "Type", |a, v| {
+            let Some(t) = parse_args::<TextArg>(v, r#"{ "text": string }"#)? else {
+                return Err(CommandError::InvalidArgs(r#"expected arguments { "text": string }"#.into()));
+            };
+            need_editor(a)?;
+            a.insert_text(&t.text);
+            Ok(())
+        }),
+        c!(args r#"{ "snippet": string }"#, "editor.action.insertSnippet", "Editor", "Insert Snippet", |a, v| {
+            #[derive(serde::Deserialize)]
+            struct S {
+                snippet: String,
+            }
+            let Some(s) = parse_args::<S>(v, r#"{ "snippet": string }"#)? else {
+                return Err(CommandError::InvalidArgs(r#"expected arguments { "snippet": string }"#.into()));
+            };
+            need_editor(a)?;
+            a.insert_snippet(&s.snippet);
+            Ok(())
+        }),
+        c!(hidden args r#"{ "text": string }"#, "workbench.action.terminal.sendSequence", "Terminal", "Send Sequence", |a, v| {
+            let Some(t) = parse_args::<TextArg>(v, r#"{ "text": string }"#)? else {
+                return Err(CommandError::InvalidArgs(r#"expected arguments { "text": string }"#.into()));
+            };
+            if a.terminal_send(&t.text) {
+                Ok(())
+            } else {
+                Err(CommandError::Unavailable("no terminal is running".into()))
+            }
+        }),
         c!("workbench.action.quickOpenHelp", "Help", "Quick Open Help", |a, _| a.open_quick_open("?")),
         c!("workbench.action.navigateBack", "Go", "Go Back", |a, _| a.navigate_back()),
         c!("workbench.action.navigateForward", "Go", "Go Forward", |a, _| a.navigate_forward()),
@@ -602,7 +760,21 @@ fn builtin_commands() -> Vec<Command> {
         c!("git.unstageAll", "Git", "Unstage All Changes", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::UnstageAll)),
         c!("git.commit", "Git", "Commit", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::Commit { all: false })),
         c!("git.commitAll", "Git", "Commit All", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::Commit { all: true })),
-        c!("git.checkout", "Git", "Checkout to…", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::Checkout)),
+        c!(args r#"{ "branch": string }"#, "git.checkout", "Git", "Checkout to…", |a, v| {
+            #[derive(serde::Deserialize)]
+            #[serde(untagged)]
+            enum B {
+                Name(String),
+                Obj { branch: String },
+            }
+            match parse_args::<B>(v, r#"{ "branch": string } or "branch""#)? {
+                None => {
+                    a.scm_repo_cmd(crate::app::RepoCmd::Checkout);
+                    Ok(())
+                }
+                Some(B::Name(b) | B::Obj { branch: b }) => a.git_switch_to(&b).map_err(CommandError::Unavailable),
+            }
+        }),
         c!("git.branch", "Git", "Create Branch…", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::CreateBranch)),
         c!("git.showOutput", "Git", "Show Output", |a, _| a.git_show_output()),
         // --- Extensions (spec §18.14) -------------------------------------------
@@ -648,9 +820,8 @@ fn builtin_commands() -> Vec<Command> {
         c!("yace.about", "Help", "About", about),
         // --- Files --------------------------------------------------------------
         c!("workbench.action.files.newUntitledFile", "File", "New Untitled Text File", |a, _| a.new_untitled()),
-        c!("workbench.action.files.openFile", "File", "Open File…", |a, _| {
-            a.prompt("Open File", "Path of the file to open", a.cwd_with_slash(), PromptAction::OpenFile, true)
-        }),
+        c!(args r#""path" or { "path": string, "line"?: number, "column"?: number }"#, "workbench.action.files.openFile", "File", "Open File…", open_file_cmd),
+        c!(hidden args r#""path" or { "path": string, "line"?: number, "column"?: number }"#, "vscode.open", "File", "Open", open_file_cmd),
         c!("workbench.action.files.save", "File", "Save", |a, _| {
             if let Some((_, _, d)) = a.active() {
                 a.save_with_format(d);
@@ -964,9 +1135,22 @@ fn builtin_commands() -> Vec<Command> {
         c!("editor.action.jumpToBracket", "Go", "Go to Bracket", |a, _| a.jump_to_bracket()),
         c!("editor.action.trimTrailingWhitespace", "Editor", "Trim Trailing Whitespace", |a, _| a
             .run_op(Op::TrimWhitespace)),
-        c!("workbench.action.gotoLine", "Go", "Go to Line/Column…", |a, _| {
-            if ed(a) {
-                a.prompt("Go to Line", "Line number, optionally :column", String::new(), PromptAction::GotoLine, false)
+        c!(args r#"{ "line": number, "column"?: number }, a number or "42:8""#, "workbench.action.gotoLine", "Go", "Go to Line/Column…", |a, v| {
+            let shape = r#"{ "line": number, "column"?: number }, a number or "42:8""#;
+            let arg = parse_args::<LineArg>(v, shape)?;
+            need_editor(a)?;
+            match arg {
+                None => {
+                    a.prompt("Go to Line", "Line number, optionally :column", String::new(), PromptAction::GotoLine, false);
+                    Ok(())
+                }
+                Some(LineArg::Text(t)) => a.goto_line(&t).map_err(CommandError::InvalidArgs),
+                Some(LineArg::Number(line)) | Some(LineArg::Pos { line, column: None }) => {
+                    a.goto_line(&line.to_string()).map_err(CommandError::InvalidArgs)
+                }
+                Some(LineArg::Pos { line, column: Some(c) }) => {
+                    a.goto_line(&format!("{line}:{c}")).map_err(CommandError::InvalidArgs)
+                }
             }
         }),
         c!("yace.editor.changeEol", "Editor", "Change End of Line Sequence", |a, _| {

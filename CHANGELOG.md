@@ -13,6 +13,28 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- Commands take arguments, from key bindings (`args = { … }` in
+  `keybindings.toml`) and plugins: `type { text }`,
+  `editor.action.insertSnippet { snippet }`,
+  `workbench.action.terminal.sendSequence { text }`,
+  `workbench.action.quickOpen "<prefix>"`, `workbench.action.gotoLine
+  { line, column }`, `workbench.action.files.openFile` / `vscode.open
+  { path, line, column }`, `git.checkout { branch }`.
+- A command that can't run says why ("no editor is open", the expected
+  arguments); a key binding with wrong `args` names `keybindings.toml`;
+  a plugin's failed `executeCommand` is written to its log.
+
+### Fixed
+
+- A file created while the Explorer was reading its folder (a checkout, a
+  build) could stay missing until the next change; the folder is now read
+  again.
+- A folder reachable by two paths (a root that is a symlink into another
+  root) was watched twice, and collapsing it under one path stopped
+  updates under the other.
+
 ## [0.7.0] - 2026-11-03
 
 ### Added

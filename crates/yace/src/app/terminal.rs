@@ -556,6 +556,19 @@ impl App {
         self.terminal_paste_text(&text);
     }
 
+    /// Write raw text (escape sequences included) to the active terminal;
+    /// false when none is running (`workbench.action.terminal.sendSequence`).
+    pub(crate) fn terminal_send(&mut self, text: &str) -> bool {
+        match self.panel.active_tab().and_then(|t| t.session.as_ref()) {
+            Some(s) => {
+                s.scroll_to_bottom();
+                s.write(text.as_bytes());
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(crate) fn terminal_paste_text(&mut self, text: &str) {
         if let Some(s) = self.panel.active_tab().and_then(|t| t.session.as_ref()) {
             let bytes = encode_paste(text, s.modes());

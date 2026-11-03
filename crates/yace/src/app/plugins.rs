@@ -406,7 +406,7 @@ impl App {
                 let args_text = args.map(|a| a.to_string()).unwrap_or_default();
                 let Some((status, took)) = plugins::call(self, i, |l| l.command(id, &args_text)) else {
                     // The plugin is busy (it called back into the editor).
-                    self.plugins.deferred.push((id.to_string(), serde_json::from_str(&args_text).ok()));
+                    self.plugins.deferred.push((id.to_string(), serde_json::from_str(&args_text).ok(), None));
                     return;
                 };
                 self.after_call(i, status, took, id);
@@ -431,8 +431,14 @@ impl App {
             if todo.is_empty() {
                 return;
             }
-            for (id, args) in todo {
-                self.execute(&id, args.as_ref());
+            for (id, args, from) in todo {
+                if let Err(e) = self.run_command(&id, args.as_ref()) {
+                    // The asking plugin sees why in its log.
+                    if let Some(i) = from {
+                        self.plugin_log(i, yace_plugin_api::YACE_LEVEL_ERROR, format!("executeCommand {id}: {e}"));
+                    }
+                    self.report_command_error(&id, &e, None);
+                }
             }
         }
     }

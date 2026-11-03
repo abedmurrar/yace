@@ -5,7 +5,7 @@
 //! renders only after state changed.
 
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
     thread,
@@ -23,47 +23,93 @@ use crate::{
 };
 
 /// Bounded pool of workers for directory listings (spec §21.5).
+///
+/// One read per directory at a time. A request for a directory that is
+/// queued is dropped (the queued read will see the latest state); a request
+/// for one being read marks it to be read once more afterwards, so a change
+/// made during a read is never missed and the newest listing arrives last.
 pub struct FsPool {
     jobs: Sender<PathBuf>,
-    in_flight: Arc<Mutex<HashSet<PathBuf>>>,
+    state: Arc<Mutex<HashMap<PathBuf, ReadState>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadState {
+    Queued,
+    Running { again: bool },
 }
 
 impl FsPool {
     pub fn new(threads: usize, events: Sender<AppEvent>) -> Self {
+        Self::with_reader(
+            threads,
+            move |dir, result| {
+                let _ = events.send(AppEvent::DirLoaded { dir, result });
+            },
+            read_dir_entries,
+        )
+    }
+
+    /// A pool with a custom reader and result sink (tests).
+    pub fn with_reader(
+        threads: usize,
+        sink: impl Fn(PathBuf, Result<Vec<crate::explorer::Entry>, String>) + Send + Sync + Clone + 'static,
+        read: impl Fn(&std::path::Path) -> Result<Vec<crate::explorer::Entry>, String> + Send + Sync + Clone + 'static,
+    ) -> Self {
         let (tx, rx): (Sender<PathBuf>, Receiver<PathBuf>) = bounded(1024);
-        let in_flight = Arc::new(Mutex::new(HashSet::new()));
+        let state: Arc<Mutex<HashMap<PathBuf, ReadState>>> = Arc::default();
         for i in 0..threads.max(1) {
             let rx = rx.clone();
-            let events = events.clone();
-            let in_flight = Arc::clone(&in_flight);
+            let tx = tx.clone();
+            let state = Arc::clone(&state);
+            let sink = sink.clone();
+            let read = read.clone();
             thread::Builder::new()
                 .name(format!("yace-fs-{i}"))
                 .spawn(move || {
                     for dir in rx {
-                        let result = read_dir_entries(&dir);
-                        if let Ok(mut f) = in_flight.lock() {
-                            f.remove(&dir);
+                        if let Ok(mut s) = state.lock() {
+                            s.insert(dir.clone(), ReadState::Running { again: false });
                         }
-                        if events.send(AppEvent::DirLoaded { dir, result }).is_err() {
-                            break;
+                        let result = read(&dir);
+                        let again = state.lock().ok().and_then(|mut s| match s.remove(&dir) {
+                            Some(ReadState::Running { again: true }) => {
+                                s.insert(dir.clone(), ReadState::Queued);
+                                Some(())
+                            }
+                            _ => None,
+                        });
+                        sink(dir.clone(), result);
+                        if again.is_some()
+                            && tx.try_send(dir.clone()).is_err()
+                            && let Ok(mut s) = state.lock()
+                        {
+                            s.remove(&dir);
                         }
                     }
                 })
                 .expect("spawn fs worker");
         }
-        Self { jobs: tx, in_flight }
+        Self { jobs: tx, state }
     }
 
     pub fn read_dir(&self, dir: PathBuf) {
-        if let Ok(mut f) = self.in_flight.lock()
-            && !f.insert(dir.clone())
-        {
-            return; // already queued
+        if let Ok(mut s) = self.state.lock() {
+            match s.get_mut(&dir) {
+                Some(ReadState::Queued) => return,
+                Some(ReadState::Running { again }) => {
+                    *again = true;
+                    return;
+                }
+                None => {
+                    s.insert(dir.clone(), ReadState::Queued);
+                }
+            }
         }
         if let Err(TrySendError::Full(d) | TrySendError::Disconnected(d)) = self.jobs.try_send(dir) {
             tracing::warn!("fs queue full, dropping read of {}", d.display());
-            if let Ok(mut f) = self.in_flight.lock() {
-                f.remove(&d);
+            if let Ok(mut s) = self.state.lock() {
+                s.remove(&d);
             }
         }
     }
@@ -330,5 +376,56 @@ impl Runtime {
             }
             app.on_tick(Instant::now());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::{Duration, Instant},
+    };
+
+    use super::*;
+
+    /// A request made while a directory is being read causes exactly one
+    /// more read, and the last result delivered is the newest.
+    #[test]
+    fn requests_during_a_read_are_not_lost() {
+        let d = tempfile::tempdir().unwrap();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let results: Arc<Mutex<Vec<usize>>> = Arc::default();
+        let (r2, res2) = (Arc::clone(&reads), Arc::clone(&results));
+        let pool = FsPool::with_reader(
+            2,
+            move |_dir, result: Result<Vec<crate::explorer::Entry>, String>| {
+                res2.lock().unwrap().push(result.map(|e| e.len()).unwrap_or(0));
+            },
+            move |dir| {
+                let n = r2.fetch_add(1, Ordering::SeqCst);
+                if n == 0 {
+                    // The first read is slow; a file appears meanwhile.
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+                read_dir_entries(dir)
+            },
+        );
+        pool.read_dir(d.path().to_path_buf());
+        std::thread::sleep(Duration::from_millis(30)); // the first read is running
+        std::fs::write(d.path().join("new.txt"), "").unwrap();
+        pool.read_dir(d.path().to_path_buf()); // marks "again"
+        pool.read_dir(d.path().to_path_buf()); // coalesced
+        let start = Instant::now();
+        while results.lock().unwrap().len() < 2 && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(reads.load(Ordering::SeqCst), 2, "exactly one more read");
+        let r = results.lock().unwrap().clone();
+        assert_eq!(r.len(), 2);
+        assert_eq!(*r.last().unwrap(), 1, "the newest listing (with new.txt) arrives last");
     }
 }

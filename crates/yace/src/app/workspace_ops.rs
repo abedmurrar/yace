@@ -235,6 +235,7 @@ impl App {
 
     /// Persist root changes to the workspace file and refresh views.
     pub(crate) fn after_roots_changed(&mut self) {
+        self.canon_cache.clear();
         if self.workspace.file().is_some()
             && let Err(e) = self.workspace.save()
         {

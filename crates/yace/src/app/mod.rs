@@ -311,6 +311,10 @@ pub struct App {
     pub plugin_ws_disabled: Vec<String>,
     /// Explorer badges from plugins: path key → (badge, colour token).
     pub plugin_decorations: HashMap<PathBuf, (String, String)>,
+    /// Path → canonical path, for watches (filled once per path).
+    pub(crate) canon_cache: HashMap<PathBuf, PathBuf>,
+    /// Watched (canonical) directory → the paths it is shown under.
+    pub(crate) watch_alias: HashMap<PathBuf, BTreeSet<PathBuf>>,
     /// Plugin ids listed by the last manager picker.
     pub(crate) plugin_pick: Vec<String>,
     /// A plugin install waiting for confirmation.
@@ -406,6 +410,8 @@ impl App {
             plugin_ws_disabled: Vec::new(),
             plugin_decorations: HashMap::new(),
             plugin_pick: Vec::new(),
+            canon_cache: HashMap::new(),
+            watch_alias: HashMap::new(),
             pending_install: None,
             pending_grammars: HashMap::new(),
             languages_seen: Default::default(),
@@ -852,7 +858,12 @@ impl App {
         }
         let ctx = self.context();
         match self.resolver.feed(&self.keymap, key, &ctx) {
-            Resolution::Command { command, args } => self.execute(&command, args.as_ref()),
+            Resolution::Command { command, args } => {
+                if let Err(e) = self.run_command(&command, args.as_ref()) {
+                    let src = args.is_some().then(|| self.paths.keybindings().display().to_string());
+                    self.report_command_error(&command, &e, src.as_deref());
+                }
+            }
             Resolution::Pending(_) => {}
             Resolution::InvalidChord(seq) => {
                 self.notify(Severity::Info, format!("The key combination ({seq}) is not a command."));
@@ -909,20 +920,54 @@ impl App {
     }
 
     /// Run a command by id.
+    /// Run a command and report a failure as a notification.
     pub fn execute(&mut self, id: &str, args: Option<&serde_json::Value>) {
+        if let Err(e) = self.run_command(id, args) {
+            self.report_command_error(id, &e, None);
+        }
+    }
+
+    /// Run a command and return its result (spec §19.1).
+    pub fn run_command(&mut self, id: &str, args: Option<&serde_json::Value>) -> crate::commands::CmdResult {
+        use crate::commands::CommandError;
+        self.needs_render = true;
         if let Some(kind) = self.commands.plugin_command(id).cloned() {
             self.run_plugin_command(id, kind, args.cloned());
-            self.needs_render = true;
-            return;
+            return Ok(());
         }
-        match self.commands.get(id) {
-            Some(cmd) => {
-                let handler = cmd.handler;
-                handler(self, args);
-            }
-            None => self.notify(Severity::Error, format!("command '{id}' not found")),
+        let Some(cmd) = self.commands.get(id) else { return Err(CommandError::Unknown(id.to_string())) };
+        let handler = cmd.handler;
+        // Editor commands need an editor (a few work without one).
+        const WITHOUT_EDITOR: &[&str] = &[
+            "editor.action.marker.nextInFiles",
+            "editor.action.marker.prevInFiles",
+            "editor.action.hideHover",
+            "editor.action.toggleWordWrap",
+            "editor.action.insertSnippet",
+        ];
+        if id.starts_with("editor.") && !WITHOUT_EDITOR.contains(&id) && self.active().is_none() {
+            return Err(CommandError::Unavailable("no editor is open".into()));
         }
-        self.needs_render = true;
+        handler(self, args)
+    }
+
+    /// Show why a command didn't run; `source` names where its arguments
+    /// came from (a keybinding file).
+    pub(crate) fn report_command_error(&mut self, id: &str, e: &crate::commands::CommandError, source: Option<&str>) {
+        use crate::commands::CommandError;
+        let title = self.commands.get(id).map(|c| c.title).unwrap_or(id);
+        let (severity, mut msg) = match e {
+            CommandError::Unknown(_) => (Severity::Error, e.to_string()),
+            CommandError::Unavailable(m) => (Severity::Info, format!("{title}: {m}")),
+            CommandError::InvalidArgs(m) => (Severity::Error, format!("{title} ({id}): {m}")),
+            CommandError::Failed(m) => (Severity::Error, format!("{title}: {m}")),
+        };
+        if let Some(src) = source
+            && matches!(e, CommandError::InvalidArgs(_) | CommandError::Unknown(_))
+        {
+            msg.push_str(&format!(" — check this key binding's `args` in {src}"));
+        }
+        self.notify(severity, msg);
     }
 
     // ------------------------------------------------------------------
@@ -1141,15 +1186,33 @@ impl App {
     // ------------------------------------------------------------------
     // Watching (bounded, non-recursive; TODO.md D8)
 
+    /// Watch every directory that matters, once per real directory: two
+    /// paths to one folder (a symlink) share a watch, and events are
+    /// reported under each path shown (spec §8.4).
     pub(crate) fn sync_watches(&mut self) {
-        let mut want: BTreeSet<PathBuf> = self.explorer.expanded_dirs().into_iter().collect();
-        want.extend(self.config_watch_dirs());
-        want.extend(self.git_watch_dirs());
+        let mut wanted: BTreeSet<PathBuf> = self.explorer.expanded_dirs().into_iter().collect();
+        wanted.extend(self.config_watch_dirs());
+        wanted.extend(self.git_watch_dirs());
         for (_, e) in self.docs.iter() {
             if let Some(parent) = e.doc.path().and_then(Path::parent) {
-                want.insert(parent.to_path_buf());
+                wanted.insert(parent.to_path_buf());
             }
         }
+        if self.canon_cache.len() > 4096 {
+            self.canon_cache.clear();
+        }
+        let mut want: BTreeSet<PathBuf> = BTreeSet::new();
+        let mut alias: HashMap<PathBuf, BTreeSet<PathBuf>> = HashMap::new();
+        for p in wanted {
+            let c = self
+                .canon_cache
+                .entry(p.clone())
+                .or_insert_with(|| std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone()))
+                .clone();
+            alias.entry(c.clone()).or_default().insert(p);
+            want.insert(c);
+        }
+        self.watch_alias = alias;
         let remove: Vec<PathBuf> = self.watched.difference(&want).cloned().collect();
         let add: Vec<PathBuf> = want.difference(&self.watched).cloned().collect();
         for p in remove {

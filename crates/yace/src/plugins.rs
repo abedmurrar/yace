@@ -236,7 +236,8 @@ pub struct PluginHost {
     /// Discovery finished (contributions registered).
     pub discovered: bool,
     /// Commands plugins asked to run, after the current callback.
-    pub deferred: Vec<(String, Option<Value>)>,
+    /// Commands plugins asked to run, with the asking plugin's index.
+    pub deferred: Vec<(String, Option<Value>, Option<usize>)>,
     /// Events waiting for delivery: (event type, JSON).
     pub queue: Vec<(String, Value)>,
     /// Coalesced high-frequency events, delivered after a short delay.
@@ -619,7 +620,8 @@ extern "C" fn h_execute_command(c: *mut YaceHostCtx, id: YaceStr, args: YaceStr)
         if app.commands.get(&id).is_none() {
             return fail(ctx, YACE_E_NOT_FOUND, format!("unknown command `{id}`"));
         }
-        app.plugins.deferred.push((id, args));
+        let from = Some(ctx.shared.index);
+        app.plugins.deferred.push((id, args, from));
         YACE_OK
     })
 }

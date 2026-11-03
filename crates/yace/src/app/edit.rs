@@ -191,6 +191,18 @@ impl App {
         self.insert_text(text);
     }
 
+    /// Replace the primary selection with an expanded snippet and select
+    /// its first placeholder (`editor.action.insertSnippet`).
+    pub(crate) fn insert_snippet(&mut self, snippet: &str) {
+        let Some((_, _, _, rope, sel)) = self.rope_and_sel() else { return };
+        let (text, a, b) = crate::app::completion::expand_snippet(snippet);
+        let r = sel.primary();
+        let (start, end) = (r.from(), r.to());
+        let cs = yace_buffer::ChangeSet::new(vec![yace_buffer::Change::replace(start, end, text)], rope.len_chars());
+        let selection = yace_buffer::Selection::single(yace_buffer::Range::new(start + a, start + b));
+        self.apply_edit(ops::Edit { changes: cs, selection, kind: yace_buffer::EditKind::Other });
+    }
+
     pub(crate) fn insert_text(&mut self, text: &str) {
         let Some((_, _, d, rope, sel)) = self.rope_and_sel() else { return };
         let opts = self.edit_options(d);

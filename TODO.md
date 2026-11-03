@@ -104,7 +104,7 @@ Legend:
 - [x] [M1] Render only when dirty (§22.1)
 - [x] [M1] Resize events → relayout plus a clamp of all stored sizes (§3.3)
 - [x] [M1] Bounded fs worker pool (fixed threads, bounded job queue) (§21.5)
-- [~] [M1] Job generation tokens so stale results are dropped (cancellation, §21.3) — M4 workers (index, search, find) use sequence numbers and cancel flags; Explorer directory reads only de-duplicate in-flight requests
+- [x] [M1] Job generation tokens so stale results are dropped (cancellation, §21.3) — M4 workers (index, search, find) use sequence numbers and cancel flags; directory reads run one at a time per folder and a request during a read re-reads afterwards, so the newest listing always arrives last
 - [x] [M1] Input is handled before background results in the same wakeup (priorities, §21.4)
 
 ### App core
@@ -115,7 +115,7 @@ Legend:
 
 ### Command registry (§7, §19)
 - [x] [M1] `CommandId` (VS Code IDs where they exist), title, category, availability predicate, handler
-- [~] [M1] Typed arguments (`serde_json::Value`-backed), result and error reporting (§19.1) — partial: args are plumbed to handlers; no built-in command uses them yet
+- [x] [M1] Typed arguments (`serde_json::Value`-backed), result and error reporting (§19.1) — `run_command` returns `CommandError` (unknown, invalid arguments, unavailable, failed); `type`, `insertSnippet`, `terminal.sendSequence`, `quickOpen`, `gotoLine`, `files.openFile`/`vscode.open`, `git.checkout` take arguments; bad `args` in keybindings.toml are reported naming the file; plugin `executeCommand` failures go to the plugin's log
 - [x] [M1] Every UI action goes through a command, including mouse and explorer actions (§19)
 - [x] [M1] Registry can be enumerated by the palette and by keybinding docs
 
@@ -264,7 +264,7 @@ Legend:
 
 ### Filesystem watching (§8.4)
 - [x] [M2] notify watcher thread; non-recursive watches on expanded directories (D8)
-- [~] [M2] Watches added on expand and removed on collapse; shared per canonical directory — partial: keyed by path, not canonical path
+- [x] [M2] Watches added on expand and removed on collapse; shared per canonical directory — one watch per real directory, events reported under every path it is shown as (symlinked roots/folders)
 - [x] [M2] Coalescing window ~100 ms → one refresh per directory
 - [x] [M2] Watch failure → notification plus a manual `Refresh Explorer` command; no polling
 - [x] [M9] Git decorations in the Explorer (§8.5)

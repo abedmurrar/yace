@@ -284,6 +284,30 @@ impl App {
         None
     }
 
+    /// Switch the active file's repository (or the only one) to `branch`
+    /// (`git.checkout` with arguments). Never asks which repository.
+    pub(crate) fn git_switch_to(&mut self, branch: &str) -> Result<(), String> {
+        let from_doc = self
+            .active()
+            .and_then(|(_, _, d)| self.docs.doc(d).and_then(|x| x.path().map(Path::to_path_buf)))
+            .and_then(|p| self.git_repo_of(&p).map(|x| x.0));
+        let repo = match (from_doc, self.git.repos.len()) {
+            (Some(i), _) => i,
+            (None, 1) => 0,
+            (None, 0) => return Err("no Git repository in this workspace".into()),
+            _ => return Err("several repositories: open a file of the one to switch".into()),
+        };
+        let b = yace_git::Branch {
+            name: branch.to_string(),
+            remote: false,
+            current: false,
+            upstream: None,
+            commit: String::new(),
+        };
+        self.git_op(repo, GitOp::Switch(b));
+        Ok(())
+    }
+
     pub(crate) fn scm_repo_cmd(&mut self, cmd: RepoCmd) {
         if let Some(i) = self.git_repo_for_command(cmd) {
             self.git_run_repo_cmd(i, cmd);
