@@ -57,6 +57,10 @@ in "Developer: Show Configuration Errors".
 | `wordWrap` | `"off"` | `"off"`, `"on"` (viewport width), `"wordWrapColumn"`, `"bounded"` (smaller of the two). `Alt+Z` toggles it for the window | `editor.wordWrap` |
 | `wordWrapColumn` | `80` | integer | `editor.wordWrapColumn` |
 | `folding` | `true` | bool | `editor.folding` |
+| `formatOnSave` | `false` | bool; formats with the language server before Ctrl+S saves (waits at most 2 s) | `editor.formatOnSave` |
+| `quickSuggestions` | `true` | bool; ask for completions while typing an identifier, not only on `.` etc. | `editor.quickSuggestions` |
+| `quickSuggestionsDelay` | `50` | ms of typing pause before asking | `editor.quickSuggestionsDelay` |
+| `suggestOnTriggerCharacters` | `true` | bool | `editor.suggestOnTriggerCharacters` |
 | `showFoldingControls` | `"mouseover"` | `"always"`, `"mouseover"` (folded lines always; foldable ones while the mouse is over the gutter), `"never"` | `editor.showFoldingControls` |
 
 ### `[files]`
@@ -129,6 +133,50 @@ startupCommand = "claude"
 Terminal tabs (name, folder, profile) are restored with the workspace.
 Restored tabs start a **new** shell when shown, marked "(new session)":
 processes never survive quitting YACE.
+
+### `[lsp]` (user settings only)
+
+A workspace can never choose which programs run, so language servers are
+configured in your user `config.toml` only.
+
+| Key | Default | Values |
+|---|---|---|
+| `enabled` | `true` | bool |
+| `disabled` | `[]` | server names never started, e.g. `["pyright"]` |
+| `idleShutdownSecs` | `300` | stop a server this long after its last file closed (`0` = never) |
+| `requestTimeoutMs` | `10000` | drop requests without an answer after this long |
+| `servers` | `[]` | extra servers, or overrides of built-in ones with the same `name` (below) |
+
+```toml
+[[lsp.servers]]
+name = "typescript-language-server"     # replaces the built-in entry
+command = "typescript-language-server"  # on PATH, or an absolute path
+args = ["--stdio"]
+languages = ["typescript", "typescriptreact", "javascript", "javascriptreact"]
+env = { NODE_OPTIONS = "--max-old-space-size=4096" }
+initializationOptions = { preferences = { importModuleSpecifierPreference = "relative" } }
+settings = { typescript = { format = { semicolons = "remove" } } }   # answers workspace/configuration
+```
+
+Built-in servers (used when found on `PATH`; YACE never installs them):
+
+| Server | Languages | Install |
+|---|---|---|
+| `rust-analyzer` | Rust | `rustup component add rust-analyzer` |
+| `typescript-language-server` (Node.js) | TS, TSX, JS, JSX | `npm install -g typescript typescript-language-server` |
+| `pyright` (Node.js), else `pylsp` | Python | `npm install -g pyright` / `pip install python-lsp-server` |
+| `gopls` | Go | `go install golang.org/x/tools/gopls@latest` |
+| `clangd` | C, C++ | your package manager |
+| `bash-language-server` (Node.js) | Shell | `npm install -g bash-language-server` |
+| `yaml-language-server` (Node.js) | YAML | `npm install -g yaml-language-server` |
+| `vscode-json/css/html-language-server` (Node.js) | JSON/JSONC, CSS/SCSS, HTML | `npm install -g vscode-langservers-extracted` |
+| `taplo` | TOML | `cargo install taplo-cli --locked` |
+| `marksman` | Markdown | see github.com/artempyanykh/marksman |
+| `docker-langserver` (Node.js) | Dockerfile | `npm install -g dockerfile-language-server-nodejs` |
+
+Node.js servers are external tools like any other: their memory is not
+YACE's and is shown separately by "Developer: Show Running Language
+Servers". Restart, stop and output commands are under "Developer:".
 
 ### `[keyboard]`
 

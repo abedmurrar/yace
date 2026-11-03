@@ -3,12 +3,14 @@
 //! reads, watch changes, raw terminal output) that the event loop performs.
 //! Tests drive it directly with synthetic events.
 
+mod completion;
 mod edit;
 mod explorer_ops;
 mod files;
 mod find;
 mod folding;
 mod history;
+mod lsp;
 mod mouse;
 mod quick_open;
 mod search_view;
@@ -41,6 +43,7 @@ use crate::{
     theme::{Glyphs, Theme, detect_depth},
 };
 
+pub use completion::completion_kind;
 pub use edit::{Move, Op};
 pub use find::FindField;
 pub use mouse::MouseState;
@@ -90,6 +93,11 @@ pub enum AppEvent {
     },
     /// From a terminal session (output, title, exit, bell).
     TerminalNotice(yace_terminal::Notice),
+    /// A message from a language server.
+    Lsp {
+        server: u32,
+        msg: Box<yace_lsp::Incoming>,
+    },
     /// A background parse finished.
     Parsed {
         doc: DocId,
@@ -235,6 +243,25 @@ pub struct App {
     pub syntax: crate::syntax::SyntaxStore,
     /// Alt+Z: word wrap toggled for this window (overrides the setting).
     pub word_wrap_override: Option<bool>,
+    /// Language servers, synced documents and diagnostics.
+    pub lsp: crate::lsp::LspState,
+    /// Targets of the last locations / problems picker.
+    pub nav_targets: Vec<lsp::NavTarget>,
+    pub code_actions: Vec<(u32, yace_lsp::CodeAction)>,
+    pub completion: Option<completion::Completion>,
+    pub hover: Option<completion::HoverPopup>,
+    pub signature: Option<completion::SignaturePopup>,
+    /// Quick suggestions fire when this passes (typing pause).
+    completion_deadline: Option<Instant>,
+    /// The completion request in flight: (seq, doc, word start).
+    completion_req: Option<(u64, DocId, usize)>,
+    signature_seq: u64,
+    /// Ctrl+S waiting for format-on-save (saved when it answers or by then).
+    format_save: Option<(DocId, Instant)>,
+    /// Document symbols of the active document: (doc, version, symbols, server).
+    pub doc_symbols: Option<(DocId, u64, Vec<yace_lsp::Symbol>, u32)>,
+    /// Workspace symbol results for the current query: (seq, results).
+    pub workspace_symbols: (u64, Vec<(yace_lsp::Symbol, u32)>),
 }
 
 const FS_COALESCE: Duration = Duration::from_millis(100);
@@ -295,6 +322,18 @@ impl App {
             panel: Default::default(),
             syntax: Default::default(),
             word_wrap_override: None,
+            lsp: Default::default(),
+            nav_targets: Vec::new(),
+            code_actions: Vec::new(),
+            completion: None,
+            hover: None,
+            signature: None,
+            completion_deadline: None,
+            completion_req: None,
+            signature_seq: 0,
+            format_save: None,
+            doc_symbols: None,
+            workspace_symbols: (0, Vec::new()),
             settings,
             paths: opts.paths,
         };
@@ -337,6 +376,7 @@ impl App {
             self.autosave_deadline,
             self.search.debounce,
             self.notifications.iter().filter_map(|n| n.expires).min(),
+            self.lsp_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -365,6 +405,7 @@ impl App {
         if self.notifications.len() != before {
             self.needs_render = true;
         }
+        self.lsp_on_tick(now);
         self.sync_documents();
         self.sync_watches();
     }
@@ -390,6 +431,15 @@ impl App {
             self.notifications.remove(0);
         }
         self.needs_render = true;
+    }
+
+    /// A notification that stays until dismissed (one-time hints the user
+    /// must be able to read, e.g. how to install a language server).
+    pub fn notify_sticky(&mut self, level: Severity, text: impl Into<String>) {
+        self.notify(level, text);
+        if let Some(n) = self.notifications.last_mut() {
+            n.expires = None;
+        }
     }
 
     pub fn dismiss_notification(&mut self) {
@@ -482,6 +532,9 @@ impl App {
         c.set(ctx::MULTIPLE_EDITOR_GROUPS, self.layout.groups().len() > 1);
         c.set(ctx::FIND_WIDGET_VISIBLE, self.find.visible);
         c.set(ctx::PANEL_VISIBLE, self.panel.visible);
+        c.set(ctx::SUGGEST_WIDGET_VISIBLE, self.completion.is_some());
+        c.set(ctx::PARAMETER_HINTS_VISIBLE, self.signature.is_some());
+        c.set(ctx::EDITOR_HOVER_VISIBLE, self.hover.is_some());
         match self.focus {
             Focus::Explorer if self.sidebar_visible && self.sidebar_view == SidebarView::Search => {
                 c.set(ctx::SEARCH_VIEW_FOCUS, true);
@@ -558,6 +611,7 @@ impl App {
             AppEvent::FindDone { seq, result } => self.on_find_done(seq, result),
             AppEvent::FileLoaded { doc, path, result } => self.on_file_loaded(doc, path, result),
             AppEvent::TerminalNotice(n) => self.on_terminal_notice(n),
+            AppEvent::Lsp { server, msg } => self.on_lsp(server, *msg),
             AppEvent::Parsed { doc, job, tree, cost } => {
                 if let Some(job) = self.syntax.on_parsed(&self.docs, doc, job, tree.map(|t| *t), cost) {
                     self.emit(Effect::Parse(Box::new(job)));
@@ -730,6 +784,7 @@ impl App {
     fn on_prompt_submit(&mut self, action: PromptAction, text: String) -> Result<(), String> {
         let text = text.trim().to_string();
         match action {
+            PromptAction::RenameSymbol { doc, pos } => self.lsp_rename(doc, pos, &text),
             PromptAction::NewFile { dir } => self.create_entry(&dir, &text, false),
             PromptAction::NewFolder { dir } => self.create_entry(&dir, &text, true),
             PromptAction::Rename { path } => self.rename_entry(&path, &text),
@@ -808,6 +863,12 @@ impl App {
             PickerAction::NewTerminalProfile => self.new_terminal_with_profile(data),
             PickerAction::OpenRecent => self.open_recent(data),
             PickerAction::Root(a) => self.root_action(a, RootId(data as u32)),
+            PickerAction::Navigate => {
+                if let Some(t) = self.nav_targets.get(data).cloned() {
+                    self.jump_to(&t);
+                }
+            }
+            PickerAction::CodeAction => self.pick_code_action(data),
             PickerAction::ChangeEol => {
                 self.change_eol(if data == 0 { yace_buffer::LineEnding::Lf } else { yace_buffer::LineEnding::CrLf })
             }
@@ -831,6 +892,9 @@ impl App {
     pub(crate) fn focus_changed(&mut self, to: Focus) {
         if self.focus != to && self.settings.files.auto_save == yace_config::AutoSave::OnFocusChange {
             self.autosave_all();
+        }
+        if self.focus != to {
+            self.close_popups();
         }
         self.focus = to;
         self.resolver.cancel();
@@ -879,9 +943,12 @@ impl App {
     /// Schedule auto-save after an edit (setting `files.autoSave`).
     /// Feed document edits to incremental consumers (syntax; later LSP).
     pub fn sync_documents(&mut self) {
-        let jobs = self.syntax.sync(&mut self.docs, &self.settings.files.associations);
-        for job in jobs {
+        let out = self.syntax.sync(&mut self.docs, &self.settings.files.associations);
+        for job in out.jobs {
             self.effects.push(Effect::Parse(Box::new(job)));
+        }
+        if !(out.attached.is_empty() && out.removed.is_empty() && out.edits.is_empty()) {
+            self.lsp_sync(&out.attached, &out.removed, &out.edits);
         }
     }
 

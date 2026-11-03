@@ -413,6 +413,9 @@ pub struct Glyphs {
     pub scroll_thumb: &'static str,
     pub ellipsis: &'static str,
     pub tab_char: &'static str,
+    /// Problem counts in the status bar.
+    pub error: &'static str,
+    pub warning: &'static str,
 }
 
 impl Glyphs {
@@ -434,6 +437,8 @@ impl Glyphs {
                 scroll_thumb: "┃",
                 ellipsis: "…",
                 tab_char: " ",
+                error: "⊗",
+                warning: "⚠",
             },
             GlyphSetting::NerdFont => Self {
                 expanded: "",
@@ -451,6 +456,8 @@ impl Glyphs {
                 scroll_thumb: "┃",
                 ellipsis: "…",
                 tab_char: " ",
+                error: "\u{f057}",
+                warning: "\u{f071}",
             },
             GlyphSetting::Ascii => Self {
                 expanded: "v",
@@ -468,6 +475,8 @@ impl Glyphs {
                 scroll_thumb: "#",
                 ellipsis: "~",
                 tab_char: " ",
+                error: "E",
+                warning: "W",
             },
         }
     }

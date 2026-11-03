@@ -10,6 +10,7 @@ pub mod commands;
 pub mod display;
 pub mod editor;
 pub mod explorer;
+pub mod lsp;
 pub mod mem;
 pub mod metrics;
 pub mod overlay;

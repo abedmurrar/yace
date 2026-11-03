@@ -1,0 +1,17 @@
+[package]
+name = "yace-lsp"
+description = "YACE language server client: JSON-RPC over stdio, typed responses decoded off the UI thread, server registry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+crossbeam-channel.workspace = true
+ropey = { version = "1.6", default-features = false, features = ["cr_lines", "simd"] }
+
+[lints]
+workspace = true

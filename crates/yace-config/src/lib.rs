@@ -234,6 +234,24 @@ pub fn from_vscode_settings(json: &serde_json::Value) -> Table {
                 put("editor", "wordWrapColumn", Value::Integer(n.as_u64().unwrap_or(80) as i64))
             }
             ("editor.folding", J::Bool(b)) => put("editor", "folding", Value::Boolean(*b)),
+            ("editor.formatOnSave", J::Bool(b)) => put("editor", "formatOnSave", Value::Boolean(*b)),
+            ("editor.quickSuggestions", J::Bool(b)) => put("editor", "quickSuggestions", Value::Boolean(*b)),
+            // The object form ({other, comments, strings}): "other" decides.
+            ("editor.quickSuggestions", J::Object(o)) => {
+                let on = match o.get("other") {
+                    None => true,
+                    Some(J::Bool(b)) => *b,
+                    Some(J::String(s)) => s == "on",
+                    Some(_) => true,
+                };
+                put("editor", "quickSuggestions", Value::Boolean(on))
+            }
+            ("editor.quickSuggestionsDelay", J::Number(n)) if n.as_u64().is_some() => {
+                put("editor", "quickSuggestionsDelay", Value::Integer(n.as_u64().unwrap_or(50) as i64))
+            }
+            ("editor.suggestOnTriggerCharacters", J::Bool(b)) => {
+                put("editor", "suggestOnTriggerCharacters", Value::Boolean(*b))
+            }
             ("editor.showFoldingControls", J::String(s)) if matches!(s.as_str(), "always" | "mouseover" | "never") => {
                 put("editor", "showFoldingControls", Value::String(s.clone()))
             }

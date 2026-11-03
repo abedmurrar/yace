@@ -393,15 +393,54 @@ fn builtin_commands() -> Vec<Command> {
         c!(hidden "toggleFindRegex", "Editor", "Toggle Use Regular Expression", |a, _| a.find_toggle('r')),
         c!(hidden "toggleFindInSelection", "Editor", "Toggle Find in Selection", |a, _| a.find_toggle('l')),
         c!(hidden "yace.find.toggleField", "Editor", "Switch Find/Replace Field", |a, _| a.find_toggle_field()),
-        c!("workbench.action.gotoSymbol", "Go", "Go to Symbol in Editor", |a, _| a
-            .not_available("Symbol navigation", "M7")),
-        c!("workbench.action.showAllSymbols", "Go", "Go to Symbol in Workspace", |a, _| a
-            .not_available("Workspace symbols", "M7")),
-        c!("editor.action.triggerSuggest", "Editor", "Trigger Suggest", |a, _| a
-            .not_available("Completion", "M7 (language servers)")),
-        c!("editor.action.rename", "Editor", "Rename Symbol", |a, _| a.not_available("Rename symbol", "M7")),
+        c!("workbench.action.gotoSymbol", "Go", "Go to Symbol in Editor", |a, _| a.open_quick_open("@")),
+        c!("workbench.action.showAllSymbols", "Go", "Go to Symbol in Workspace", |a, _| a.open_quick_open("#")),
+        c!("editor.action.triggerSuggest", "Editor", "Trigger Suggest", |a, _| a.request_completion(None, true)),
+        c!("editor.action.triggerParameterHints", "Editor", "Trigger Parameter Hints", |a, _| a
+            .request_signature_help()),
+        c!("editor.action.showHover", "Editor", "Show Hover", |a, _| a.lsp_hover()),
+        c!("editor.action.rename", "Editor", "Rename Symbol", |a, _| a.lsp_rename_prompt()),
         c!("editor.action.revealDefinition", "Editor", "Go to Definition", |a, _| a
-            .not_available("Go to definition", "M7")),
+            .lsp_goto("textDocument/definition", "Definition")),
+        c!("editor.action.revealDeclaration", "Editor", "Go to Declaration", |a, _| a
+            .lsp_goto("textDocument/declaration", "Declaration")),
+        c!("editor.action.goToTypeDefinition", "Editor", "Go to Type Definition", |a, _| a
+            .lsp_goto("textDocument/typeDefinition", "Type definition")),
+        c!("editor.action.goToImplementation", "Editor", "Go to Implementations", |a, _| a
+            .lsp_goto("textDocument/implementation", "Implementation")),
+        c!("editor.action.goToReferences", "Editor", "Go to References", |a, _| a.lsp_references()),
+        c!("editor.action.quickFix", "Editor", "Quick Fix…", |a, _| a.lsp_code_actions()),
+        c!("editor.action.formatDocument", "Editor", "Format Document", |a, _| {
+            if let Some((_, _, d)) = a.active() {
+                a.lsp_format(d, false, false);
+            }
+        }),
+        c!("editor.action.formatSelection", "Editor", "Format Selection", |a, _| {
+            if let Some((_, _, d)) = a.active() {
+                a.lsp_format(d, true, false);
+            }
+        }),
+        c!("editor.action.marker.nextInFiles", "Go", "Go to Next Problem", |a, _| a.next_problem(true)),
+        c!("editor.action.marker.prevInFiles", "Go", "Go to Previous Problem", |a, _| a.next_problem(false)),
+        c!("workbench.actions.view.problems", "View", "Problems", |a, _| a.show_problems()),
+        c!("yace.lsp.restart", "Developer", "Restart Language Server", |a, _| a.lsp_restart_cmd()),
+        c!("yace.lsp.stop", "Developer", "Stop Language Server", |a, _| a.lsp_stop_cmd()),
+        c!("yace.lsp.showRunning", "Developer", "Show Running Language Servers", |a, _| a.lsp_show_running()),
+        c!("yace.lsp.showOutput", "Developer", "Show Language Server Output", |a, _| a.lsp_show_output()),
+        c!(hidden "selectNextSuggestion", "Editor", "Select Next Suggestion", |a, _| a.completion_move(1)),
+        c!(hidden "selectPrevSuggestion", "Editor", "Select Previous Suggestion", |a, _| a.completion_move(-1)),
+        c!(hidden "selectNextPageSuggestion", "Editor", "Select Next Page", |a, _| a.completion_move(8)),
+        c!(hidden "selectPrevPageSuggestion", "Editor", "Select Previous Page", |a, _| a.completion_move(-8)),
+        c!(hidden "acceptSelectedSuggestion", "Editor", "Accept Suggestion", |a, _| a.accept_completion()),
+        c!(hidden "hideSuggestWidget", "Editor", "Hide Suggestions", |a, _| {
+            a.completion = None;
+        }),
+        c!(hidden "closeParameterHints", "Editor", "Close Parameter Hints", |a, _| {
+            a.signature = None;
+        }),
+        c!(hidden "editor.action.hideHover", "Editor", "Hide Hover", |a, _| {
+            a.hover = None;
+        }),
         c!("workbench.action.selectTheme", "Preferences", "Color Theme", |a, _| a
             .not_available("Theme switching", "M6 (YACE Dark is built in)")),
         c!("workbench.action.openSettingsJson", "Preferences", "Open User Settings (TOML)", |a, _| {
@@ -431,7 +470,7 @@ fn builtin_commands() -> Vec<Command> {
         }),
         c!("workbench.action.files.save", "File", "Save", |a, _| {
             if let Some((_, _, d)) = a.active() {
-                a.save_doc(d, false);
+                a.save_with_format(d);
             }
         }),
         c!("workbench.action.files.saveAs", "File", "Save As…", |a, _| {

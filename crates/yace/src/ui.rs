@@ -234,6 +234,9 @@ pub fn draw(app: &App, f: &mut Frame) {
     }
     draw_panel(app, buf, &wl);
     draw_status(app, buf, wl.status);
+    if app.overlays.is_empty() && app.focus == Focus::Editor {
+        draw_lsp_popups(app, buf, &wl, area);
+    }
     let mut cursor = None;
     if app.overlays.is_empty() {
         cursor = match app.focus {
@@ -547,6 +550,25 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         }
     }
     let mut si = 0usize;
+    // Diagnostics intersecting the viewport: underline + gutter colour.
+    let diag_color = |sev: u8| match sev {
+        1 => t.error,
+        2 => t.warning,
+        3 => t.info,
+        _ => t.muted,
+    };
+    let vis_diags: Vec<(usize, usize, u8)> = app
+        .doc_diagnostics(view.doc)
+        .iter()
+        .filter_map(|x| x.chars.map(|(a, b)| (a, if b > a { b } else { a + 1 }, x.severity)))
+        .filter(|(a, b, _)| *b > vis_start && *a < vis_end)
+        .collect();
+    let mut line_sev: std::collections::HashMap<usize, u8> = std::collections::HashMap::new();
+    for (a, _, s) in &vis_diags {
+        let l = rope.char_to_line((*a).min(rope.len_chars()));
+        let e = line_sev.entry(l).or_insert(*s);
+        *e = (*e).min(*s);
+    }
     // Fold markers: folded headers always; foldable lines per setting.
     let show_foldable = settings.editor.folding
         && match settings.editor.show_folding_controls {
@@ -581,7 +603,12 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
                     _ => line + 1,
                 };
                 let s = format!("{n:>w$} ", w = (gl.gutter - 2) as usize);
-                let style = Style::new().fg(if is_cursor_line { t.line_number_active } else { t.line_number }).bg(t.bg);
+                let fg = match line_sev.get(&line) {
+                    Some(sev) => diag_color(*sev),
+                    None if is_cursor_line => t.line_number_active,
+                    None => t.line_number,
+                };
+                let style = Style::new().fg(fg).bg(t.bg);
                 put(buf, gl.content.x, y, &s, gl.gutter, style);
             }
             let folded = map.is_folded_header(line);
@@ -620,6 +647,11 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             if col + w > scroll_col {
                 let selected = active_ranges.iter().any(|(a, b)| ci >= *a && ci < *b);
                 let mut style = syntax_style(t, scope).bg(line_bg);
+                if !vis_diags.is_empty()
+                    && let Some(sev) = vis_diags.iter().filter(|(a, b, _)| ci >= *a && ci < *b).map(|x| x.2).min()
+                {
+                    style = style.add_modifier(Modifier::UNDERLINED).underline_color(diag_color(sev));
+                }
                 if let Some(m) = find_matches.iter().find(|(a, b)| ci >= *a && ci < *b) {
                     style = style.bg(if Some(*m) == current_match { t.find_current_bg } else { t.find_match_bg });
                 }
@@ -686,6 +718,127 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
     }
     if find_active {
         draw_find_bar(app, buf, gl);
+    }
+}
+
+/// Completion list, parameter hints and hover, anchored at the cursor.
+fn draw_lsp_popups(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout, area: Rect) {
+    if app.completion.is_none() && app.hover.is_none() && app.signature.is_none() {
+        return;
+    }
+    let Some((cx, cy)) = editor_cursor(app, wl) else { return };
+    let Some((g, v, d)) = app.active() else { return };
+    let t = &app.theme;
+    let bottom = wl.status.y; // keep the status bar visible
+    let base = Style::new().fg(t.overlay_fg).bg(t.overlay_bg);
+    let head = app.layout.group(g).map(|gr| gr.views[v].sel.primary().head).unwrap_or(0);
+    // Parameter hints: one row above the cursor (below on the top row).
+    if let Some(sig) = app.signature.as_ref().filter(|s| s.doc == d) {
+        let w = (UnicodeWidthStr::width(sig.label.as_str()) as u16 + 2).min(area.width);
+        let y = if cy > area.y { cy - 1 } else { cy + 1 };
+        let x = cx.min(area.right().saturating_sub(w));
+        fill(buf, Rect { x, y, width: w, height: 1 }, base);
+        let mut xx = x + 1;
+        for (i, ch) in sig.label.chars().enumerate() {
+            let s = ch.to_string();
+            let cw = UnicodeWidthStr::width(s.as_str()).max(1) as u16;
+            if xx + cw > x + w.saturating_sub(1) {
+                break;
+            }
+            let active = sig.active.is_some_and(|(a, b)| i >= a && i < b);
+            let st =
+                if active { base.fg(t.match_fg).add_modifier(Modifier::BOLD | Modifier::UNDERLINED) } else { base };
+            put(buf, xx, y, &s, cw, st);
+            xx += cw;
+        }
+    }
+    // Hover: a box above the cursor (below if there is no room).
+    if let Some(h) = app.hover.as_ref().filter(|h| h.doc == d) {
+        let maxw = 80.min(area.width.saturating_sub(2)) as usize;
+        let mut lines: Vec<String> = Vec::new();
+        for l in &h.lines {
+            if l.is_empty() {
+                lines.push(String::new());
+                continue;
+            }
+            let mut cur = String::new();
+            for word in l.split(' ') {
+                if !cur.is_empty() && UnicodeWidthStr::width(cur.as_str()) + UnicodeWidthStr::width(word) + 1 > maxw {
+                    lines.push(std::mem::take(&mut cur));
+                }
+                if !cur.is_empty() {
+                    cur.push(' ');
+                }
+                cur.push_str(word);
+            }
+            lines.push(cur);
+        }
+        lines.truncate(15);
+        let w =
+            (lines.iter().map(|l| UnicodeWidthStr::width(l.as_str())).max().unwrap_or(0) as u16 + 2).min(area.width);
+        let hgt = lines.len() as u16;
+        let y = if cy >= area.y + hgt { cy - hgt } else { (cy + 1).min(bottom.saturating_sub(hgt)) };
+        let x = cx.min(area.right().saturating_sub(w));
+        for (i, l) in lines.iter().enumerate() {
+            let yy = y + i as u16;
+            fill(buf, Rect { x, y: yy, width: w, height: 1 }, base);
+            put(buf, x + 1, yy, l, w.saturating_sub(2), base);
+        }
+    }
+    // Completion list below the cursor (above if there is no room).
+    if let Some(c) = app.completion.as_ref().filter(|c| c.doc == d) {
+        let rows = c.shown.len().min(10) as u16;
+        if rows == 0 {
+            return;
+        }
+        let scroll = c.selected.saturating_sub(rows as usize - 1);
+        let visible = &c.shown[scroll..(scroll + rows as usize).min(c.shown.len())];
+        let kind_of = |i: usize| crate::app::completion_kind(c.items[i].kind.unwrap_or(0));
+        let query = yace_search::fuzzy::Query::new(c.filtered_for.as_deref().unwrap_or(""));
+        let label_w = visible.iter().map(|i| UnicodeWidthStr::width(c.items[*i].label.as_str())).max().unwrap_or(0);
+        let detail_w = visible
+            .iter()
+            .map(|i| c.items[*i].detail.as_deref().map(UnicodeWidthStr::width).unwrap_or(0))
+            .max()
+            .unwrap_or(0)
+            .min(40);
+        let kind_w = visible.iter().map(|i| kind_of(*i).len()).max().unwrap_or(0);
+        let w = ((label_w + detail_w + kind_w + 6) as u16).clamp(20, 80).min(area.width);
+        let typed = head.saturating_sub(c.anchor) as u16;
+        let x = cx.saturating_sub(typed + 1).min(area.right().saturating_sub(w));
+        let y = if cy + 1 + rows <= bottom { cy + 1 } else { cy.saturating_sub(rows) };
+        for (r, i) in visible.iter().enumerate() {
+            let item = &c.items[*i];
+            let hl = match item.filter_text {
+                None => yace_search::fuzzy::match_label(&query, &item.label).map(|m| m.indices).unwrap_or_default(),
+                Some(_) => Vec::new(),
+            };
+            let yy = y + r as u16;
+            let selected = scroll + r == c.selected;
+            let bg = if selected { t.overlay_selected_bg } else { t.overlay_bg };
+            let st = Style::new().fg(t.overlay_fg).bg(bg);
+            fill(buf, Rect { x, y: yy, width: w, height: 1 }, st);
+            let kind = kind_of(*i);
+            let kx = (x + w).saturating_sub(kind.len() as u16 + 1);
+            let mut xx = x + 1;
+            for (ci, ch) in item.label.chars().enumerate() {
+                let s = ch.to_string();
+                let cw = UnicodeWidthStr::width(s.as_str()).max(1) as u16;
+                if xx + cw > kx.saturating_sub(1) {
+                    break;
+                }
+                let style = if hl.contains(&ci) { st.fg(t.match_fg).add_modifier(Modifier::BOLD) } else { st };
+                put(buf, xx, yy, &s, cw, style);
+                xx += cw;
+            }
+            if let Some(det) = &item.detail {
+                let dx = xx + 2;
+                if dx + 4 < kx {
+                    put(buf, dx, yy, det, kx.saturating_sub(dx + 1), st.fg(t.muted));
+                }
+            }
+            put(buf, kx, yy, kind, kind.len() as u16, st.fg(t.muted));
+        }
     }
 }
 
@@ -797,7 +950,22 @@ fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {
         });
         right.push(if doc.has_bom { "UTF-8 with BOM".into() } else { "UTF-8".into() });
         right.push(doc.line_ending.label().into());
+        if let Some(s) = app.lsp_status() {
+            right.push(s);
+        }
         right.push(app.syntax.language(view.doc).name.into());
+        // Problems: counts, and the message under the cursor instead of the path.
+        let (e, w) = app.lsp.counts();
+        if e + w > 0 || !app.lsp.servers.is_empty() {
+            let counts = format!(" {} {e} {} {w} ", app.glyphs.error, app.glyphs.warning);
+            left = match app.diagnostic_at_cursor() {
+                Some(dg) => {
+                    let g = if dg.severity == 1 { app.glyphs.error } else { app.glyphs.warning };
+                    format!("{counts}  {g} {}", dg.message.lines().next().unwrap_or(""))
+                }
+                None => format!("{counts} {left}"),
+            };
+        }
     } else if !app.workspace.roots().is_empty() {
         left = format!(" {}", app.workspace.name());
     } else {

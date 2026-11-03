@@ -453,6 +453,15 @@ impl App {
         } else {
             Selection::single(range)
         };
+        if mods.contains(KeyModifiers::CONTROL) && count == 1 {
+            // Ctrl+Click: go to definition (VS Code).
+            if let Some(doc) = self.docs.doc_mut(d) {
+                doc.seal_history();
+            }
+            self.set_active_selection(Selection::point(pos));
+            self.lsp_goto("textDocument/definition", "Definition");
+            return;
+        }
         self.mouse.drag = Some(Drag::Select {
             group: g.id,
             anchor: if mods.contains(KeyModifiers::SHIFT) { Range::point(prev_anchor) } else { range },
@@ -463,7 +472,7 @@ impl App {
         self.set_active_selection(sel);
     }
 
-    fn set_active_selection(&mut self, sel: Selection) {
+    pub(crate) fn set_active_selection(&mut self, sel: Selection) {
         if let Some(view) = self.layout.active_group_mut().active_view_mut() {
             view.sel = sel;
         }

@@ -8,9 +8,11 @@ work across all of them in one Explorer with VS Code keyboard shortcuts.
 No Electron, no Node.js, no JavaScript runtime, no cloud account, no
 telemetry.
 
-> **Status:** milestones M1–M3 (foundation, multi-root workspaces + Explorer,
-> full basic editing) are implemented. Fuzzy Quick Open, search, the
-> integrated terminal, themes, syntax highlighting, LSP, plugins and Git are
+> **Status:** milestones M1–M5 and M7 are implemented: multi-root
+> workspaces, Explorer, full editing, fuzzy Quick Open and workspace search,
+> the integrated terminal, tree-sitter syntax highlighting, folding, word
+> wrap, and language servers (completion, diagnostics, go to definition,
+> rename, symbols, code actions, formatting). Themes, plugins and Git are
 > planned. See [`TODO.md`](TODO.md) for the complete, itemised status.
 
 ## Build and run
@@ -60,6 +62,22 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
 - **Sessions.** Tabs, cursors, splits, Explorer expansion and sidebar state
   are restored per workspace.
 - **Command palette** (Ctrl+Shift+P / F1) for every command.
+- **Quick Open and search.** Fuzzy file search across every root (Ctrl+P),
+  workspace search and replace (Ctrl+Shift+F), find/replace in the editor.
+- **Integrated terminal.** Real shells per root (Ctrl+`), several tabs.
+- **Syntax.** Tree-sitter highlighting for Rust, TypeScript/TSX,
+  JavaScript/JSX, JSON, YAML, TOML, HTML, CSS/SCSS, Markdown, Python, Go,
+  Bash, SQL, Dockerfile, C/C++, Java and Ruby, with embedded languages.
+  Code folding and word wrap (Alt+Z).
+- **Language servers.** Completion while you type, diagnostics (Problems:
+  Ctrl+Shift+M, F8), hover, parameter hints, go to definition (F12, also
+  into other roots), references (Shift+F12), rename (F2), document and
+  workspace symbols (Ctrl+Shift+O, Ctrl+T), code actions (Ctrl+.) and
+  formatting (Ctrl+Shift+I, format on save). Servers are the ones you
+  install (`rust-analyzer`, `typescript-language-server`, `gopls`, …); YACE
+  starts them on demand, one per workspace folder, and never installs
+  anything. Node-based servers are external tools: their memory is
+  reported separately ("Developer: Show Running Language Servers").
 
 ## Documentation
 

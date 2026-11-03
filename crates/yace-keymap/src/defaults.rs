@@ -22,6 +22,9 @@ pub mod ctx {
     pub const SEARCH_INPUT_FOCUS: &str = "searchInputFocus";
     pub const TERMINAL_FOCUS: &str = "terminalFocus";
     pub const PANEL_VISIBLE: &str = "panelVisible";
+    pub const SUGGEST_WIDGET_VISIBLE: &str = "suggestWidgetVisible";
+    pub const PARAMETER_HINTS_VISIBLE: &str = "parameterHintsVisible";
+    pub const EDITOR_HOVER_VISIBLE: &str = "editorHoverVisible";
 }
 
 const ED: &str = "editorFocus";
@@ -43,7 +46,6 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+`", "workbench.action.terminal.toggleTerminal", ""),
     ("ctrl+shift+`", "workbench.action.terminal.new", ""),
     ("ctrl+shift+f", "workbench.action.findInFiles", ""),
-    ("ctrl+t", "workbench.action.showAllSymbols", ""),
     ("ctrl+g", "workbench.action.gotoLine", ""),
     ("ctrl+q", "workbench.action.quit", ""),
     ("ctrl+r", "workbench.action.openRecent", ""),
@@ -238,6 +240,32 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+shift+down", "workbench.action.terminal.scrollDown", "terminalFocus"),
     ("ctrl+pagedown", "workbench.action.terminal.focusNext", "terminalFocus"),
     ("ctrl+pageup", "workbench.action.terminal.focusPrevious", "terminalFocus"),
+    // --- Language features (M7) ------------------------------------------
+    ("ctrl+shift+space", "editor.action.triggerParameterHints", "editorFocus"),
+    ("ctrl+k ctrl+i", "editor.action.showHover", "editorFocus"),
+    ("ctrl+f12", "editor.action.goToImplementation", "editorFocus"),
+    ("shift+f12", "editor.action.goToReferences", "editorFocus"),
+    ("ctrl+.", "editor.action.quickFix", "editorFocus"),
+    ("ctrl+shift+i", "editor.action.formatDocument", "editorFocus"),
+    ("ctrl+k ctrl+f", "editor.action.formatSelection", "editorFocus"),
+    ("f8", "editor.action.marker.nextInFiles", "editorFocus"),
+    ("shift+f8", "editor.action.marker.prevInFiles", "editorFocus"),
+    ("ctrl+shift+m", "workbench.actions.view.problems", ""),
+    ("ctrl+t", "workbench.action.showAllSymbols", ""),
+    // Legacy-terminal fallbacks for the Ctrl+Shift ones.
+    ("alt+m", "workbench.actions.view.problems", "!keyboardEnhanced"),
+    ("alt+o", "workbench.action.gotoSymbol", "!keyboardEnhanced"),
+    ("alt+i", "editor.action.formatDocument", "editorFocus && !keyboardEnhanced"),
+    // Popups (last, so they win while visible).
+    ("escape", "editor.action.hideHover", "editorHoverVisible"),
+    ("escape", "closeParameterHints", "parameterHintsVisible && !suggestWidgetVisible"),
+    ("down", "selectNextSuggestion", "suggestWidgetVisible && editorFocus"),
+    ("up", "selectPrevSuggestion", "suggestWidgetVisible && editorFocus"),
+    ("pagedown", "selectNextPageSuggestion", "suggestWidgetVisible && editorFocus"),
+    ("pageup", "selectPrevPageSuggestion", "suggestWidgetVisible && editorFocus"),
+    ("enter", "acceptSelectedSuggestion", "suggestWidgetVisible && editorFocus"),
+    ("tab", "acceptSelectedSuggestion", "suggestWidgetVisible && editorFocus"),
+    ("escape", "hideSuggestWidget", "suggestWidgetVisible && editorFocus"),
 ];
 
 /// Build the default keymap layer.

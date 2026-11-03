@@ -120,6 +120,18 @@ impl DocSyntax {
     }
 }
 
+/// What a sync pass found, for other incremental consumers (LSP).
+#[derive(Default)]
+pub struct SyncOutput {
+    pub jobs: Vec<ParseJob>,
+    /// Documents seen for the first time (or re-detected after a rename).
+    pub attached: Vec<DocId>,
+    /// Documents that went away.
+    pub removed: Vec<DocId>,
+    /// Edits drained from each document, oldest first.
+    pub edits: Vec<(DocId, Vec<DocEdit>)>,
+}
+
 #[derive(Default)]
 pub struct SyntaxStore {
     docs: HashMap<DocId, DocSyntax>,
@@ -217,15 +229,21 @@ impl SyntaxStore {
 
     /// Bring syntax state in line with the documents: attach new ones,
     /// re-detect after a rename, feed edits. Returns background jobs.
-    pub fn sync(&mut self, docs: &mut DocumentStore, associations: &BTreeMap<String, String>) -> Vec<ParseJob> {
-        let mut jobs = Vec::new();
+    pub fn sync(&mut self, docs: &mut DocumentStore, associations: &BTreeMap<String, String>) -> SyncOutput {
+        let mut out = SyncOutput::default();
         let assoc_changed = *associations != self.assoc_src;
         if assoc_changed {
             self.assoc_src = associations.clone();
             let pairs: Vec<(String, String)> = associations.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             self.assoc = Associations::new(&pairs);
         }
-        self.docs.retain(|id, _| docs.get(*id).is_some());
+        self.docs.retain(|id, _| {
+            let keep = docs.get(*id).is_some();
+            if !keep {
+                out.removed.push(*id);
+            }
+            keep
+        });
         for id in docs.ids() {
             let Some(entry) = docs.get_mut(id) else { continue };
             if entry.loading {
@@ -237,7 +255,8 @@ impl SyntaxStore {
                 Some(ds) => assoc_changed || ds.path.as_deref() != doc.path() || !doc.is_tracking_edits(),
             };
             if stale_attach {
-                jobs.extend(self.attach(id, doc));
+                out.jobs.extend(self.attach(id, doc));
+                out.attached.push(id);
                 continue;
             }
             let edits = doc.take_edits();
@@ -245,7 +264,10 @@ impl SyntaxStore {
                 continue;
             }
             let Some(ds) = self.docs.get_mut(&id) else { continue };
-            let Some(syn) = ds.syntax.as_mut() else { continue };
+            let Some(syn) = ds.syntax.as_mut() else {
+                out.edits.push((id, edits));
+                continue;
+            };
             for e in &edits {
                 let ies = input_edits(e);
                 syn.edit(&ies);
@@ -255,10 +277,11 @@ impl SyntaxStore {
             }
             ds.tree_gen += 1;
             if ds.in_flight.is_none() && !ds.try_sync_reparse(doc.rope(), doc.version()) {
-                jobs.extend(self.job(id, doc.rope()));
+                out.jobs.extend(self.job(id, doc.rope()));
             }
+            out.edits.push((id, edits));
         }
-        jobs
+        out
     }
 
     /// A background parse finished. Edits made since the job started are

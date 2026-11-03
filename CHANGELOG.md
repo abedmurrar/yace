@@ -35,6 +35,30 @@ Security, Performance.
 - Word wrap: `editor.wordWrap` (`off`, `on`, `wordWrapColumn`, `bounded`)
   and `editor.wordWrapColumn`, also read from VS Code settings; `Alt+Z`
   toggles it.
+- **Language servers.** YACE starts the servers you have installed
+  (`rust-analyzer`, `typescript-language-server`, `pyright`, `gopls`,
+  `clangd`, …, or any configured under `[[lsp.servers]]`) when you open a
+  file of their language, one per workspace folder:
+  - completion while you type and on `.` etc., with snippets and
+    auto-imports; `Ctrl+Space` in terminals that can send it
+  - diagnostics: underlines, coloured line numbers, counts and the message
+    under the cursor in the status bar, Problems (`Ctrl+Shift+M`),
+    `F8`/`Shift+F8`
+  - hover (`Ctrl+K Ctrl+I`) and parameter hints
+  - go to definition (`F12`, `Ctrl+Click`, also into other folders),
+    implementations (`Ctrl+F12`), references (`Shift+F12`)
+  - rename (`F2`): open files get undoable edits, others are rewritten
+    safely
+  - symbols in the file (`Ctrl+Shift+O`, Quick Open `@`) and workspace
+    (`Ctrl+T`, `#`)
+  - code actions (`Ctrl+.`), formatting (`Ctrl+Shift+I`, `Ctrl+K Ctrl+F`)
+    and `editor.formatOnSave`
+  - "Restart / Stop Language Server", "Show Running Language Servers"
+    (with their memory, reported separately from YACE's) and "Show
+    Language Server Output"
+  YACE never installs servers; when one is missing it says how to install
+  it, once, in a message that stays until you press Esc. Node-based
+  servers are external tools.
 
 ### Changed
 
@@ -55,6 +79,10 @@ Security, Performance.
   the visible lines and is cached. Startup and idle memory are essentially
   unchanged (+0.3 ms, +0.5 MiB); the binary grows from 7.2 MB to 24.4 MB
   because of the built-in grammars.
+- Language servers never block the editor: their replies are decoded on
+  background threads, completion lists are filtered locally as you type
+  (5,000 items: at most 3.1 ms per keystroke), and nothing starts until a
+  file needs it.
 
 ## [0.3.1] - 2026-11-03
 

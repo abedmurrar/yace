@@ -93,6 +93,8 @@ impl App {
         }
         // A cursor that lands inside a fold (search, go to line, …) opens it.
         self.reveal_cursors(g, v);
+        // Moving the cursor closes completion, hover and parameter hints.
+        self.close_popups();
         self.reveal_cursor = true;
     }
 
@@ -177,6 +179,7 @@ impl App {
         let opts = self.edit_options(d);
         let edit = ops::type_char(&rope, &sel, c, &opts);
         self.apply_edit(edit);
+        self.on_typed(c);
     }
 
     /// Insert text at the cursors (used by tests and bracketed paste).
@@ -230,6 +233,9 @@ impl App {
             }
         };
         self.apply_edit(edit);
+        if matches!(op, Op::Backspace | Op::Delete | Op::DeleteWordLeft | Op::DeleteWordRight) {
+            self.on_deleted();
+        }
     }
 
     pub(crate) fn set_selection_with(&mut self, f: impl Fn(&Rope, &Selection) -> Selection) {

@@ -23,10 +23,17 @@ const REWALK_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Target {
-    File { path: PathBuf, rel: Option<(RootKey, String)>, line: Option<usize>, col: Option<usize> },
+    File {
+        path: PathBuf,
+        rel: Option<(RootKey, String)>,
+        line: Option<usize>,
+        col: Option<usize>,
+    },
     Command(&'static str),
     GotoLine(usize, Option<usize>),
     SetPrefix(&'static str),
+    /// A symbol (`@` / `#` modes).
+    Symbol(super::lsp::NavTarget),
     Nothing,
 }
 
@@ -154,11 +161,115 @@ impl App {
             self.line_mode(rest.trim());
         } else if text.starts_with('?') {
             self.help_mode();
-        } else if text.starts_with('@') || text.starts_with('#') {
-            let item = PickerItem::new("Symbol navigation needs language support", "planned for milestone M7", "", 0);
-            self.set_quick_open("Go to Symbol", vec![(item, vec![], Target::Nothing)], "");
+        } else if let Some(rest) = text.strip_prefix('@') {
+            self.doc_symbol_mode(rest.trim());
+        } else if let Some(rest) = text.strip_prefix('#') {
+            let q = rest.trim().to_string();
+            self.lsp_workspace_symbols(&q);
+            self.workspace_symbol_mode(&q);
         } else {
             self.files_mode(&text);
+        }
+    }
+
+    /// `@`: symbols of the active document (requested once per version,
+    /// filtered locally as you type).
+    fn doc_symbol_mode(&mut self, q: &str) {
+        let Some((_, _, d)) = self.active() else {
+            let it = PickerItem::new("Open a text editor first to go to a symbol", "", "", 0);
+            self.set_quick_open("Go to Symbol in Editor", vec![(it, vec![], Target::Nothing)], "");
+            return;
+        };
+        let Some(path) = self.docs.doc(d).and_then(|x| x.path()).map(PathBuf::from) else { return };
+        let ver = self.docs.doc(d).map(|x| x.version()).unwrap_or(0);
+        let Some((_, _, syms, server)) =
+            self.doc_symbols.as_ref().filter(|(dd, v, _, _)| *dd == d && *v == ver).cloned()
+        else {
+            let msg = if self.lsp.docs.contains_key(&d) {
+                self.lsp_document_symbols();
+                "Loading symbols…"
+            } else {
+                "No language server is running for this file"
+            };
+            let it = PickerItem::new(msg, "", "", 0);
+            self.set_quick_open("Go to Symbol in Editor", vec![(it, vec![], Target::Nothing)], "");
+            return;
+        };
+        let enc = self.lsp.server(server).map(|s| s.encoding()).unwrap_or_default();
+        let query = yace_search::fuzzy::Query::new(q);
+        let mut scored: Vec<(i32, usize, PickerItem, Vec<usize>, Target)> = syms
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| {
+                let m = yace_search::fuzzy::match_label(&query, &s.name)?;
+                let label = format!("{}{}", "  ".repeat(s.depth.min(6)), s.name);
+                let shift = s.depth.min(6) * 2;
+                let item = PickerItem::new(label, s.detail.clone(), super::lsp::symbol_kind(s.kind), 0);
+                let t = super::lsp::NavTarget { path: path.clone(), pos: s.range.start, enc };
+                Some((m.score, i, item, m.indices.iter().map(|x| x + shift).collect(), Target::Symbol(t)))
+            })
+            .collect();
+        if !q.is_empty() {
+            scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        }
+        let items = scored.into_iter().map(|(_, _, it, h, t)| (it, h, t)).collect();
+        self.set_quick_open("Go to Symbol in Editor", items, "No matching symbols");
+    }
+
+    /// `#`: workspace symbols from the running servers (they filter by the
+    /// query; we rank).
+    fn workspace_symbol_mode(&mut self, q: &str) {
+        let running =
+            self.lsp.servers.iter().any(|s| s.status == crate::lsp::Status::Running && s.caps.workspace_symbol);
+        if !running {
+            let it = PickerItem::new(
+                "No language server with workspace symbols is running",
+                "open a source file first",
+                "",
+                0,
+            );
+            self.set_quick_open("Go to Symbol in Workspace", vec![(it, vec![], Target::Nothing)], "");
+            return;
+        }
+        let query = yace_search::fuzzy::Query::new(q);
+        let results = self.workspace_symbols.1.clone();
+        let mut scored: Vec<(i32, usize, PickerItem, Vec<usize>, Target)> = results
+            .iter()
+            .enumerate()
+            .filter_map(|(i, (s, server))| {
+                let m = yace_search::fuzzy::match_label(&query, &s.name)?;
+                let path = s.uri.as_deref().and_then(yace_lsp::uri::to_path)?;
+                let enc = self.lsp.server(*server).map(|x| x.encoding()).unwrap_or_default();
+                let rel = match self.workspace.relative(&path) {
+                    Some((root, rel)) if self.workspace.roots().len() > 1 => {
+                        format!("{} · {}", root.display_name(), rel.display())
+                    }
+                    Some((_, rel)) => rel.display().to_string(),
+                    None => path.display().to_string(),
+                };
+                let detail = if s.container.is_empty() { rel } else { format!("{} — {rel}", s.container) };
+                let item = PickerItem::new(s.name.clone(), detail, super::lsp::symbol_kind(s.kind), 0);
+                let t = super::lsp::NavTarget { path, pos: s.range.start, enc };
+                Some((m.score, i, item, m.indices, Target::Symbol(t)))
+            })
+            .take(500)
+            .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        let items = scored.into_iter().map(|(_, _, it, h, t)| (it, h, t)).collect();
+        self.set_quick_open(
+            "Go to Symbol in Workspace",
+            items,
+            if q.is_empty() { "Type to search symbols" } else { "No matching symbols" },
+        );
+    }
+
+    /// Symbols arrived: refresh Quick Open if it is in `@` / `#` mode.
+    pub(crate) fn refresh_symbol_quick_open(&mut self) {
+        let Some(text) = self.quick_open_picker().map(|p| p.input.text.clone()) else { return };
+        if let Some(rest) = text.strip_prefix('@') {
+            self.doc_symbol_mode(rest.trim());
+        } else if let Some(rest) = text.strip_prefix('#') {
+            self.workspace_symbol_mode(rest.trim());
         }
     }
 
@@ -226,8 +337,8 @@ impl App {
             ("", "Go to File", "type a file name; add :line[:col] to jump"),
             (">", "Show and Run Commands", "Ctrl+Shift+P"),
             (":", "Go to Line", "Ctrl+G"),
-            ("@", "Go to Symbol in Editor", "M7"),
-            ("#", "Go to Symbol in Workspace", "M7"),
+            ("@", "Go to Symbol in Editor", ""),
+            ("#", "Go to Symbol in Workspace", ""),
         ];
         let items = modes
             .iter()
@@ -399,6 +510,7 @@ impl App {
                 self.focus_editor();
             }
             Target::SetPrefix(p) => self.open_quick_open(p),
+            Target::Symbol(t) => self.jump_to(&t),
             Target::Nothing => {}
         }
     }

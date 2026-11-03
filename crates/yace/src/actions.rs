@@ -9,20 +9,35 @@ use crate::editor::{DocId, GroupId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PromptAction {
-    NewFile { dir: PathBuf },
-    NewFolder { dir: PathBuf },
-    Rename { path: PathBuf },
-    Move { path: PathBuf },
+    NewFile {
+        dir: PathBuf,
+    },
+    NewFolder {
+        dir: PathBuf,
+    },
+    Rename {
+        path: PathBuf,
+    },
+    Move {
+        path: PathBuf,
+    },
     AddRoot,
     LocateRoot(RootId),
     RenameRoot(RootId),
-    SaveAs { doc: DocId },
+    SaveAs {
+        doc: DocId,
+    },
     SaveWorkspaceAs,
     OpenFolder,
     OpenWorkspaceFile,
     OpenFile,
     GotoLine,
     RenameTerminal(u32),
+    /// F2: rename the symbol at `pos` of `doc`.
+    RenameSymbol {
+        doc: DocId,
+        pos: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +96,10 @@ pub enum PickerAction {
     ChangeEol,
     NewTerminalInRoot,
     NewTerminalProfile,
+    /// Jump to `App::nav_targets[data]` (definitions, references, problems).
+    Navigate,
+    /// Run `App::code_actions[data]`.
+    CodeAction,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -187,6 +187,28 @@ starts one in the selected folder.
 | `Ctrl+Shift+\` | jump to matching bracket |
 | `Ctrl+K Ctrl+X` | trim trailing whitespace |
 
+### Language features (with a language server)
+
+| Keys | Command |
+|---|---|
+| typing, `Ctrl+Space` (enhanced terminals) | completion; `Up`/`Down`, `Enter`/`Tab` accept, `Escape` closes |
+| `Ctrl+Shift+Space` | parameter hints (also on `(` and `,`) |
+| `Ctrl+K Ctrl+I` | hover |
+| `F12`, `Ctrl+Click` | go to definition |
+| `Ctrl+F12` | go to implementations |
+| `Shift+F12` | references |
+| `F2` | rename symbol |
+| `Ctrl+.` | quick fix / code actions |
+| `Ctrl+Shift+I` (legacy: `Alt+I`), `Ctrl+K Ctrl+F` | format document / selection |
+| `F8` / `Shift+F8` | next / previous problem |
+| `Ctrl+Shift+M` (legacy: `Alt+M`) | Problems |
+| `Ctrl+Shift+O` (legacy: `Alt+O`), `Ctrl+P` then `@` | go to symbol in editor |
+| `Ctrl+T`, `Ctrl+P` then `#` | go to symbol in workspace |
+
+In legacy terminals `Ctrl+Space` is what `` Ctrl+` `` sends, so it toggles
+the terminal; completion still opens on its own while you type (or run
+"Trigger Suggest" from the palette).
+
 ### Explorer (`explorerFocus`)
 
 | Keys | Action |

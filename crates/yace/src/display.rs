@@ -138,8 +138,7 @@ pub fn wrap_line(text: &str, width: usize, tab: usize) -> Vec<Segment> {
 
 impl<'a> DisplayMap<'a> {
     pub fn new(rope: &'a Rope, folds: &[Fold], wrap: Option<usize>, tab: usize) -> Self {
-        let mut ranges: Vec<(usize, usize)> =
-            folds.iter().map(|f| f.lines(rope)).filter(|(h, l)| l > h).collect();
+        let mut ranges: Vec<(usize, usize)> = folds.iter().map(|f| f.lines(rope)).filter(|(h, l)| l > h).collect();
         ranges.sort_unstable();
         let mut headers = Vec::new();
         let mut hidden: Vec<(usize, usize)> = Vec::new();

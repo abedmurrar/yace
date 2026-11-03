@@ -13,6 +13,49 @@ pub struct Settings {
     pub keyboard: KeyboardSettings,
     pub search: SearchSettings,
     pub terminal: TerminalSettings,
+    pub lsp: LspSettings,
+}
+
+/// Language servers (spec §13). User scope only: a workspace must never
+/// choose which programs run (§4.12).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct LspSettings {
+    pub enabled: bool,
+    /// Server names never started (built-in or configured).
+    pub disabled: Vec<String>,
+    /// Stop a server this long after its last document closed (0 = never).
+    pub idle_shutdown_secs: u64,
+    /// Requests without an answer after this long are dropped.
+    pub request_timeout_ms: u64,
+    /// Extra servers, or overrides of built-in ones (same `name`).
+    pub servers: Vec<LspServer>,
+}
+
+impl Default for LspSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            disabled: Vec::new(),
+            idle_shutdown_secs: 300,
+            request_timeout_ms: 10_000,
+            servers: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct LspServer {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+    /// Language ids (`rust`, `typescript`, `typescriptreact`, …).
+    pub languages: Vec<String>,
+    pub env: std::collections::BTreeMap<String, String>,
+    pub initialization_options: Option<toml::Value>,
+    /// Answers the server's `workspace/configuration` requests.
+    pub settings: Option<toml::Value>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -50,6 +93,14 @@ pub struct EditorSettings {
     pub folding: bool,
     /// When fold markers show in the gutter.
     pub show_folding_controls: FoldingControls,
+    /// Format with the language server before saving.
+    pub format_on_save: bool,
+    /// Ask for completions while typing (not only on trigger characters).
+    pub quick_suggestions: bool,
+    /// Milliseconds of typing pause before quick suggestions are requested.
+    pub quick_suggestions_delay: u64,
+    /// Ask for completions on the server's trigger characters (`.`, `::`, …).
+    pub suggest_on_trigger_characters: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -90,6 +141,10 @@ impl Default for EditorSettings {
             word_wrap_column: 80,
             folding: true,
             show_folding_controls: FoldingControls::Mouseover,
+            format_on_save: false,
+            quick_suggestions: true,
+            quick_suggestions_delay: 50,
+            suggest_on_trigger_characters: true,
         }
     }
 }
@@ -360,6 +415,7 @@ pub fn scope_of(section: &str, key: &str) -> Scope {
         ("keyboard", _) => Scope::Application,
         // A workspace must never choose which program runs (spec §4.12).
         ("terminal", _) => Scope::Application,
+        ("lsp", _) => Scope::Application,
         ("search", "exclude" | "useIgnoreFiles") => Scope::Resource,
         ("workbench", "restoreWorkspace" | "colorDepth" | "glyphs") => Scope::Application,
         _ => Scope::Window,

@@ -114,6 +114,7 @@ impl Harness {
     pub fn settle(&mut self) {
         use yace_app::workers::{self, IndexCmd};
         self.app.drain_terminal_notices();
+        self.app.drain_lsp_events();
         self.app.sync_documents();
         for _ in 0..200 {
             let effects = self.app.take_effects();

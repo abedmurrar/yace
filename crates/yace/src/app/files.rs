@@ -205,6 +205,15 @@ impl App {
         }
     }
 
+    /// A new untitled editor with `text` (e.g. language server output).
+    pub(crate) fn new_untitled_with(&mut self, text: &str) {
+        let doc = Document::from_text(text);
+        let id = self.docs.insert(doc);
+        let gid = self.layout.active;
+        self.add_view(gid, View::new(id));
+        self.focus_changed(Focus::Editor);
+    }
+
     pub(crate) fn new_untitled(&mut self) {
         let doc = Document::new_untitled(self.default_eol(None));
         let id = self.docs.insert(doc);
@@ -278,6 +287,7 @@ impl App {
 
     fn after_save(&mut self, doc: DocId, path: &Path) {
         self.conflict_prompted.remove(&doc);
+        self.lsp_did_save(doc);
         if let Some(parent) = path.parent() {
             self.explorer.refresh_dir(parent);
         }

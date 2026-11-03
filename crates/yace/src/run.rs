@@ -139,6 +139,19 @@ impl Runtime {
                 }
             })
             .expect("spawn notice forwarder");
+        // Language server messages arrive decoded; forward them too.
+        let lsp = app.lsp_events();
+        let ltx = tx.clone();
+        thread::Builder::new()
+            .name("yace-lsp-events".into())
+            .spawn(move || {
+                for (server, msg) in lsp {
+                    if ltx.send(AppEvent::Lsp { server, msg: Box::new(msg) }).is_err() {
+                        break;
+                    }
+                }
+            })
+            .expect("spawn lsp forwarder");
         let index = crate::workers::spawn_index_actor(tx.clone());
         let find = crate::workers::spawn_find_worker(tx.clone());
         Self {
@@ -246,6 +259,9 @@ impl Runtime {
                 }
             }
             if app.quit {
+                // `shutdown`/`exit` to every server; closing their stdin
+                // when we exit stops any that ignore it.
+                app.lsp.shutdown_all();
                 return Ok(());
             }
             let ev = match app.next_deadline() {

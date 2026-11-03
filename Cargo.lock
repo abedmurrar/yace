@@ -3457,6 +3457,7 @@ dependencies = [
  "serde_json",
  "signal-hook 0.4.6",
  "tempfile",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "trash",
@@ -3466,6 +3467,7 @@ dependencies = [
  "yace-buffer",
  "yace-config",
  "yace-keymap",
+ "yace-lsp",
  "yace-search",
  "yace-syntax",
  "yace-terminal",
@@ -3508,6 +3510,16 @@ dependencies = [
  "smallvec",
  "thiserror 2.0.21",
  "toml",
+]
+
+[[package]]
+name = "yace-lsp"
+version = "0.3.1"
+dependencies = [
+ "crossbeam-channel",
+ "ropey",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

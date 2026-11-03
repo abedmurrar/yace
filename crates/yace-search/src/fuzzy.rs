@@ -111,6 +111,10 @@ fn is_subsequence_chars(q: &[char], c: &[char]) -> bool {
 /// Best alignment of one token against `cand` (chars). Returns the score
 /// and matched indices.
 fn align(q: &[char], cand: &[char]) -> Option<(i32, Vec<usize>)> {
+    align_opt(q, cand, true)
+}
+
+fn align_opt(q: &[char], cand: &[char], want_indices: bool) -> Option<(i32, Vec<usize>)> {
     let (m, n) = (q.len(), cand.len());
     if m == 0 {
         return Some((0, Vec::new()));
@@ -118,10 +122,10 @@ fn align(q: &[char], cand: &[char]) -> Option<(i32, Vec<usize>)> {
     if m > n {
         return None;
     }
-    SCRATCH.with(|s| align_with(&mut s.borrow_mut(), q, cand))
+    SCRATCH.with(|s| align_with(&mut s.borrow_mut(), q, cand, want_indices))
 }
 
-fn align_with(s: &mut Scratch, q: &[char], cand: &[char]) -> Option<(i32, Vec<usize>)> {
+fn align_with(s: &mut Scratch, q: &[char], cand: &[char], want_indices: bool) -> Option<(i32, Vec<usize>)> {
     let (m, n) = (q.len(), cand.len());
     s.lower.clear();
     s.lower.extend(cand.iter().map(|c| c.to_lowercase().next().unwrap_or(*c)));
@@ -180,6 +184,9 @@ fn align_with(s: &mut Scratch, q: &[char], cand: &[char]) -> Option<(i32, Vec<us
     if best_j == usize::MAX {
         return None;
     }
+    if !want_indices {
+        return Some((best, Vec::new()));
+    }
     let mut indices = vec![0; m];
     let mut j = best_j;
     for i in (0..m).rev() {
@@ -213,6 +220,31 @@ pub fn match_label(query: &Query, label: &str) -> Option<FuzzyMatch> {
     indices.dedup();
     // Shorter labels win ties.
     Some(FuzzyMatch { score: score - (chars.len() as i32) / 8, indices })
+}
+
+thread_local! {
+    static LABEL_CHARS: std::cell::RefCell<Vec<char>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The score [`match_label`] would give, without computing highlight
+/// indices or allocating (ranking long lists, e.g. completion).
+pub fn score_label(query: &Query, label: &str) -> Option<i32> {
+    if query.is_empty() {
+        return Some(0);
+    }
+    LABEL_CHARS.with(|buf| {
+        let mut chars = buf.borrow_mut();
+        chars.clear();
+        chars.extend(label.chars());
+        let mut score = 0;
+        for t in query.tokens() {
+            if !is_subsequence(t, label) {
+                return None;
+            }
+            score += align_opt(t, &chars, false)?.0;
+        }
+        Some(score - (chars.len() as i32) / 8)
+    })
 }
 
 /// Per-token fallback scores for tokens that match the *root name* in a
@@ -299,6 +331,15 @@ pub fn match_path_in_root(query: &Query, path: &str, fallbacks: &[Option<i32>]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn score_label_matches_match_label() {
+        for (q, l) in [("ab", "a_b"), ("usst", "useState"), ("x", "nothing"), ("ser jo", "jobs.service.ts"), ("", "x")]
+        {
+            let q = Query::new(q);
+            assert_eq!(score_label(&q, l), match_label(&q, l).map(|m| m.score), "{l}");
+        }
+    }
 
     fn rank<'a>(q: &str, items: &[&'a str]) -> Vec<&'a str> {
         let q = Query::new(q);

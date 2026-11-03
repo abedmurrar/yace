@@ -14,10 +14,10 @@ Legend:
 
 | | |
 |---|---|
-| Current pass | M1–M3 → **v0.1.0**; M4 → **v0.2.0** (+ v0.2.1 polish); M5 (integrated terminal) → **v0.3.0** |
-| Current step | **M5 complete** — released as v0.3.0; next: M6 (themes and customisation) |
+| Current pass | M1–M3 → **v0.1.0**; M4 → **v0.2.0** (+ v0.2.1 polish); M5 (integrated terminal) → **v0.3.0** (+ v0.3.1); M7 (syntax + language servers) → **v0.4.0** |
+| Current step | **M7 complete** — released as v0.4.0; next: M6 (themes and customisation) or M8 (plugins; ask about downloadable grammars first) |
 | Toolchain | rustc 1.99.1 stable (rustup) |
-| Last updated | 2026-11-03 (M1–M3 complete) |
+| Last updated | 2026-11-03 (M7 complete) |
 
 ### Build order for this pass
 - [x] Step 0 — rustup, `git init`, `TODO.md`
@@ -54,12 +54,17 @@ Legend:
 | D20 | glibc tuning: `M_ARENA_MAX=2` at startup and `malloc_trim(0)` after indexing, searches and closing large files (`crates/yace/src/mem.rs`, the only `unsafe`); `YACE_MALLOC_TRIM=0` disables it | per-thread arenas kept freed memory after parallel walks; ~30% lower steady-state RSS measured | §23.6 |
 | D19 | Integrated terminal on `alacritty_terminal` 0.26 (Apache-2.0): complete VT emulation, bounded grid, selection, its own PTY + event loop; `portable-pty` only in tests | mature (Alacritty, Zed), small dependency tree; vt100 lacks a PTY and full-screen fidelity; termwiz is large | §11.2, §11.3, §34.2 |
 | D21 | Terminal settings are user-scope only | a workspace must never choose which program runs | §4.12, §27.3 |
+| D22 | Tree-sitter grammars compiled into the binary (user's choice), constructed and their queries compiled only when a file of that language opens | no runtime downloads; unused grammars cost disk (+17 MB) but no RAM (read-only pages). Revisit at M8 (ask the user about downloadable grammars) | §12.2 |
+| D23 | External language servers allowed, including Node-based ones (user's choice); YACE never bundles or installs them and reports their memory separately | best-in-class TypeScript support needs tsserver; YACE itself stays JS-free | §2.2, §13.4, §34.7 |
+| D24 | Own minimal LSP types + typed decoding on the reader thread, instead of `lsp-types` | smaller binary; large replies (completion lists) never parsed on the UI thread; lenient parsing of the shapes servers really send | §13, §21.4 |
+| D25 | One server instance per (server, workspace root), `workspaceFolders` = that root | never share server state across unrelated repositories; simple and correct for every server | §13.3 |
+| D26 | Syntax reparse placement predicted from a per-document cost estimate (inline < 0.5 ms, else worker) instead of "try inline with a budget" | a budget that runs out wastes its time on every keystroke (measured p50 2.2 ms → 0.074 ms) | §12.1, §21.4 |
 | D13 | State files live under `$XDG_STATE_HOME/yace`, config under `$XDG_CONFIG_HOME/yace`, cache under `$XDG_CACHE_HOME/yace`. Every state write is atomic (temp + rename) | §17.2, §26.2 | §17.2 |
 
 ### Open questions (spec §34, user decisions pending)
 - [x] Licence (§34.12) — **MIT OR Apache-2.0** (`LICENSE-MIT`, `LICENSE-APACHE`), decided 2026-11-03
 - [~] Contribution guidelines, maintainers, security reporting, plugin API governance (§34.12) — `CONTRIBUTING.md` and `SECURITY.md` written; maintainers, code of conduct and plugin API governance still open
-- [ ] Policy for external Node-based language servers such as the TypeScript one (§2.2, §13.4, §34.7)
+- [x] Policy for external Node-based language servers such as the TypeScript one (§2.2, §13.4, §34.7) — allowed as external tools, never bundled or installed, memory reported separately (D23)
 - [ ] Plugin execution model: in-process vs out-of-process vs hybrid (§18.9, §34.3)
 - [ ] Plugin ABI scope for v1 (§34.4)
 - [x] Search engine: pure Rust (`ignore` + `grep-searcher`) vs an external `rg` (§34.5) — pure Rust (D17)
@@ -540,18 +545,32 @@ Legend:
 - [ ] [M7] Fold commands: Fold Recursively, Fold Level N, Fold All Block Comments
 
 ### LSP (§13)
-- [ ] [M7] `yace-lsp` crate: JSON-RPC over stdio, own reader/writer threads
-- [ ] [M7] Lazy start based on active file, language, config, availability (§13.2)
-- [ ] [M7] Shutdown when idle (configurable reuse policy)
-- [ ] [M7] Multi-root: `workspaceFolders` for servers that support it, else one instance per root (§13.3)
-- [ ] [M7] Never share server state across unrelated repositories
-- [ ] [M7] Features: completion, hover, diagnostics, definition, declaration, references, implementation, rename, document symbols, workspace symbols, signature help, code actions, formatting, semantic tokens (§13.1)
-- [ ] [M7] UI reflects the server's capabilities (§13.1)
-- [ ] [M7] Crash / hang / init failure isolation; restart and disable commands (§13.5)
-- [ ] [M7] Node-based servers treated as external tools; documented; excluded from core memory benchmarks (§13.4)
-- [ ] [M7] Diagnostics panel; gutter markers; status counts
-- [ ] [M7] `Ctrl+Space`, `F12`, `F2`, `Ctrl+Shift+O`, `Ctrl+T` wired
-- [ ] [M7] Format on save (setting)
+- [x] [M7] `yace-lsp` crate: JSON-RPC over stdio; per server a writer, a reader (decodes replies into typed `Reply`s off the UI thread) and a stderr ring (500 lines); own lenient protocol types (D24); positions in UTF-8/16/32 (negotiated `positionEncodings`); `file://` URIs
+- [x] [M7] Lazy start when the first file of a language opens; built-in server table + `[[lsp.servers]]` overrides, `lsp.disabled`, `lsp.enabled`; `PATH` lookup; one install hint per language when none is found (§13.2)
+- [x] [M7] Shutdown when idle (`lsp.idleShutdownSecs`, default 300; 0 = never); `shutdown`/`exit` then group kill by a reaper thread; all servers told to exit on quit
+- [x] [M7] Multi-root: one instance per (server, root), `workspaceFolders` = that root (D25) (§13.3)
+- [x] [M7] Never share server state across unrelated repositories
+- [x] [M7] Document sync: `didOpen` (queued until initialized), incremental `didChange` from the shared edit log (full sync when that's all the server supports), `didSave` (with text if asked), `didClose`; edits are flushed before every request; answers for older versions dropped
+- [x] [M7] Server→client requests: `workspace/configuration` (from `settings`), `workspace/workspaceFolders`, `workspace/applyEdit`, `window/workDoneProgress/create`, `client/(un)registerCapability`, `window/showMessageRequest`, `window/showDocument`; `$/progress`, `window/logMessage`, `window/showMessage`
+- [x] [M7] Completion: trigger characters, quick suggestions after a typing pause (`editor.quickSuggestions[Delay]`, so legacy terminals get completion too), `Ctrl+Space` / Trigger Suggest; client-side fuzzy re-filter (narrowing, score-only ranking; 5,003 items: worst keystroke 3.1 ms release); snippets (placeholders, choices, variables, `$0`); `textEdit`/`insertReplace`; `additionalTextEdits` immediately or via `completionItem/resolve` (auto-imports); `command` for parameter hints / re-suggest
+- [x] [M7] Hover (`Ctrl+K Ctrl+I`), parameter hints (`(`, `,`, `Ctrl+Shift+Space`) with the active parameter (string or offset labels)
+- [x] [M7] Definition (`F12`, `Ctrl+Click`), declaration, type definition, implementation (`Ctrl+F12`), references (`Shift+F12`) — single result jumps, several open a picker with line previews; jumps go into other roots and are recorded in navigation history
+- [x] [M7] Rename (`F2`): prompt seeded with the word; open documents get one undoable unsaved edit each, closed files are rewritten safely with conflict check; create/rename/delete file operations reported as skipped (no confirmation dialog, as VS Code)
+- [x] [M7] Document symbols (`Ctrl+Shift+O` / Quick Open `@`, hierarchy indented, fetched once per version) and workspace symbols (`Ctrl+T` / `#`, every running server, re-queried as you type)
+- [x] [M7] Code actions (`Ctrl+.`): diagnostics in context, preferred first, disabled shown with reason, `codeAction/resolve`, `workspace/executeCommand`
+- [x] [M7] Formatting (`Ctrl+Shift+I`, `Ctrl+K Ctrl+F`) and `editor.formatOnSave` for Ctrl+S (waits ≤ 2 s, then saves anyway)
+- [x] [M7] UI reflects the server's capabilities: every feature explains "not supported by X" / "no server for Y" / "starting" (§13.1)
+- [x] [M7] Crash isolation: exit during startup → one message with stderr + install hint, no restart loop; crash after startup → restart (≤ 3 in 5 min), then stopped; "Restart / Stop Language Server" commands; requests time out (`lsp.requestTimeoutMs`) (§13.5)
+- [x] [M7] Node-based servers treated as external tools; documented; "Developer: Show Running Language Servers" lists pid and RSS of each server's process group separately from YACE (§13.4) — measured: typescript-language-server + 2 tsserver + typings installer = 538 MiB on a 2-file project, YACE 32 MiB
+- [x] [M7] Diagnostics: underline in the severity colour, line number coloured, status bar counts (⊗/⚠) and the message under the cursor, Problems picker (`Ctrl+Shift+M`), `F8`/`Shift+F8` across files; positions mapped through edits until republished
+- [x] [M7] `Ctrl+Space`, `F12`, `F2`, `Ctrl+Shift+O`, `Ctrl+T` wired (+ legacy fallbacks `Alt+O`, `Alt+M`, `Alt+I`)
+- [x] [M7] Format on save (setting)
+- [x] [M7] "Show Language Server Output" (stderr + log in an untitled editor); status bar shows the active server and its progress
+- [x] [M7] Tests: fake JSON-RPC server (`tests/fixtures/fake_lsp.py`) covering sync, diagnostics, completion, hover, signature help, cross-root definition, references, rename, symbols, code actions, format on save, crash/restart, startup failure, missing-server hint, stale answers, 5k-item lists; real-server smoke test with typescript-language-server (`YACE_TEST_TSLS`)
+- [~] [M7] Semantic tokens — deferred: tree-sitter covers colouring
+- [ ] [M7] Several servers per language (e.g. ESLint next to tsserver)
+- [ ] [M7] Mouse-hover popups; completion item documentation side panel
+- [ ] [M7] Code lens, inlay hints, call hierarchy, document highlights (not in the M7 scope)
 
 ---
 
