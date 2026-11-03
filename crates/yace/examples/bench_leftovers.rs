@@ -6,8 +6,18 @@ use std::{hint::black_box, time::Instant};
 
 fn main() {
     let names = [
-        "main.rs", "index.ts", "App.tsx", "package.json", "README.md", "Dockerfile", ".gitignore",
-        "styles.module.scss", "notes.unknownext", "Makefile", "archive.tar.gz", "photo.JPEG",
+        "main.rs",
+        "index.ts",
+        "App.tsx",
+        "package.json",
+        "README.md",
+        "Dockerfile",
+        ".gitignore",
+        "styles.module.scss",
+        "notes.unknownext",
+        "Makefile",
+        "archive.tar.gz",
+        "photo.JPEG",
     ];
     let n = 1_000_000;
     let t = Instant::now();
