@@ -13,6 +13,13 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Fixed
+
+- When a due time could not be cleared (the 0.8.1 bug), the event loop
+  stopped reading input and signals, so YACE looked frozen and even
+  `kill` didn't stop it. Input and signals now always get through; a
+  stuck due time is throttled (≈6% CPU instead of 100%) and logged once.
+
 ## [0.8.1] - 2026-11-03
 
 ### Fixed

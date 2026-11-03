@@ -332,6 +332,7 @@ impl Runtime {
     pub fn run(&mut self, app: &mut App, term: &mut Term, exit_after_first_frame: bool) -> std::io::Result<()> {
         let size = term.size()?;
         app.resize(size.width, size.height);
+        let mut warned_stuck = false;
         loop {
             self.apply_effects(app);
             if app.needs_render {
@@ -356,11 +357,22 @@ impl Runtime {
             let ev = match app.next_deadline() {
                 Some(d) => {
                     let now = Instant::now();
-                    if d <= now {
+                    // Never skip the channel: input and signals must get
+                    // through even if a due time keeps coming back. If
+                    // ticking could not clear it, wait a little instead
+                    // of spinning (a bug elsewhere; logged once).
+                    let wait = if d <= now {
                         app.on_tick(now);
-                        continue;
-                    }
-                    match self.rx.recv_timeout(d - now) {
+                        let stuck = app.next_deadline().is_some_and(|d| d <= Instant::now());
+                        if stuck && !warned_stuck {
+                            warned_stuck = true;
+                            tracing::warn!("a deadline stays due after ticking; throttling the event loop");
+                        }
+                        if stuck { std::time::Duration::from_millis(5) } else { std::time::Duration::ZERO }
+                    } else {
+                        d - now
+                    };
+                    match self.rx.recv_timeout(wait) {
                         Ok(ev) => Some(ev),
                         Err(crossbeam_channel::RecvTimeoutError::Timeout) => None,
                         Err(_) => return Ok(()),
