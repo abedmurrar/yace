@@ -13,6 +13,8 @@ Security, Performance.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-03
+
 ### Fixed
 
 - With an untracked or git-ignored file open in a repository, YACE used a
@@ -594,7 +596,8 @@ Reproduce with `scripts/bench.sh` and `scripts/bench_interactive.py`.
 - Very large files are read on the main thread.
 - There's no crash recovery for unsaved edits yet.
 
-[Unreleased]: https://github.com/OWNER/yace/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/OWNER/yace/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/OWNER/yace/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/OWNER/yace/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/OWNER/yace/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/OWNER/yace/compare/v0.5.0...v0.6.0
