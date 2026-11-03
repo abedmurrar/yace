@@ -13,6 +13,8 @@ Security, Performance.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Added
 
 - Syntax highlighting with tree-sitter for Rust, JavaScript/JSX,
@@ -374,7 +376,8 @@ Reproduce with `scripts/bench.sh` and `scripts/bench_interactive.py`.
 - Very large files are read on the main thread.
 - There's no crash recovery for unsaved edits yet.
 
-[Unreleased]: https://github.com/OWNER/yace/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/OWNER/yace/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/OWNER/yace/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/OWNER/yace/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/OWNER/yace/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/OWNER/yace/compare/v0.2.0...v0.2.1
