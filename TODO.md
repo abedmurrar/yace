@@ -579,7 +579,7 @@ Legend:
 - [x] [M7] Missing-server hint per folder and per missing server (mixed TypeScript 7/5 workspaces) — v0.4.2
 - [ ] [M7] First keystroke over a 13k-item completion list (~8 ms est.): score in parallel chunks or cap the scanned set
 - [~] [M7] Semantic tokens — deferred: tree-sitter covers colouring
-- [ ] [M7] Several servers per language (e.g. ESLint next to tsserver)
+- [ ] [M7] Several language servers per document (core mechanism: merged diagnostics, code actions, formatting); tool-specific servers such as ESLint or Biome ship as plugins, not built in
 - [ ] [M7] Mouse-hover popups; completion item documentation side panel
 - [ ] [M7] Code lens, inlay hints, call hierarchy, document highlights (not in the M7 scope)
 
