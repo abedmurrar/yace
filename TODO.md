@@ -580,6 +580,7 @@ Legend:
 - [ ] [M7] First keystroke over a 13k-item completion list (~8 ms est.): score in parallel chunks or cap the scanned set
 - [~] [M7] Semantic tokens — deferred: tree-sitter covers colouring
 - [ ] [M7] Several language servers per document (core mechanism: merged diagnostics, code actions, formatting); tool-specific servers such as ESLint or Biome ship as plugins, not built in
+- [ ] [Plugins] External ESLint and Biome plugins (outside the core, optional) built on several servers per document; test both on a real repo with `biome.json` and one with an ESLint config; without the plugin nothing changes — later, after the core mechanism
 - [ ] [M7] Mouse-hover popups; completion item documentation side panel
 - [ ] [M7] Code lens, inlay hints, call hierarchy, document highlights (not in the M7 scope)
 
