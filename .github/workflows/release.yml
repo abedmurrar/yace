@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  # To run the Pages workflow (APT repository) after publishing.
+  actions: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -37,10 +39,12 @@ jobs:
     strategy:
       matrix:
         include:
+          # Ubuntu 22.04 (glibc 2.35): the binaries and .deb packages run on
+          # Ubuntu 22.04+ and Debian 12+.
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-24.04
+            os: ubuntu-22.04
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-24.04-arm
+            os: ubuntu-22.04-arm
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +61,11 @@ jobs:
           cp -r docs "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+      - name: Debian package
+        run: |
+          cargo install cargo-deb --locked --version 3.8.0
+          scripts/build_deb.sh dist
+          (cd dist && for f in yace_*.deb; do sha256sum "$f" > "$f.sha256"; done)
       - name: Grammar package (C, C++, Go, Java, Ruby, SCSS, SQL, Dockerfile)
         run: |
           python3 scripts/build_grammars.py dist
@@ -64,7 +73,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: dist/*.tar.gz*
+          path: |
+            dist/*.tar.gz*
+            dist/*.deb*
 
   publish:
     needs: [verify, build]
@@ -85,5 +96,10 @@ jobs:
         run: |
           pre=""
           case "${{ needs.verify.outputs.version }}" in *-*) pre="--prerelease";; esac
-          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.deb dist/SHA256SUMS \
             --title "YACE $GITHUB_REF_NAME" --notes-file notes.md $pre
+      - name: Publish the APT repository (Pages)
+        if: ${{ !contains(needs.verify.outputs.version, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main

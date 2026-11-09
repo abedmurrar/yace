@@ -15,6 +15,20 @@ telemetry.
 > diagnostics, go to definition, rename, symbols, code actions,
 > formatting), native plugins and Git. Next: preparing the public release. See [`TODO.md`](TODO.md) for the complete, itemised status.
 
+## Install
+
+On Ubuntu 22.04+ and Debian 12+:
+
+```sh
+curl -fsSL https://abedmurrar.github.io/yace/apt/yace.gpg | sudo tee /usr/share/keyrings/yace.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/yace.gpg] https://abedmurrar.github.io/yace/apt stable main" | sudo tee /etc/apt/sources.list.d/yace.list
+sudo apt update && sudo apt install yace
+```
+
+Release archives and `.deb` files are on the
+[releases page](https://github.com/abedmurrar/yace/releases). Or build from
+source:
+
 ## Build and run
 
 ```sh

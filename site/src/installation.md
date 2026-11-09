@@ -1,15 +1,28 @@
 # Installation
 
-**Build YACE from source with Cargo: `cargo build --release`, then put
-`target/release/yace` on your `PATH`.** There are no prebuilt packages or
-downloads yet.
+**On Ubuntu 22.04+ and Debian 12+, install YACE with apt from its signed
+repository.** Elsewhere, download a release archive or build from source.
 
-## Prebuilt packages
+## apt (Ubuntu, Debian)
 
-None are published yet. The release workflow in the repository is ready to
-attach Linux builds (`x86_64` and `aarch64` `.tar.gz` archives with
-checksums) to GitHub Releases once the repository is public. A Debian
-package, a signed APT repository and a Snap are planned for later.
+```sh
+curl -fsSL https://abedmurrar.github.io/yace/apt/yace.gpg | sudo tee /usr/share/keyrings/yace.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/yace.gpg] https://abedmurrar.github.io/yace/apt stable main" | sudo tee /etc/apt/sources.list.d/yace.list
+sudo apt update && sudo apt install yace
+```
+
+`sudo apt upgrade` then brings new versions. The repository is signed with
+the key `CBADDA04B349EC495EE7FCDA78193B7BA7EABA26` ("YACE APT Repository"),
+and `signed-by` limits that key to this repository. The package has
+`amd64` and `arm64` builds, the man page (`man yace`) and the licences.
+Removing it (`sudo apt remove yace`) leaves your settings in
+`~/.config/yace` alone.
+
+## Release archives
+
+Every [GitHub Release](https://github.com/abedmurrar/yace/releases) has
+`x86_64` and `aarch64` Linux `.tar.gz` archives and `.deb` packages, with
+checksums.
 
 ## Requirements
 

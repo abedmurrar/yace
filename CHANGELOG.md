@@ -15,9 +15,21 @@ Security, Performance.
 
 ### Added
 
-- A documentation website (mdBook, in `site/`), ready for GitHub Pages at
-  `/yace/`. Its screenshots and recordings come from the real editor:
-  `site/capture/` regenerates them.
+- `sudo apt install yace` on Ubuntu 22.04+ and Debian 12+, from a signed
+  APT repository at `abedmurrar.github.io/yace/apt` (instructions in the
+  README). The release workflow builds `.deb` packages for amd64 and
+  arm64 on Ubuntu 22.04, and the Pages workflow publishes and signs the
+  repository.
+- A man page (`man yace`).
+- A documentation website at https://abedmurrar.github.io/yace/ (mdBook,
+  in `site/`). Its screenshots and recordings come from the real editor,
+  and `site/capture/` regenerates them.
+
+### Fixed
+
+- The test suite no longer depends on the terminal running it. YACE now
+  reads the terminal's colour depth once at startup, and the tests use a
+  fixed one. CI, which has no `COLORTERM`, failed five colour tests.
 
 ## [0.11.0] - 2026-11-09
 

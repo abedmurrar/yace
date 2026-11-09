@@ -1,0 +1,106 @@
+.TH YACE 1 "2026-11-09" "yace" "User Commands"
+.SH NAME
+yace \- a fast, light, terminal-native multi-root code editor
+.SH SYNOPSIS
+.B yace
+[\fIOPTIONS\fR] [\fIPATH\fR]
+.br
+.B yace
+\fIFILE\fR[:\fILINE\fR[:\fICOLUMN\fR]]
+.SH DESCRIPTION
+.B yace
+is a code editor for the terminal with VS Code's keys and concepts:
+multi-root workspaces (it reads VS Code and Cursor
+.I .code-workspace
+files), a file Explorer, fuzzy Quick Open (\fBCtrl+P\fR), the Command
+Palette (\fBCtrl+Shift+P\fR), workspace search and replace, an integrated
+terminal, language servers, Git, tree-sitter highlighting, themes and
+native plugins.
+.PP
+\fIPATH\fR decides what opens:
+.TP
+.I a folder
+opens it as the workspace.
+.TP
+.I a file
+opens just that file, with no folder (like \fBcode file.js\fR).
+\fIFILE:LINE:COLUMN\fR opens it at that position.
+.TP
+.I a .code-workspace file
+opens the multi-root workspace it describes.
+.TP
+.I nothing
+reopens the most recent workspace (or an empty window).
+.SH OPTIONS
+.TP
+.BR \-\-workspace " " \fIFILE\fR
+Open this \fI.code-workspace\fR file.
+.TP
+.BR \-\-add\-root " " \fIDIR\fR
+Add another folder to the workspace (repeatable).
+.TP
+.BR \-\-goto " " \fIFILE\fR[:\fILINE\fR[:\fICOL\fR]]
+Open a file at a position (together with a folder or workspace).
+.TP
+.B \-\-no\-restore
+Do not restore the previous session (tabs, layout) for this workspace.
+.TP
+.BR \-\-safe\-mode ", " \-\-no\-plugins
+Start without loading any plugin code or plugin grammars.
+.TP
+.BR \-\-install\-plugin " " \fIPATH\fR
+Install a plugin from a folder or a \fI.tar.gz\fR package, then exit.
+Asks for confirmation unless \fB\-\-yes\fR is given.
+.TP
+.B \-\-list\-plugins
+List installed plugins, then exit.
+.TP
+.BR \-\-package\-plugin " " \fIDIR\fR " [" \-o " " \fIFILE\fR]
+Validate a plugin folder and build a \fI.tar.gz\fR package, then exit.
+.TP
+.BR \-h ", " \-\-help
+Print help.
+.TP
+.BR \-V ", " \-\-version
+Print the version.
+.SH FILES
+.TP
+.I ~/.config/yace/config.toml
+User settings (TOML). Also \fIkeybindings.toml\fR, \fIthemes/\fR and
+\fIplugins/\fR in the same folder.
+.TP
+.I ~/.local/state/yace/
+Sessions, recent workspaces and, with \fBYACE_LOG\fR, the log file.
+.TP
+.I ~/.cache/yace/
+Caches (the Quick Open index when \fBsearch.cacheIndex\fR is on).
+.PP
+Workspace folders may hold \fI.vscode/settings.json\fR, which YACE reads.
+Removing the package never touches these files.
+.SH ENVIRONMENT
+.TP
+.BR YACE_CONFIG_DIR ", " YACE_STATE_DIR ", " YACE_CACHE_DIR
+Use these folders instead of the defaults above.
+.TP
+.B YACE_LOG
+Write a log (\fBYACE_LOG=debug\fR, \fBinfo\fR…) to the state folder. Off by
+default; file contents are never logged.
+.TP
+.B YACE_OPENER
+The program "Reveal in File Manager" runs (default \fBxdg\-open\fR).
+.TP
+.B YACE_MALLOC_TRIM=0
+Do not return freed memory to the system after large jobs.
+.SH EXAMPLES
+.nf
+yace .                        open the current folder
+yace ~/Dev/api                open a folder
+yace file.js                  open just that file
+yace src/main.rs:42:8         a file at line 42, column 8
+yace ~/work.code-workspace    a multi-root workspace
+yace api \-\-add\-root ../web    two unrelated folders together
+.fi
+.SH SEE ALSO
+Documentation: https://abedmurrar.github.io/yace/
+.br
+Source and issues: https://github.com/abedmurrar/yace
