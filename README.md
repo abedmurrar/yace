@@ -120,6 +120,8 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
 
 ## Documentation
 
+- The documentation website, with screenshots: <https://abedmurrar.github.io/yace/>
+  once the repository is public; its source is [`site/`](site/README.md)
 - [`docs/keybindings.md`](docs/keybindings.md): every shortcut, plus what
   each needs from your terminal and the fallbacks for older terminals
 - [`docs/configuration.md`](docs/configuration.md): every setting

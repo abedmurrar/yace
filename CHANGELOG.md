@@ -13,6 +13,12 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- A documentation website (mdBook, in `site/`), ready for GitHub Pages at
+  `/yace/`. Its screenshots and recordings come from the real editor:
+  `site/capture/` regenerates them.
+
 ## [0.11.0] - 2026-11-09
 
 ### Added
