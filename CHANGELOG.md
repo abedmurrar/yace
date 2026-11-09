@@ -13,6 +13,8 @@ Security, Performance.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-09
+
 ### Added
 
 - `sudo apt install yace` on Ubuntu 22.04+ and Debian 12+, from a signed
@@ -717,7 +719,8 @@ Reproduce with `scripts/bench.sh` and `scripts/bench_interactive.py`.
 - Very large files are read on the main thread.
 - There's no crash recovery for unsaved edits yet.
 
-[Unreleased]: https://github.com/abedmurrar/yace/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/abedmurrar/yace/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/abedmurrar/yace/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/abedmurrar/yace/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/abedmurrar/yace/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/abedmurrar/yace/compare/v0.8.2...v0.9.0
