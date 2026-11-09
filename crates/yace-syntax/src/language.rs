@@ -361,15 +361,22 @@ pub static LANGUAGES: std::sync::LazyLock<Vec<LanguageConfig>> = std::sync::Lazy
             grammar: g!("all-grammars", || tree_sitter_ruby::LANGUAGE.into()), hl: q!(tree_sitter_ruby::HIGHLIGHTS_QUERY), inj: &[]),
         // Languages without a built-in grammar: editing rules only.
         lang!("makefile", "Makefile", ext: &["mk", "mak"], files: &["Makefile", "makefile", "GNUmakefile"], shebang: &["make"], rules: HASH_RULES,
-            grammar: None, hl: &[], inj: &[]),
+            grammar: Some(|| tree_sitter_make::LANGUAGE.into()), hl: &[tree_sitter_make::HIGHLIGHTS_QUERY], inj: &[]),
+        // Git config files are INI-shaped (`[remote "origin"]`, `key = value`).
+        lang!("ini", "Ini", ext: &["ini", "cfg", "conf", "gitconfig"],
+            files: &[".gitconfig", ".gitmodules", ".editorconfig", ".npmrc", "gitconfig"], shebang: &[],
+            rules: rules(Some("#"), None, NO_BACKTICK, &['[']),
+            grammar: Some(|| tree_sitter_ini::LANGUAGE.into()), hl: &[tree_sitter_ini::HIGHLIGHTS_QUERY], inj: &[]),
         lang!("ignore", "Ignore", ext: &["gitignore", "dockerignore", "npmignore", "prettierignore", "eslintignore"],
             files: &[".gitignore", ".dockerignore", ".npmignore", ".prettierignore", ".eslintignore"], shebang: &[], rules: HASH_RULES,
             grammar: None, hl: &[], inj: &[]),
-        lang!("properties", "Properties", ext: &["env", "ini", "cfg", "conf", "properties"],
-            files: &[".env", ".env.local", ".env.example", ".editorconfig", ".npmrc", ".gitconfig", ".gitattributes"], shebang: &[],
+        lang!("properties", "Properties", ext: &["env", "properties"],
+            files: &[".env", ".env.local", ".env.example", ".gitattributes"], shebang: &[],
             rules: HASH_RULES, grammar: None, hl: &[], inj: &[]),
-        lang!("lua", "Lua", ext: &["lua"], files: &[], shebang: &["lua"],
-            rules: rules(Some("--"), Some(("--[[", "]]")), NO_BACKTICK, &['{', '(']), grammar: None, hl: &[], inj: &[]),
+        lang!("lua", "Lua", ext: &["lua", "luau", "rockspec"], files: &[".luacheckrc"], shebang: &["lua", "luajit"],
+            rules: rules(Some("--"), Some(("--[[", "]]")), NO_BACKTICK, &['{', '(']),
+            grammar: Some(|| tree_sitter_lua::LANGUAGE.into()), hl: &[tree_sitter_lua::HIGHLIGHTS_QUERY],
+            inj: &[tree_sitter_lua::INJECTIONS_QUERY]),
         lang!("diff", "Diff", ext: &["diff", "patch", "rej"], files: &[], shebang: &[],
             rules: rules(Some("#"), None, &[], &[]), grammar: None, hl: &[], inj: &[]),
         lang!("plaintext", "Plain Text", ext: &["txt", "text", "log"], files: &["LICENSE", "COPYING"], shebang: &[],
@@ -406,6 +413,9 @@ pub fn by_injection_name(name: &str) -> Option<&'static LanguageConfig> {
         "rb" | "ruby" => "ruby",
         "docker" | "dockerfile" | "containerfile" => "dockerfile",
         "postgres" | "postgresql" | "sql" => "sql",
+        "make" | "makefile" | "mk" => "makefile",
+        "lua" | "luajit" => "lua",
+        "ini" | "gitconfig" | "git_config" | "editorconfig" => "ini",
         other => other,
     };
     by_id(alias).filter(|l| l.has_grammar())
@@ -445,6 +455,13 @@ pub fn detect(path: Option<&Path>, first_line: &str, assoc: &Associations) -> &'
         }
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let langs = all_languages();
+        // A repository's `.git/config` and the user's `~/.config/git/config`.
+        if name == "config"
+            && p.parent().and_then(|d| d.file_name()).is_some_and(|d| d == ".git" || d == "git")
+            && let Some(l) = by_id("ini")
+        {
+            return l;
+        }
         if let Some(l) = langs.iter().copied().find(|l| l.filenames.contains(&name)) {
             return l;
         }
@@ -502,6 +519,15 @@ mod tests {
         assert_eq!(d("deploy", "#!/bin/bash -e"), "shellscript");
         assert_eq!(d("notes", ""), "plaintext");
         assert_eq!(d(".env", ""), "properties");
+        assert_eq!(d("Makefile", ""), "makefile");
+        assert_eq!(d("rules.mk", ""), "makefile");
+        assert_eq!(d("init.lua", ""), "lua");
+        assert_eq!(d("/repo/.git/config", ""), "ini");
+        assert_eq!(d("/home/u/.config/git/config", ""), "ini");
+        assert_eq!(d("/repo/config", ""), "plaintext", "a plain `config` file elsewhere stays plain");
+        assert_eq!(d(".gitconfig", ""), "ini");
+        assert_eq!(d(".gitmodules", ""), "ini");
+        assert_eq!(d("setup.cfg", ""), "ini");
         let assoc = Associations::new(&[("*.mdc".into(), "markdown".into()), ("Justfile".into(), "makefile".into())]);
         assert_eq!(detect(Some(Path::new("x/rules.mdc")), "", &assoc).id, "markdown");
         assert_eq!(detect(Some(Path::new("Justfile")), "", &assoc).id, "makefile");
@@ -522,6 +548,9 @@ mod tests {
         assert_eq!(by_injection_name("ts").unwrap().id, "typescript");
         assert_eq!(by_injection_name("Bash").unwrap().id, "shellscript");
         assert!(by_injection_name("klingon").is_none());
-        assert!(by_injection_name("makefile").is_none(), "no grammar");
+        assert!(by_injection_name("plaintext").is_none(), "no grammar");
+        assert_eq!(by_injection_name("make").unwrap().id, "makefile");
+        assert_eq!(by_injection_name("lua").unwrap().id, "lua");
+        assert_eq!(by_injection_name("gitconfig").unwrap().id, "ini");
     }
 }

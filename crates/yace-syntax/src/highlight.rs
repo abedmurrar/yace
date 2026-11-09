@@ -491,6 +491,23 @@ mod tests {
     }
 
     #[test]
+    fn makefile_lua_and_git_config_scopes() {
+        let (r, s) = spans("makefile", "# build\nCC := gcc\nall: main.o\n\t$(CC) -o app main.o\n");
+        assert_eq!(scope_of(&r, &s, "# build"), Scope::Comment);
+        assert_ne!(scope_of(&r, &s, "CC :="), Scope::None, "variable assignment coloured");
+        let (r, s) = spans("lua", "-- hi\nlocal function f(x)\n  return \"s\", 42\nend\n");
+        assert_eq!(scope_of(&r, &s, "-- hi"), Scope::Comment);
+        assert!(matches!(scope_of(&r, &s, "local"), Scope::Keyword | Scope::KeywordControl));
+        assert_eq!(scope_of(&r, &s, "\"s\""), Scope::String);
+        assert_eq!(scope_of(&r, &s, "42"), Scope::Number);
+        let (r, s) =
+            spans("ini", "# repo\n[remote \"origin\"]\n\turl = git@example.com:a/b.git\n[core]\n\tbare = false\n");
+        assert_eq!(scope_of(&r, &s, "# repo"), Scope::Comment);
+        assert_eq!(scope_of(&r, &s, "url"), Scope::Property);
+        assert_ne!(scope_of(&r, &s, "core"), Scope::None, "section names coloured");
+    }
+
+    #[test]
     fn viewport_range_only() {
         let src = "fn a() {}\n".repeat(1000);
         let rope = Rope::from_str(&src);

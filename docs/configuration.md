@@ -88,7 +88,7 @@ in "Developer: Show Configuration Errors".
 | `trimTrailingWhitespace` | `false` | bool | `files.trimTrailingWhitespace` |
 | `eol` | `"auto"` | `"auto"`, `"lf"`, `"crlf"` (for new files; existing files keep theirs) | `files.eol` |
 | `largeFileThresholdMb` | `50` | MiB; larger files open in large-file mode after confirmation (no highlighting, wrap or folding) | — |
-| `associations` | `{}` | table of glob (or file name) → language id, e.g. `"*.mdc" = "markdown"`. Ids: `rust`, `typescript`, `typescriptreact`, `javascript`, `javascriptreact`, `json`, `jsonc`, `yaml`, `toml`, `html`, `css`, `scss`, `markdown`, `python`, `go`, `shellscript`, `sql`, `dockerfile`, `c`, `cpp`, `java`, `ruby`, `makefile`, `ignore`, `properties`, `lua`, `plaintext` | `files.associations` |
+| `associations` | `{}` | table of glob (or file name) → language id, e.g. `"*.mdc" = "markdown"`. Ids: `rust`, `typescript`, `typescriptreact`, `javascript`, `javascriptreact`, `json`, `jsonc`, `yaml`, `toml`, `html`, `css`, `scss`, `markdown`, `python`, `go`, `shellscript`, `sql`, `dockerfile`, `c`, `cpp`, `java`, `ruby`, `makefile`, `ini` (also git config files: `.gitconfig`, `.gitmodules`, `.git/config`), `ignore`, `properties`, `lua`, `plaintext` | `files.associations` |
 
 ### `[explorer]`
 

@@ -23,6 +23,9 @@ tree-sitter-md = "0.5"
 tree-sitter-python = "0.25"
 tree-sitter-go = { version = "0.25", optional = true }
 tree-sitter-bash = "0.25"
+tree-sitter-ini = "1.4"
+tree-sitter-lua = "0.5"
+tree-sitter-make = "1.1"
 tree-sitter-sequel = { version = "0.3", optional = true }
 tree-sitter-containerfile = { version = "0.9", optional = true }
 tree-sitter-c = { version = "0.24", optional = true }

@@ -13,6 +13,14 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- Syntax colouring for Makefiles, Lua, and git config files
+  (`.gitconfig`, `.gitmodules`, `.git/config`, `~/.config/git/config`).
+  The git config grammar also colours `.ini`, `.cfg` and
+  `.editorconfig` files, now language id `ini`. Together they add
+  234 KB to the binary, and nothing to memory until such a file opens.
+
 ## [0.10.0] - 2026-11-09
 
 ### Added

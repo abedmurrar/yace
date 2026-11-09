@@ -87,8 +87,8 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
 - **Integrated terminal.** Real shells per root (Ctrl+`), several tabs,
   split panes side by side, and find in the scrollback (Ctrl+F).
 - **Syntax.** Tree-sitter highlighting for Rust, TypeScript/TSX,
-  JavaScript/JSX, JSON, YAML, TOML, HTML, CSS, Markdown, Python and Bash
-  built in, with embedded languages; C/C++, Go, Java, Ruby, SCSS, SQL and
+  JavaScript/JSX, JSON, YAML, TOML, HTML, CSS, Markdown, Python, Bash,
+  Makefile, Lua and INI/git config built in, with embedded languages; C/C++, Go, Java, Ruby, SCSS, SQL and
   Dockerfile from the installable grammar package (loaded on first use).
   Code folding and word wrap (Alt+Z).
 - **Git, per repository.** Each workspace folder shows its own branch in
