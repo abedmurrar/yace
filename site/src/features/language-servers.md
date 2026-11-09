@@ -12,6 +12,7 @@ formatting.** It never installs anything.
 | Feature | Keys |
 |---|---|
 | Completion while you type | `Ctrl+Space` (enhanced terminals), or just type |
+| The selected completion's documentation | shown in a panel beside the list; "Toggle Suggestion Details" (`Ctrl+Space` while the list is open, enhanced terminals) hides it |
 | Parameter hints | `Ctrl+Shift+Space`, also on `(` and `,` |
 | Hover | `Ctrl+K Ctrl+I` |
 | Go to definition, also into other workspace folders | `F12`, `Ctrl+Click` |

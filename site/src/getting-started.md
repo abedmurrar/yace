@@ -10,6 +10,8 @@ build it.
 ```sh
 yace                          # reopen the most recent workspace
 yace .                        # open the current folder
+yace ~/Dev/api-folder         # open a folder
+yace file.js                  # open just that file (no folder)
 yace ~/work.code-workspace    # open a VS Code or Cursor multi-root workspace
 yace api --add-root ../web    # combine unrelated folders into one workspace
 yace --goto src/main.rs:42:8  # open a file at line 42, column 8

@@ -8,8 +8,10 @@ lines on request.**
 ## Highlighting
 
 Rust, TypeScript and TSX, JavaScript and JSX, JSON, YAML, TOML, HTML, CSS,
-Markdown, Python and Bash are built in, including languages embedded in
-other languages. C, C++,
+Markdown, Python, Bash, Makefiles, Lua, and INI files (git config files
+`.gitconfig`, `.gitmodules` and `.git/config`, plus `.ini`, `.cfg` and
+`.editorconfig`) are built in, including languages embedded in other
+languages. C, C++,
 Go, Java, Ruby, SCSS, SQL and Dockerfile come from the grammar package
 (see [Installation](../installation.md#optional-more-languages)), loaded
 the first time you open such a file. Plugins can add grammars for more
@@ -29,6 +31,16 @@ Fold and unfold with `Ctrl+Shift+[` and `Ctrl+Shift+]` (`Ctrl+K Ctrl+L`
 toggles), fold or unfold everything with `Ctrl+K Ctrl+0` and
 `Ctrl+K Ctrl+J`, or click the `▾` and `▸` markers in the gutter
 (`editor.showFoldingControls`).
+
+| Keys | Folds |
+|---|---|
+| `Ctrl+K Ctrl+[` / `Ctrl+K Ctrl+]` | the region at the cursor and everything inside it / unfold them |
+| `Ctrl+K Ctrl+1` … `Ctrl+K Ctrl+7` | every region at that nesting level, except ones holding a cursor |
+| `Ctrl+K Ctrl+/` | every block comment |
+
+Terminals without the enhanced keyboard protocol can't send some of these
+keys; the commands ("Fold Recursively", "Fold Level 2"…) are always in the
+Command Palette.
 
 ## Word wrap
 
