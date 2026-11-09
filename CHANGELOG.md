@@ -13,6 +13,8 @@ Security, Performance.
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-11-09
+
 ### Fixed
 
 - In a split terminal, the focused pane's marker no longer covers the first
@@ -779,7 +781,8 @@ Reproduce with `scripts/bench.sh` and `scripts/bench_interactive.py`.
 - Very large files are read on the main thread.
 - There's no crash recovery for unsaved edits yet.
 
-[Unreleased]: https://github.com/abedmurrar/yace/compare/v0.11.3...HEAD
+[Unreleased]: https://github.com/abedmurrar/yace/compare/v0.11.4...HEAD
+[0.11.4]: https://github.com/abedmurrar/yace/compare/v0.11.3...v0.11.4
 [0.11.3]: https://github.com/abedmurrar/yace/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/abedmurrar/yace/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/abedmurrar/yace/compare/v0.11.0...v0.11.1
