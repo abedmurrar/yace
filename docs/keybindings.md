@@ -202,6 +202,14 @@ starts one in the selected folder.
 | `Ctrl+Shift+[` / `Ctrl+Shift+]` | fold / unfold (legacy terminals: `Ctrl+K Ctrl+L` toggles) |
 | `Ctrl+K Ctrl+L` | toggle fold |
 | `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` | fold all / unfold all |
+| `Ctrl+K Ctrl+[` / `Ctrl+K Ctrl+]` | fold / unfold the region at the cursor and every region inside it |
+| `Ctrl+K Ctrl+1` … `Ctrl+K Ctrl+7` | fold every region at that nesting level, except ones holding a cursor |
+| `Ctrl+K Ctrl+/` | fold all block comments |
+
+These chords need the enhanced keyboard protocol for `Ctrl+[`, `Ctrl+]` and
+`Ctrl+1`…`Ctrl+7`. Legacy terminals send `Ctrl+[` as `Escape` and `Ctrl+/`
+as `Ctrl+7`. There, `Ctrl+K Ctrl+/` still folds block comments, and the
+other commands are in the palette ("Fold Recursively", "Fold Level 2"…).
 | click `▾` / `▸` in the gutter | fold / unfold |
 | `Alt+Z` | toggle word wrap |
 | `Ctrl+Shift+\` | jump to matching bracket |

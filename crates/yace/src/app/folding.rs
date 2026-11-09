@@ -190,7 +190,117 @@ impl App {
         let folds: Vec<Fold> = ranges.into_iter().filter_map(|(h, l)| Fold::from_lines(&geo.rope, h, l)).collect();
         let Some(view) = self.layout.group_mut(g).and_then(|gr| gr.views.get_mut(v)) else { return };
         view.folds = folds;
-        // Move hidden cursors to their outermost header.
+        self.move_hidden_cursors(g, v, &geo);
+    }
+
+    /// Add folds (keeping the existing ones), then move hidden cursors.
+    fn add_folds(&mut self, g: GroupId, v: usize, geo: &ViewGeo, ranges: impl IntoIterator<Item = (usize, usize)>) {
+        let rope = &geo.rope;
+        let Some(view) = self.layout.group_mut(g).and_then(|gr| gr.views.get_mut(v)) else { return };
+        let have: Vec<(usize, usize)> = view.folds.iter().map(|f| f.lines(rope)).collect();
+        for (h, l) in ranges {
+            if !have.contains(&(h, l))
+                && let Some(f) = Fold::from_lines(rope, h, l)
+            {
+                view.folds.push(f);
+            }
+        }
+        view.folds.sort_by_key(|f| f.start);
+        self.move_hidden_cursors(g, v, geo);
+    }
+
+    /// The fold range around the cursor line: the one whose header it is,
+    /// else the innermost containing it (looking up to 20,000 lines back).
+    fn range_around_cursor(&self, g: GroupId, v: usize, d: DocId, geo: &ViewGeo) -> Option<(usize, usize)> {
+        let rope = &geo.rope;
+        let view = self.layout.group(g)?.views.get(v)?;
+        let cl = rope.char_to_line(view.sel.primary().head.min(rope.len_chars()));
+        (cl.saturating_sub(20_000)..=cl).rev().find_map(|l| {
+            let r = self.fold_range(d, rope, l, geo.tab)?;
+            (r.0 <= cl && cl <= r.1).then_some(r)
+        })
+    }
+
+    /// Fold Recursively: the region at the cursor and every region in it.
+    pub(crate) fn fold_recursively(&mut self) {
+        let Some((g, v, d, geo)) = self.active_geo() else { return };
+        if !self.folding_enabled(d) {
+            return;
+        }
+        let Some((h, l)) = self.range_around_cursor(g, v, d, &geo) else { return };
+        let ranges: Vec<(usize, usize)> =
+            (h..=l).filter_map(|line| self.fold_range(d, &geo.rope, line, geo.tab)).collect();
+        self.add_folds(g, v, &geo, ranges);
+    }
+
+    /// Unfold Recursively: the region at the cursor and every region in it.
+    pub(crate) fn unfold_recursively(&mut self) {
+        let Some((g, v, d, geo)) = self.active_geo() else { return };
+        let rope = &geo.rope;
+        let Some(view) = self.layout.group(g).and_then(|gr| gr.views.get(v)) else { return };
+        let cl = rope.char_to_line(view.sel.primary().head.min(rope.len_chars()));
+        // A folded region whose header is the cursor line, else the region
+        // around the cursor.
+        let target = view
+            .folds
+            .iter()
+            .map(|f| f.lines(rope))
+            .find(|(h, _)| *h == cl)
+            .or_else(|| self.range_around_cursor(g, v, d, &geo));
+        let Some((h, l)) = target else { return };
+        if let Some(view) = self.layout.group_mut(g).and_then(|gr| gr.views.get_mut(v)) {
+            view.folds.retain(|f| {
+                let (fh, _) = f.lines(rope);
+                fh < h || fh > l
+            });
+        }
+        self.reveal_cursor = true;
+    }
+
+    /// Fold Level N: every region nested `level` deep, except the ones
+    /// holding a cursor (VS Code).
+    pub(crate) fn fold_level(&mut self, level: usize) {
+        let Some((g, v, d, geo)) = self.active_geo() else { return };
+        if !self.folding_enabled(d) {
+            return;
+        }
+        let rope = &geo.rope;
+        let ranges = yace_syntax::fold::all_ranges(self.syntax.tree(d), rope, geo.tab);
+        let levels = yace_syntax::fold::nesting_levels(&ranges);
+        let cursors: Vec<usize> = self
+            .layout
+            .group(g)
+            .and_then(|gr| gr.views.get(v))
+            .map(|view| view.sel.ranges().iter().map(|r| rope.char_to_line(r.head.min(rope.len_chars()))).collect())
+            .unwrap_or_default();
+        let pick: Vec<(usize, usize)> = ranges
+            .into_iter()
+            .zip(levels)
+            .filter(|((h, l), lv)| *lv == level && !cursors.iter().any(|c| h <= c && c <= l))
+            .map(|(r, _)| r)
+            .collect();
+        self.add_folds(g, v, &geo, pick);
+    }
+
+    /// Fold All Block Comments.
+    pub(crate) fn fold_all_block_comments(&mut self) {
+        let Some((g, v, d, geo)) = self.active_geo() else { return };
+        if !self.folding_enabled(d) {
+            return;
+        }
+        let rope = &geo.rope;
+        let tree = self.syntax.tree(d);
+        let open = self.syntax.language(d).rules.block_comment.map(|(o, _)| o);
+        let pick: Vec<(usize, usize)> = yace_syntax::fold::all_ranges(tree, rope, geo.tab)
+            .into_iter()
+            .filter(|(h, _)| yace_syntax::fold::is_comment_at(tree, rope, *h, open))
+            .collect();
+        self.add_folds(g, v, &geo, pick);
+    }
+
+    /// Move cursors hidden by folds to the end of their visible header.
+    fn move_hidden_cursors(&mut self, g: GroupId, v: usize, geo: &ViewGeo) {
+        let Some(view) = self.layout.group_mut(g).and_then(|gr| gr.views.get_mut(v)) else { return };
         let map = DisplayMap::new(&geo.rope, &view.folds, geo.wrap, geo.tab);
         let rope = &geo.rope;
         let sel = view.sel.transform(|r| {

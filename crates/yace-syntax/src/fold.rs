@@ -149,6 +149,52 @@ pub fn range_at(tree: Option<&Tree>, rope: &Rope, line: usize, tab: usize) -> Op
     }
 }
 
+/// True when the range with header `line` is a comment (Fold All Block
+/// Comments): a comment node starts the line in the tree, or, without a
+/// tree, the line starts with the language's block-comment opener.
+pub fn is_comment_at(tree: Option<&Tree>, rope: &Rope, line: usize, block_open: Option<&str>) -> bool {
+    let text = line_text(rope, line);
+    let Some(col) = first_non_ws(text) else { return false };
+    match tree {
+        Some(t) => {
+            let p = Point { row: line, column: text.char_to_byte(col) };
+            let Some(mut node) = t.root_node().descendant_for_point_range(p, p) else { return false };
+            loop {
+                if node.start_position().row != line {
+                    return false;
+                }
+                if node.kind().contains("comment") {
+                    return end_row(node) > line;
+                }
+                match node.parent() {
+                    Some(p) => node = p,
+                    None => return false,
+                }
+            }
+        }
+        None => block_open.is_some_and(|o| {
+            let start: String = text.slice(col..).chars().take(o.chars().count()).collect();
+            start == o
+        }),
+    }
+}
+
+/// Nesting level of each range (1 = outermost), for ranges sorted by
+/// header line: a range is inside the closest earlier one that covers it.
+pub fn nesting_levels(ranges: &[(usize, usize)]) -> Vec<usize> {
+    let mut stack: Vec<usize> = Vec::new(); // last lines of the open ranges
+    ranges
+        .iter()
+        .map(|(h, l)| {
+            while stack.last().is_some_and(|end| *end < *h) {
+                stack.pop();
+            }
+            stack.push(*l);
+            stack.len()
+        })
+        .collect()
+}
+
 /// Every fold range (Fold All). Linear in the number of lines.
 pub fn all_ranges(tree: Option<&Tree>, rope: &Rope, tab: usize) -> Vec<(usize, usize)> {
     (0..rope.len_lines()).filter_map(|l| range_at(tree, rope, l, tab)).collect()
@@ -200,5 +246,17 @@ mod tests {
         let rope = Rope::from_str(src);
         let tree = parse_full(by_id("markdown").unwrap(), &rope, None).unwrap();
         assert!(tree_range_at(&tree, &rope, 0).is_some_and(|(h, l)| h == 0 && l >= 5));
+    }
+
+    #[test]
+    fn levels_and_comments() {
+        assert_eq!(nesting_levels(&[(0, 10), (1, 4), (2, 3), (5, 9), (12, 14)]), vec![1, 2, 3, 2, 1]);
+        let src = "/* a\n   b */\nfn f() {\n    if x {\n        y();\n    }\n}\n";
+        let rope = Rope::from_str(src);
+        let tree = parse_full(by_id("rust").unwrap(), &rope, None).unwrap();
+        assert!(is_comment_at(Some(&tree), &rope, 0, None));
+        assert!(!is_comment_at(Some(&tree), &rope, 2, None));
+        assert!(is_comment_at(None, &rope, 0, Some("/*")));
+        assert!(!is_comment_at(None, &rope, 2, Some("/*")));
     }
 }

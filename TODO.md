@@ -547,7 +547,7 @@ Legend:
 - [x] [M7] Code folding: ranges from the syntax tree (outermost node starting on the line, or a block opened at its end; closing line stays visible), indentation otherwise (`yace-syntax/src/fold.rs`); Fold `Ctrl+Shift+[`, Unfold `Ctrl+Shift+]`, Toggle `Ctrl+K Ctrl+L`, Fold All `Ctrl+K Ctrl+0`, Unfold All `Ctrl+K Ctrl+J`; gutter `▾`/`▸` (click toggles; `editor.showFoldingControls`), `…` placeholder; Up/Down skip folds, Left/Right step over them; jumps into a fold (go to line, search) open it; edits inside a fold reveal it; folds are per view, mapped through edits and saved in the session
 - [x] [M7] Word wrap: `editor.wordWrap` off/on/wordWrapColumn/bounded + `wordWrapColumn` (VS Code keys, imported), `Alt+Z` toggles for the window; word-boundary breaks, continuation rows keep the indentation, wide chars never straddle; Up/Down move by rows
 - [ ] [M7] Word wrap: `Home`/`End` go to the wrapped row's start/end first (VS Code); currently line-based
-- [ ] [M7] Fold commands: Fold Recursively, Fold Level N, Fold All Block Comments
+- [x] [M7] Fold commands: Fold Recursively / Unfold Recursively (`Ctrl+K Ctrl+[` / `]`), Fold Level 1–7 (`Ctrl+K Ctrl+1…7`, skipping regions with a cursor), Fold All Block Comments (`Ctrl+K Ctrl+/`; comment nodes from the tree, the block-comment opener otherwise) — v0.11.0
 
 ### LSP (§13)
 - [x] [M7] `yace-lsp` crate: JSON-RPC over stdio; per server a writer, a reader (decodes replies into typed `Reply`s off the UI thread) and a stderr ring (500 lines); own lenient protocol types (D24); positions in UTF-8/16/32 (negotiated `positionEncodings`); `file://` URIs

@@ -20,6 +20,11 @@ Security, Performance.
   The git config grammar also colours `.ini`, `.cfg` and
   `.editorconfig` files, now language id `ini`. Together they add
   234 KB to the binary, and nothing to memory until such a file opens.
+- More fold commands, with VS Code's keys:
+  - Fold Recursively and Unfold Recursively (`Ctrl+K Ctrl+[` and `]`)
+  - Fold Level 1–7 (`Ctrl+K Ctrl+1`…`7`); regions holding a cursor stay
+    open
+  - Fold All Block Comments (`Ctrl+K Ctrl+/`)
 
 ## [0.10.0] - 2026-11-09
 

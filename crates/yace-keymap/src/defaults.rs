@@ -195,6 +195,16 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+k ctrl+l", "editor.toggleFold", ED),
     ("ctrl+k ctrl+0", "editor.foldAll", ED),
     ("ctrl+k ctrl+j", "editor.unfoldAll", ED),
+    ("ctrl+k ctrl+[", "editor.foldRecursively", ED),
+    ("ctrl+k ctrl+]", "editor.unfoldRecursively", ED),
+    ("ctrl+k ctrl+/", "editor.foldAllBlockComments", ED),
+    ("ctrl+k ctrl+1", "editor.foldLevel1", ED),
+    ("ctrl+k ctrl+2", "editor.foldLevel2", ED),
+    ("ctrl+k ctrl+3", "editor.foldLevel3", ED),
+    ("ctrl+k ctrl+4", "editor.foldLevel4", ED),
+    ("ctrl+k ctrl+5", "editor.foldLevel5", ED),
+    ("ctrl+k ctrl+6", "editor.foldLevel6", ED),
+    ("ctrl+k ctrl+7", "editor.foldLevel7", ED),
     ("alt+z", "editor.action.toggleWordWrap", ""),
     ("ctrl+shift+\\", "editor.action.jumpToBracket", ED),
     ("ctrl+k ctrl+x", "editor.action.trimTrailingWhitespace", ED),
@@ -227,6 +237,9 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     // Ctrl+Backspace as Ctrl+H, and cannot report Ctrl+Shift+<letter>.
     ("ctrl+4", "workbench.action.splitEditor", "!keyboardEnhanced"),
     ("ctrl+7", "editor.action.commentLine", "editorFocus && !keyboardEnhanced"),
+    // Ctrl+/ arrives as Ctrl+7 there too: Ctrl+K Ctrl+/ stays Fold All Block
+    // Comments (Fold Level 7 is in the palette).
+    ("ctrl+k ctrl+7", "editor.foldAllBlockComments", "editorFocus && !keyboardEnhanced"),
     ("ctrl+h", "deleteWordLeft", "editorFocus && !keyboardEnhanced"),
     ("alt+e", "workbench.view.explorer", "!keyboardEnhanced"),
     ("alt+shift+f", "workbench.action.findInFiles", "!keyboardEnhanced && !explorerFocus"),

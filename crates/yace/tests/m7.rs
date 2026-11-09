@@ -209,3 +209,39 @@ fn word_wrap_wraps_long_lines_and_moves_by_rows() {
     let screen = h.screen();
     assert_eq!(screen.lines().filter(|l| l.contains("word word")).count(), 1, "{screen}");
 }
+
+const NESTED: &str = "/* block\n   comment */\nfn main() {\n    if a {\n        if b {\n            x();\n        }\n    }\n}\nfn other() {\n    y();\n}\n";
+
+/// Fold Level N, Fold Recursively / Unfold Recursively and Fold All Block
+/// Comments (VS Code's commands and Ctrl+K chords).
+#[test]
+fn fold_levels_recursive_and_block_comments() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::write(d.path().join("n.rs"), NESTED).unwrap();
+    let mut h = Harness::new();
+    open_folder(&mut h, d.path());
+    h.app.open_file(&d.path().join("n.rs"), false);
+    h.settle();
+    // Level 2 is the outer `if`; the cursor (line 0) is not inside it.
+    h.key("ctrl+k ctrl+2");
+    assert_eq!(h.app.view_folds(), vec![(3, 6)]);
+    h.command("editor.foldLevel1");
+    assert_eq!(h.app.view_folds(), vec![(2, 7), (3, 6), (9, 10)], "level 1 skips the comment holding the cursor");
+    h.command("editor.unfoldAll");
+    h.key("ctrl+k ctrl+/");
+    assert_eq!(h.app.view_folds(), vec![(0, 1)], "only the block comment");
+    h.command("editor.unfoldAll");
+    // Recursively: the function and everything in it.
+    h.app.execute("workbench.action.gotoLine", Some(&serde_json::json!({ "line": 3 })));
+    h.settle();
+    h.key("ctrl+k ctrl+[");
+    assert_eq!(h.app.view_folds(), vec![(2, 7), (3, 6), (4, 5)]);
+    assert_eq!(h.cursor().0, 2, "cursor stays on the visible header");
+    h.key("ctrl+k ctrl+]");
+    assert!(h.app.view_folds().is_empty(), "unfolded with everything inside");
+    // A cursor inside a level-3 region keeps it open.
+    h.app.execute("workbench.action.gotoLine", Some(&serde_json::json!({ "line": 6 })));
+    h.settle();
+    h.command("editor.foldLevel3");
+    assert!(h.app.view_folds().is_empty());
+}
