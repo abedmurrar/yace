@@ -6,6 +6,7 @@
 
 - [Getting started](getting-started.md)
 - [Installation](installation.md)
+- [How YACE compares](comparison.md)
 
 # Features
 

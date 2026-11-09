@@ -30,6 +30,10 @@ Security, Performance.
 
 - A 25-second tour of YACE at the top of the README (a GIF) and on the
   website's introduction (an animated SVG), recorded by the capture tool.
+- "How YACE compares": YACE next to Helix, Micro, Neovim and VS Code, in
+  the README and on the website, with a source for every cell.
+  `scripts/bench_compare.sh` measures the first frame and idle memory of
+  the terminal editors in one container.
 
 ### Changed
 

@@ -18,6 +18,24 @@ telemetry.
 > rename, symbols, code actions, formatting), native plugins and Git. See
 > [`TODO.md`](TODO.md) for the complete, itemised status.
 
+## How it compares
+
+| | YACE | Helix | Micro | Neovim | VS Code |
+|---|---|---|---|---|---|
+| Runs in | terminal | terminal | terminal | terminal | desktop window |
+| Keys | VS Code's | modal | Ctrl+S, Ctrl+C… | modal | VS Code's |
+| Opens `.code-workspace` files | yes | no | no | no | yes |
+| Language servers | built in | built in | plugin | built in | built in |
+| Integrated terminal | yes, with splits | no | yes | yes | yes |
+| Git | stage, commit, branches | diff gutter | diff gutter | plugins | built in |
+| First frame | 12 ms | 286 ms | 49 ms | 58 ms | — |
+| Memory when idle | 16.8 MiB | 26.3 MiB | 18.8 MiB | 14.0 MiB | — |
+
+Same file, same container, defaults, median of 5 runs
+(`scripts/bench_compare.sh`). The
+[full comparison](https://abedmurrar.github.io/yace/comparison.html) has
+the sources for every cell and when another editor fits better.
+
 ## Install
 
 On Ubuntu 22.04+ and Debian 12+:
