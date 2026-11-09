@@ -50,7 +50,7 @@ use crate::{
     theme::{Glyphs, Theme},
 };
 
-pub use completion::completion_kind;
+pub use completion::{completion_kind, rank_completions};
 pub use edit::{Move, Op};
 pub use find::FindField;
 pub use git_ops::{RepoCmd, ScmGroup, ScmRow, ScmUi};

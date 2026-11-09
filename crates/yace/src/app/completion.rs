@@ -349,36 +349,14 @@ impl App {
             self.completion = None;
             return;
         }
-        let q = yace_search::fuzzy::Query::new(&typed);
-        let first = typed.chars().next().map(|ch| ch.to_ascii_lowercase());
         // Typing narrows: only what matched the shorter prefix can match.
         let candidates: Vec<usize> = match &c.filtered_for {
             Some(prev) if !prev.is_empty() && typed.starts_with(prev.as_str()) => c.shown.clone(),
             _ => (0..c.items.len()).collect(),
         };
-        let items = &c.items;
-        let mut scored: Vec<(i32, usize)> = candidates
-            .into_iter()
-            .filter_map(|i| {
-                let it = &items[i];
-                let key = it.filter_text.as_deref().unwrap_or(&it.label);
-                // Cheap pre-filter before the fuzzy scorer.
-                if let Some(f) = first
-                    && !key.chars().any(|k| k.to_ascii_lowercase() == f)
-                {
-                    return None;
-                }
-                Some((yace_search::fuzzy::score_label(&q, key)?, i))
-            })
-            .collect();
-        let sort_key = |i: usize| -> &str { items[i].sort_text.as_deref().unwrap_or(&items[i].label) };
-        if typed.is_empty() {
-            scored.sort_by(|a, b| sort_key(a.1).cmp(sort_key(b.1)));
-        } else {
-            scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| sort_key(a.1).cmp(sort_key(b.1))));
-        }
+        let shown = rank_completions(&c.items, &candidates, &typed);
         c.filtered_for = Some(typed);
-        c.shown = scored.into_iter().map(|(_, i)| i).collect();
+        c.shown = shown;
         c.selected = c.shown.iter().position(|i| c.items[*i].preselect == Some(true)).unwrap_or(0);
         c.scroll = 0;
         if c.shown.is_empty() {
@@ -604,5 +582,72 @@ mod tests {
     #[test]
     fn markdown_lines() {
         assert_eq!(markdown_to_lines("```ts\nlet x: number\n```\n\n**Doc** `x`"), vec!["let x: number", "", "Doc x"]);
+    }
+}
+
+/// Lists at least this long are scored on several threads.
+const PARALLEL_MIN: usize = 4_096;
+
+/// Rank `candidates` (indices into `items`) for `typed`: best fuzzy score
+/// first, then `sortText`. Items arrive sorted by `sortText` (the language
+/// server reader sorts them), so the tie-break is the index and sorting
+/// compares numbers only.
+pub fn rank_completions(items: &[CompletionItem], candidates: &[usize], typed: &str) -> Vec<usize> {
+    if typed.is_empty() {
+        let mut v = candidates.to_vec();
+        v.sort_unstable();
+        return v;
+    }
+    let q = yace_search::fuzzy::Query::new(typed);
+    // One character: the scorer's single scan is the filter.
+    let single = typed.chars().count() == 1;
+    let first = typed.chars().next().filter(|_| !single).map(|ch| ch.to_ascii_lowercase());
+    let score = |part: &[usize]| -> Vec<(i32, u32)> {
+        part.iter()
+            .filter_map(|&i| {
+                let it = &items[i];
+                let key = it.filter_text.as_deref().unwrap_or(&it.label);
+                // Cheap pre-filter before the fuzzy scorer.
+                if let Some(f) = first
+                    && !key.chars().any(|k| k.to_ascii_lowercase() == f)
+                {
+                    return None;
+                }
+                Some((yace_search::fuzzy::score_label(&q, key)?, i as u32))
+            })
+            .collect()
+    };
+    // Long lists are scored on several threads (the scratch buffers of the
+    // scorer are per thread), then sorted once.
+    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(1);
+    // One character is too cheap to be worth threads.
+    let mut scored = if candidates.len() >= PARALLEL_MIN && threads > 1 && !single {
+        let chunk = candidates.len().div_ceil(threads);
+        std::thread::scope(|s| {
+            let handles: Vec<_> = candidates.chunks(chunk).map(|part| s.spawn(move || score(part))).collect();
+            handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect::<Vec<_>>()
+        })
+    } else {
+        score(candidates)
+    };
+    scored.sort_unstable_by_key(|&(score, i)| (std::cmp::Reverse(score), i));
+    scored.into_iter().map(|(_, i)| i as usize).collect()
+}
+
+#[cfg(test)]
+mod rank_tests {
+    use super::*;
+
+    fn item(label: &str) -> CompletionItem {
+        serde_json::from_value(serde_json::json!({ "label": label })).unwrap()
+    }
+
+    /// Best score first; equal scores keep list (sortText) order.
+    #[test]
+    fn ranking_order() {
+        let items: Vec<CompletionItem> = ["aRead", "read", "bRead", "x"].iter().map(|l| item(l)).collect();
+        let all = [0, 1, 2, 3];
+        assert_eq!(rank_completions(&items, &all, "read"), vec![1, 0, 2], "a prefix match wins; ties keep order");
+        assert_eq!(rank_completions(&items, &[3, 1, 0], ""), vec![0, 1, 3], "nothing typed: list order");
     }
 }

@@ -232,6 +232,13 @@ pub fn score_label(query: &Query, label: &str) -> Option<i32> {
     if query.is_empty() {
         return Some(0);
     }
+    // One character (the first keystroke over a long list): the best
+    // single position, without the alignment tables. Same score as below.
+    if let [t] = query.tokens()
+        && let [qc] = t.as_slice()
+    {
+        return score_single(*qc, label);
+    }
     LABEL_CHARS.with(|buf| {
         let mut chars = buf.borrow_mut();
         chars.clear();
@@ -245,6 +252,24 @@ pub fn score_label(query: &Query, label: &str) -> Option<i32> {
         }
         Some(score - (chars.len() as i32) / 8)
     })
+}
+
+/// [`score_label`] for a one-character query: the best of
+/// `BASE + bonus - min(position, 12) / 3` over the positions of `qc`, minus
+/// the length penalty.
+fn score_single(qc: char, label: &str) -> Option<i32> {
+    let mut best = NEG;
+    let mut prev = None;
+    let mut len = 0usize;
+    for (j, c) in label.chars().enumerate() {
+        let lower = if c.is_ascii() { c.to_ascii_lowercase() } else { c.to_lowercase().next().unwrap_or(c) };
+        if lower == qc {
+            best = best.max(BASE + bonus(prev, c) - (j as i32).min(12) / 3);
+        }
+        prev = Some(c);
+        len = j + 1;
+    }
+    (best > NEG).then(|| best - (len as i32) / 8)
 }
 
 /// Per-token fallback scores for tokens that match the *root name* in a
@@ -410,5 +435,23 @@ mod tests {
     fn unicode_paths() {
         let m = match_path(&Query::new("lërn"), "apps/lërn-app/main.ts").unwrap();
         assert_eq!(m.indices.len(), 4);
+    }
+
+    /// The one-character shortcut scores exactly like the full alignment.
+    #[test]
+    fn single_char_shortcut_matches_alignment() {
+        let labels = ["readFile", "ReadableStream", "x_read", "a.b-c", "ÉcoleR", "rrr", "URLSearchParams", "", "q9Z"];
+        for l in labels {
+            for qc in ['r', 'e', 'a', 'z', '9', 'é', '.'] {
+                let q = Query::new(&qc.to_string());
+                let chars: Vec<char> = l.chars().collect();
+                let full = if is_subsequence(&[qc], l) {
+                    align_opt(&[qc], &chars, false).map(|(s, _)| s - (chars.len() as i32) / 8)
+                } else {
+                    None
+                };
+                assert_eq!(score_label(&q, l), full, "{qc:?} in {l:?}");
+            }
+        }
     }
 }

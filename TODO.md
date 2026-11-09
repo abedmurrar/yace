@@ -577,7 +577,7 @@ Legend:
 - [x] [M7] Pull diagnostics (`textDocument/diagnostic`, coalesced per file, inter-file re-pull, `workspace/diagnostic/refresh`) — v0.4.1
 - [x] [M7] Replies decoded from raw JSON (`RawValue` envelope); completion items keep compact JSON text for resolve: 13,425 items 103 → 20.7 MiB; trim after big lists close — v0.4.2
 - [x] [M7] Missing-server hint per folder and per missing server (mixed TypeScript 7/5 workspaces) — v0.4.2
-- [ ] [M7] First keystroke over a 13k-item completion list (~8 ms est.): score in parallel chunks or cap the scanned set
+- [x] [M7] First keystroke over a 13k-item completion list — lists arrive sorted by `sortText` (reader thread), so ranking sorts integers; one-letter queries score in one scan (same scores as the alignment); two or more letters score in parallel chunks. `bench_completion` side by side under load 2.4–3.5: first keystroke median 6.2–6.4 → 1.8–2.3 ms (fastest run 0.69–0.86 ms), second keystroke 6.2–6.6 → 2.7–3.6 ms. Earlier real-code p95 at load 2: 7.1 ms. Under 1 ms p95 is not reached while the machine is busy — v0.11.0
 - [~] [M7] Semantic tokens — deferred: tree-sitter covers colouring
 - [ ] [M7] Several language servers per document (core mechanism: merged diagnostics, code actions, formatting); tool-specific servers such as ESLint or Biome ship as plugins, not built in
 - [ ] [Plugins] External ESLint and Biome plugins (outside the core, optional) built on several servers per document; test both on a real repo with `biome.json` and one with an ESLint config; without the plugin nothing changes — later, after the core mechanism

@@ -26,6 +26,16 @@ Security, Performance.
     open
   - Fold All Block Comments (`Ctrl+K Ctrl+/`)
 
+### Performance
+
+- Filtering a very long completion list (13,000+ items, as TypeScript
+  sends) is about 3× faster on the first keystroke: median 1.8–2.3 ms
+  instead of 6.2–6.4 ms, measured side by side on a busy machine.
+  - Lists are sorted once, as they arrive, on the language-server
+    thread.
+  - A one-letter query scores each item in a single scan.
+  - Longer queries score on several threads.
+
 ### Changed
 
 - `yace file.js` opens just that file, like `code file.js`; it used to

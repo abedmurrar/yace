@@ -150,6 +150,14 @@ fn completion_item_raw(x: &RawValue) -> Option<CompletionItem> {
     Some(it)
 }
 
+/// Completion items in `sortText` order (stable; the label when there is
+/// none), done here on the reader thread so ranking a keystroke on the UI
+/// thread only compares numbers.
+fn in_sort_order(mut items: Vec<CompletionItem>) -> Vec<CompletionItem> {
+    items.sort_by(|a, b| a.sort_text.as_deref().unwrap_or(&a.label).cmp(b.sort_text.as_deref().unwrap_or(&b.label)));
+    items
+}
+
 #[derive(Deserialize)]
 struct RawList<'a> {
     #[serde(default, rename = "isIncomplete")]
@@ -175,7 +183,7 @@ pub fn decode_reply_raw(method: &str, raw: &RawValue) -> Reply {
         } else {
             (Vec::new(), false)
         };
-        return Reply::Completion { items, incomplete };
+        return Reply::Completion { items: in_sort_order(items), incomplete };
     }
     decode_reply(method, serde_json::from_str(raw.get()).unwrap_or(Value::Null))
 }
@@ -195,7 +203,7 @@ pub fn decode_reply(method: &str, v: Value) -> Reply {
                 ),
                 _ => (Vec::new(), false),
             };
-            Reply::Completion { items, incomplete }
+            Reply::Completion { items: in_sort_order(items), incomplete }
         }
         "completionItem/resolve" => match completion_item(&v) {
             Some(i) => Reply::CompletionResolved(Box::new(i)),
@@ -280,9 +288,12 @@ mod tests {
         let Reply::Completion { items, incomplete } = decode_reply("textDocument/completion", list) else { panic!() };
         assert!(incomplete);
         assert_eq!(items.len(), 3);
-        assert_eq!(items[0].additional_text_edits.as_ref().unwrap().len(), 1);
-        assert_eq!(items[1].text_edit.as_ref().unwrap().text_and_range().1.end.character, 1);
-        assert!(items[2].raw.contains("\"label\":\"c\""));
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, vec!["b", "c", "useState"], "sorted by sortText (the label when absent)");
+        let by = |l: &str| items.iter().find(|i| i.label == l).unwrap();
+        assert_eq!(by("useState").additional_text_edits.as_ref().unwrap().len(), 1);
+        assert_eq!(by("b").text_edit.as_ref().unwrap().text_and_range().1.end.character, 1);
+        assert!(by("c").raw.contains("\"label\":\"c\""));
         let raw: Box<RawValue> = serde_json::from_str(
             r#"{"isIncomplete": false, "items": [{"label": "x", "data": {"k": [1, 2]}}, {"label": "y"}]}"#,
         )
