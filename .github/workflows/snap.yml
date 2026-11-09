@@ -58,7 +58,10 @@ jobs:
           if snapcraft upload --release="${{ inputs.channel }}" "${{ steps.build.outputs.snap }}" 2>&1 | tee upload.log; then
             exit 0
           fi
-          if grep -q "confinement 'classic' not allowed" upload.log; then
+          # Held for review ("classic not allowed"), or queued behind an
+          # earlier upload that is still in review: both clear once the
+          # store approves classic confinement.
+          if grep -qE "confinement 'classic' not allowed|Waiting for previous upload" upload.log; then
             echo "::warning::Uploaded; held for manual review until classic confinement is approved (forum: store-requests/classic-confinement)"
             exit 0
           fi
