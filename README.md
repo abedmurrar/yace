@@ -19,11 +19,24 @@ telemetry.
 
 On Ubuntu 22.04+ and Debian 12+:
 
+**One line** (adds YACE's signed APT repository, then installs):
+
 ```sh
-curl -fsSL https://abedmurrar.github.io/yace/apt/yace.gpg | sudo tee /usr/share/keyrings/yace.gpg >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/yace.gpg] https://abedmurrar.github.io/yace/apt stable main" | sudo tee /etc/apt/sources.list.d/yace.list
-sudo apt update && sudo apt install yace
+curl -fsSL https://abedmurrar.github.io/yace/install.sh | sudo sh
 ```
+
+**Or download the package** and open it (double-click), or install it from
+a terminal:
+[amd64](https://github.com/abedmurrar/yace/releases/latest/download/yace_amd64.deb)
+·
+[arm64](https://github.com/abedmurrar/yace/releases/latest/download/yace_arm64.deb)
+
+```sh
+sudo apt install ./yace_amd64.deb
+```
+
+Either way, the package sets up YACE's repository, so `sudo apt upgrade`
+keeps it up to date, and YACE appears in your app grid.
 
 Release archives and `.deb` files are on the
 [releases page](https://github.com/abedmurrar/yace/releases). Or build from

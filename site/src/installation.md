@@ -1,22 +1,47 @@
 # Installation
 
-**On Ubuntu 22.04+ and Debian 12+, install YACE with apt from its signed
-repository.** Elsewhere, download a release archive or build from source.
+**On Ubuntu 22.04+ and Debian 12+, install YACE from its signed APT
+repository: one command, or one downloaded package.** Elsewhere, download a
+release archive or build from source.
 
 ## apt (Ubuntu, Debian)
 
+**One line** (adds YACE's signed APT repository, then installs):
+
 ```sh
-curl -fsSL https://abedmurrar.github.io/yace/apt/yace.gpg | sudo tee /usr/share/keyrings/yace.gpg >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/yace.gpg] https://abedmurrar.github.io/yace/apt stable main" | sudo tee /etc/apt/sources.list.d/yace.list
-sudo apt update && sudo apt install yace
+curl -fsSL https://abedmurrar.github.io/yace/install.sh | sudo sh
 ```
 
-`sudo apt upgrade` then brings new versions. The repository is signed with
-the key `CBADDA04B349EC495EE7FCDA78193B7BA7EABA26` ("YACE APT Repository"),
-and `signed-by` limits that key to this repository. The package has
-`amd64` and `arm64` builds, the man page (`man yace`) and the licences.
-Removing it (`sudo apt remove yace`) leaves your settings in
-`~/.config/yace` alone.
+**Or download the package** and open it (double-click), or install it from
+a terminal:
+[amd64](https://github.com/abedmurrar/yace/releases/latest/download/yace_amd64.deb)
+·
+[arm64](https://github.com/abedmurrar/yace/releases/latest/download/yace_arm64.deb)
+
+```sh
+sudo apt install ./yace_amd64.deb
+```
+
+Either way, the package sets up YACE's repository, so `sudo apt upgrade`
+keeps it up to date, and YACE appears in your app grid.
+
+The repository is signed with the key
+`CBADDA04B349EC495EE7FCDA78193B7BA7EABA26` ("YACE APT Repository"), and the
+source names that key with `Signed-By`, so it is trusted for this
+repository only. The package has `amd64` and `arm64` builds, the man page
+(`man yace`) and the licences. `sudo apt remove yace` leaves your settings
+in `~/.config/yace` alone; `sudo apt purge yace` also removes the
+repository entry.
+
+**By hand**, if you'd rather set up the repository yourself:
+
+```sh
+curl -fsSL https://abedmurrar.github.io/yace/apt/yace.gpg | sudo tee /usr/share/keyrings/yace.gpg >/dev/null
+printf '%s\n' 'Types: deb' 'URIs: https://abedmurrar.github.io/yace/apt' 'Suites: stable' \
+  'Components: main' 'Architectures: amd64 arm64' 'Signed-By: /usr/share/keyrings/yace.gpg' \
+  | sudo tee /etc/apt/sources.list.d/yace.sources >/dev/null
+sudo apt update && sudo apt install yace
+```
 
 ## Release archives
 

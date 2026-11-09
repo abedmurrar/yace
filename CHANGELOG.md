@@ -15,6 +15,14 @@ Security, Performance.
 
 ### Added
 
+- Installing is one step: `curl -fsSL https://abedmurrar.github.io/yace/install.sh | sudo sh`,
+  or download the `.deb` and open it. The package now sets up YACE's APT
+  repository itself (`/etc/apt/sources.list.d/yace.sources` and the key),
+  so `sudo apt upgrade` keeps YACE up to date. It also removes the
+  `yace.list` from the earlier manual instructions, and the new source
+  lists only `amd64` and `arm64`, so apt no longer prints an i386 notice.
+  Releases also attach `yace_amd64.deb` and `yace_arm64.deb`, so the
+  "latest" download links always work.
 - YACE appears in your desktop's app grid and search after installing
   the `.deb`. A desktop entry opens it in your terminal, with an icon and
   AppStream metadata.

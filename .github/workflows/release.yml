@@ -65,6 +65,9 @@ jobs:
         run: |
           cargo install cargo-deb --locked --version 3.8.0
           scripts/build_deb.sh dist
+          # Also under a fixed name, for a stable "latest" download link:
+          # https://github.com/abedmurrar/yace/releases/latest/download/yace_amd64.deb
+          for f in dist/yace_*-1_*.deb; do arch="${f##*_}"; cp "$f" "dist/yace_${arch}"; done
           (cd dist && for f in yace_*.deb; do sha256sum "$f" > "$f.sha256"; done)
       - name: Grammar package (C, C++, Go, Java, Ruby, SCSS, SQL, Dockerfile)
         run: |

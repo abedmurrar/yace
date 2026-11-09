@@ -63,6 +63,7 @@ maintainer = "Abed Murrar <abedjmurrar@gmail.com>"
 copyright = "2026, Abed Murrar and YACE contributors"
 license-file = ["../../packaging/debian/copyright", "0"]
 changelog = "../../target/deb-extra/changelog.Debian"
+maintainer-scripts = "../../packaging/debian/scripts/"
 section = "editors"
 priority = "optional"
 depends = "$auto"
@@ -80,6 +81,9 @@ assets = [
     ["target/release/yace", "usr/bin/", "755"],
     ["../../docs/yace.1", "usr/share/man/man1/yace.1", "644"],
     # Desktop entry (opens YACE in your terminal), icon, AppStream metadata.
+    # The APT repository and its key: `apt upgrade` keeps YACE up to date.
+    ["../../packaging/debian/yace.sources", "etc/apt/sources.list.d/yace.sources", "644"],
+    ["../../packaging/debian/yace.gpg", "usr/share/keyrings/yace.gpg", "644"],
     ["../../packaging/linux/io.github.abedmurrar.yace.desktop", "usr/share/applications/", "644"],
     ["../../packaging/linux/io.github.abedmurrar.yace.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["../../packaging/linux/io.github.abedmurrar.yace.metainfo.xml", "usr/share/metainfo/", "644"],

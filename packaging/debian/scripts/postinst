@@ -1,0 +1,14 @@
+#!/bin/sh
+# The package now sets up its own APT source (yace.sources). Remove the
+# one-line source from the manual install instructions, so apt doesn't
+# list the repository twice.
+set -e
+if [ "$1" = "configure" ]; then
+    legacy=/etc/apt/sources.list.d/yace.list
+    if [ -f "$legacy" ] && grep -q 'abedmurrar.github.io/yace/apt' "$legacy" \
+        && ! grep -qv -e 'abedmurrar.github.io/yace/apt' -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$legacy"; then
+        rm -f "$legacy"
+    fi
+fi
+#DEBHELPER#
+exit 0
