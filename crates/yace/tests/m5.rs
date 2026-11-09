@@ -372,6 +372,20 @@ fn split_terminals_side_by_side() {
     run(&mut h, "stty size; echo LEFT''PANE");
     let want_a = format!("{} {}", a.height, a.width);
     assert!(h.wait_for(T, |h| screen_has(h, &want_a) && screen_has(h, "LEFTPANE")));
+    // The focused pane is marked on the divider, which lights up on its
+    // side; no pane cell is covered (each pane's first cell is its prompt).
+    let buf = h.render();
+    let divider = |buf: &ratatui::buffer::Buffer| {
+        (a.y..a.bottom()).map(|y| buf[(a.right(), y)].symbol().to_string()).collect::<Vec<_>>()
+    };
+    assert!(divider(&buf).iter().all(|c| c == "▌"), "left pane focused: {:?}", divider(&buf));
+    assert_eq!(buf[(a.x, a.y)].symbol(), "$");
+    assert_eq!(buf[(b.x, b.y)].symbol(), "$");
+    h.key("alt+right");
+    let buf = h.render();
+    assert!(divider(&buf).iter().all(|c| c == "▐"), "right pane focused: {:?}", divider(&buf));
+    assert_eq!(buf[(b.x, b.y)].symbol(), "$");
+    h.key("alt+left");
     // The tab strip shows one tab for the group.
     assert!(screen_has(&mut h, "1: sh │ sh"), "{}", h.screen());
     // Resize: the left pane grows.

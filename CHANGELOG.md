@@ -15,6 +15,9 @@ Security, Performance.
 
 ### Fixed
 
+- In a split terminal, the focused pane's marker no longer covers the first
+  character of its first line. The divider next to the focused pane now
+  lights up on that pane's side instead.
 - `scripts/build_plugin.sh` now builds plugin crates that live outside the
   YACE repository. It builds the crate with its own manifest and packages
   it with the `yace` on `PATH` (or `$YACE`).
@@ -22,6 +25,11 @@ Security, Performance.
   that place an app in each main category (KDE, Xfce) show YACE once.
 - `SECURITY.md`, the release guide and the architecture notes described
   plugins and packaging as planned; they now describe what ships.
+
+### Added
+
+- A 25-second tour of YACE at the top of the README (a GIF) and on the
+  website's introduction (an animated SVG), recorded by the capture tool.
 
 ### Changed
 

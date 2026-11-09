@@ -2404,9 +2404,20 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
         }
         let tab = &app.panel.tabs[*idx];
         draw_terminal_pane(app, buf, tab, *rect);
-        // In a split, mark the focused pane's top-left corner.
-        if several && *idx == app.panel.active && focused {
-            put(buf, rect.x, rect.y, "▘", 1, Style::new().fg(t.focus_border).bg(t.terminal_bg));
+    }
+    // In a split, light the dividers next to the focused pane, as a half
+    // block on its side, so no cell of any pane is covered.
+    if several
+        && focused
+        && let Some(k) = panes.iter().position(|(idx, _)| *idx == app.panel.active)
+    {
+        let rect = panes[k].1;
+        let style = Style::new().fg(t.focus_border).bg(t.terminal_bg);
+        if k > 0 {
+            fill_with(buf, Rect { x: rect.x - 1, width: 1, ..rect }, "▐", style);
+        }
+        if k + 1 < panes.len() {
+            fill_with(buf, Rect { x: rect.x + rect.width, width: 1, ..rect }, "▌", style);
         }
     }
     draw_term_find_bar(app, buf);
