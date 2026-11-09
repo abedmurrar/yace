@@ -13,6 +13,8 @@ Security, Performance.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-10
+
 ### Fixed
 
 - Hover and completion docs no longer run text together. YACE now asks
@@ -811,7 +813,8 @@ Reproduce with `scripts/bench.sh` and `scripts/bench_interactive.py`.
 - Very large files are read on the main thread.
 - There's no crash recovery for unsaved edits yet.
 
-[Unreleased]: https://github.com/abedmurrar/yace/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/abedmurrar/yace/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/abedmurrar/yace/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/abedmurrar/yace/compare/v0.11.4...v0.12.0
 [0.11.4]: https://github.com/abedmurrar/yace/compare/v0.11.3...v0.11.4
 [0.11.3]: https://github.com/abedmurrar/yace/compare/v0.11.2...v0.11.3
