@@ -2,6 +2,42 @@
   "format": 1,
   "plugins": [
     {
+      "id": "io.github.abedmurrar.yace-biome",
+      "name": "Biome",
+      "version": "0.1.0",
+      "description": "Biome in YACE: lint problems, quick fixes and formatting for JavaScript, TypeScript, JSON, CSS and GraphQL",
+      "publisher": "Abed Murrar",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/abedmurrar/yace-biome",
+      "yace": ">=0.13",
+      "code": false,
+      "packages": [
+        {
+          "target": "any",
+          "url": "https://github.com/abedmurrar/yace-biome/releases/download/v0.1.0/yace-biome-0.1.0.tar.gz",
+          "sha256": "235ea8100390c376dfed28260452a7624adfe001adbf05d6b70e0854ad86f340"
+        }
+      ]
+    },
+    {
+      "id": "io.github.abedmurrar.yace-eslint",
+      "name": "ESLint",
+      "version": "0.1.0",
+      "description": "ESLint in YACE: lint problems and quick fixes for JavaScript and TypeScript, using your project's ESLint and configuration",
+      "publisher": "Abed Murrar",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/abedmurrar/yace-eslint",
+      "yace": ">=0.13",
+      "code": false,
+      "packages": [
+        {
+          "target": "any",
+          "url": "https://github.com/abedmurrar/yace-eslint/releases/download/v0.1.0/yace-eslint-0.1.0.tar.gz",
+          "sha256": "08df716eccbcfa8aa1d08578802c30d30ce53a7a9dc1288105d0d7290d7a5c89"
+        }
+      ]
+    },
+    {
       "id": "io.github.abedmurrar.yace-themes",
       "name": "YACE Themes",
       "version": "0.1.0",

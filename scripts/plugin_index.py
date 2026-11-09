@@ -29,6 +29,8 @@ INDEX = ROOT / "site/src/plugins/index.json"
 PAGE = ROOT / "site/src/plugins/using.md"
 START, END = "<!-- plugin-index:start -->", "<!-- plugin-index:end -->"
 FORMAT = 1
+# YACE 0.12 and 0.13 reject entries with fields they don't know: a new
+# field needs a new FORMAT (0.14 and later ignore unknown fields).
 ID = re.compile(r"^[a-z0-9_][a-z0-9_-]*(\.[a-z0-9_][a-z0-9_-]*)+$")
 MAX_BYTES = 256 << 20
 
@@ -67,7 +69,7 @@ def listing(index):
     lines = []
     for e in sorted(index["plugins"], key=lambda e: e["name"].lower()):
         name = f"[{e['name']}]({e['repository']})" if e.get("repository") else e["name"]
-        kind = "Native code" if e.get("code") else "Data only"
+        kind = "Native code" if e.get("code") else "No plugin code"
         desc = e.get("description", "").rstrip(".")
         lines.append(f"| {name} | {desc}. {kind}. | `yace --install-plugin {e['id']}` |")
     if not lines:

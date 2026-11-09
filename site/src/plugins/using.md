@@ -60,7 +60,9 @@ Plugins in the index:
 <!-- plugin-index:start -->
 | Plugin | What it is | Install |
 |---|---|---|
-| [YACE Themes](https://github.com/abedmurrar/yace-themes) | Four colour themes: Retro Blue, Phosphor (green on black), High Contrast and Low Contrast. Data only. | `yace --install-plugin io.github.abedmurrar.yace-themes` |
+| [Biome](https://github.com/abedmurrar/yace-biome) | Biome in YACE: lint problems, quick fixes and formatting for JavaScript, TypeScript, JSON, CSS and GraphQL. No plugin code. | `yace --install-plugin io.github.abedmurrar.yace-biome` |
+| [ESLint](https://github.com/abedmurrar/yace-eslint) | ESLint in YACE: lint problems and quick fixes for JavaScript and TypeScript, using your project's ESLint and configuration. No plugin code. | `yace --install-plugin io.github.abedmurrar.yace-eslint` |
+| [YACE Themes](https://github.com/abedmurrar/yace-themes) | Four colour themes: Retro Blue, Phosphor (green on black), High Contrast and Low Contrast. No plugin code. | `yace --install-plugin io.github.abedmurrar.yace-themes` |
 <!-- plugin-index:end -->
 
 Browse Plugins marks the ones you have installed, and offers the newer

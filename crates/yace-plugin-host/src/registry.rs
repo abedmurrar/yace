@@ -34,8 +34,9 @@ pub fn index_url() -> String {
     std::env::var("YACE_PLUGIN_INDEX").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| DEFAULT_INDEX.into())
 }
 
+/// Fields this YACE doesn't know are ignored, so the format can grow
+/// (YACE 0.12 and 0.13 rejected them).
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Index {
     pub format: u32,
     pub plugins: Vec<Entry>,
@@ -43,7 +44,6 @@ pub struct Index {
 
 /// One plugin, as listed in the index.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Entry {
     pub id: String,
     pub name: String,
@@ -75,7 +75,6 @@ fn any_version() -> String {
 /// A downloadable package: for one platform (`linux-x86_64`), or `any`
 /// for data-only plugins.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Package {
     pub target: String,
     pub url: String,
@@ -252,12 +251,16 @@ mod tests {
                 ),
                 "twice",
             ),
-            (r#"{"format":1,"plugins":[],"extra":1}"#.to_string(), "unknown field"),
         ];
         for (text, want) in cases {
             let err = parse(&text).unwrap_err();
             assert!(err.contains(want), "{err}");
         }
+        // Fields a later index may add are ignored.
+        let newer = ok
+            .replace(r#""format":1,"#, r#""format":1,"generated":"x","#)
+            .replace(r#""name":"Demo","#, r#""name":"Demo","servers":["biome"],"#);
+        assert_eq!(parse(&newer).unwrap().plugins[0].id, "dev.yace.demo");
     }
 
     /// The whole download path through curl, with `file://` URLs.

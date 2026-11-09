@@ -25,6 +25,15 @@ Security, Performance.
   latest text before exiting. Backups are deleted on save, on "Don't Save"
   and on a clean quit; another window's backups are left alone.
 
+- The plugin index lists the [ESLint](https://github.com/abedmurrar/yace-eslint)
+  and [Biome](https://github.com/abedmurrar/yace-biome) plugins:
+  `yace --install-plugin io.github.abedmurrar.yace-eslint` (or `…yace-biome`).
+
+### Changed
+
+- The plugin index may add fields: YACE now ignores the ones it doesn't
+  know (0.12 and 0.13 rejected them).
+
 ## [0.13.0] - 2026-11-10
 
 ### Added
