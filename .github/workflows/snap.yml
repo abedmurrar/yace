@@ -44,6 +44,7 @@ jobs:
           name: snap-${{ matrix.os }}
           path: ${{ steps.build.outputs.snap }}
       - name: Publish to the Snap Store
+        shell: bash
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
         run: |
@@ -52,4 +53,13 @@ jobs:
             exit 0
           fi
           sudo snap install snapcraft --classic
-          snapcraft upload --release="${{ inputs.channel }}" "${{ steps.build.outputs.snap }}"
+          # Until the store approves classic confinement, every upload is
+          # held for manual review: report that, don't fail the release.
+          if snapcraft upload --release="${{ inputs.channel }}" "${{ steps.build.outputs.snap }}" 2>&1 | tee upload.log; then
+            exit 0
+          fi
+          if grep -q "confinement 'classic' not allowed" upload.log; then
+            echo "::warning::Uploaded; held for manual review until classic confinement is approved (forum: store-requests/classic-confinement)"
+            exit 0
+          fi
+          exit 1
