@@ -69,7 +69,7 @@ jobs:
             exit 0
           fi
           mkdir -p debs
-          if ! gh release download --repo "$GITHUB_REPOSITORY" --pattern 'yace_*.deb' --dir debs; then
+          if ! gh release download --repo "$GITHUB_REPOSITORY" --pattern 'yace_*-*_*.deb' --dir debs; then
             echo "::warning::No release with .deb packages yet: publishing the site without the APT repository"
             exit 0
           fi
