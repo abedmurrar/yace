@@ -13,6 +13,13 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- The theme docs and "Using plugins" link to
+  [YACE Themes](https://github.com/abedmurrar/yace-themes), a separate
+  plugin with four themes: Retro Blue, Phosphor, High Contrast and Low
+  Contrast.
+
 ## [0.11.4] - 2026-11-09
 
 ### Fixed

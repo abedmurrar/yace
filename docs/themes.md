@@ -30,6 +30,21 @@ When YACE reads a workspace's VS Code settings, `workbench.colorTheme`
 names map to the closest built-in theme ("Default Dark Modern" → YACE
 Dark, "One Dark Pro" → One Dark, …).
 
+### More themes
+
+[YACE Themes](https://github.com/abedmurrar/yace-themes) is a plugin with
+four more: **Retro Blue** (the blue-screen DOS IDEs), **Phosphor** (green
+on black), **High Contrast** (every text colour at least 7:1, WCAG AAA)
+and **Low Contrast** (soft and muted). It's data only, so no code runs:
+
+```sh
+curl -fsSLO https://github.com/abedmurrar/yace-themes/releases/latest/download/yace-themes.tar.gz
+yace --install-plugin yace-themes.tar.gz
+```
+
+Any plugin can add themes with `[[themes]]` in its manifest
+([plugins.md](plugins.md)).
+
 ## Overriding colours
 
 Keep a theme but change a few colours in `config.toml` (VS Code's keys and

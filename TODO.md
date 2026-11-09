@@ -666,6 +666,7 @@ Legend:
 - [x] [M10] CHANGELOG process — `CHANGELOG.md` (Keep a Changelog), `scripts/release.sh`, annotated `vX.Y.Z` tags
 - [x] Documentation website (mdBook, site/; deploys with .github/workflows/pages.yml once the repo is public)
 - [x] README tour (GIF from the capture tool's `tour` scene via agg) and "How YACE compares" (README + site page, a source for every cell; `scripts/bench_compare.sh` measures Helix, Micro, Neovim and YACE in one container) — v0.11.4
+- [x] External theme pack `abedmurrar/yace-themes` v0.1.0 (Retro Blue, Phosphor, High Contrast, Low Contrast; contrast-checked in CI) — 2026-11-09
 - [ ] Launch: Show HN, r/rust, r/commandline, awesome-ratatui, awesome-tuis, ratatui.rs showcase; awesome-rust after 50 stars (drafts prepared 2026-11-09; the owner posts)
 - [x] Website screenshots and recordings generated from the real release binary in a PTY (`site/capture/`: SVG stills, animated SVG recordings and asciicast v2 sources, in `site/src/media/`)
 

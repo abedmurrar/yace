@@ -36,6 +36,11 @@ only when needed: here, when a folder contains a `package.json`,
 
 ![Quick Open with the ! prefix, provided by the Task Runner](../media/plugin-quick-open.svg)
 
+## Plugins from other repositories
+
+- [YACE Themes](https://github.com/abedmurrar/yace-themes): Retro Blue,
+  Phosphor (green on black), High Contrast and Low Contrast. Data only.
+
 ## Manage plugins
 
 "Extensions: List Installed" lists every plugin with its state. Pick one
