@@ -13,6 +13,24 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- Find in the terminal (`Ctrl+F` in a terminal) searches the screen and
+  the scrollback: match case, whole word, regex, and a "3 of 41" count.
+  Enter goes up to older output, Shift+Enter comes back down. The match
+  is selected, so `Ctrl+C` copies it. The search runs off the UI thread
+  in 1,000-line chunks, so typing and the shell's output never wait:
+  each lock is held about 1.5 ms, even over 100,000 lines of scrollback.
+- Split terminals: `Ctrl+Shift+5` (or `Alt+\`) opens a new shell beside
+  the focused one, in its current folder.
+  - Each pane's shell gets its own size.
+  - `Alt+arrows` move between panes and `Ctrl+Shift+Left/Right` resize
+    them; with no split, those keys still go to the shell. Dragging a
+    divider resizes too.
+  - A split is one tab, "1: zsh │ node", and splits come back with the
+    session.
+  - "Unsplit Terminal" moves a pane to its own tab.
+
 ## [0.9.0] - 2026-11-09
 
 ### Added

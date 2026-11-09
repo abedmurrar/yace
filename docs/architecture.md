@@ -52,6 +52,7 @@ isolation.
 | search runner | one cancel flag per search | `Effect::Search` / `SearchCancel` | `SearchFile` per file, `SearchDone` |
 | search updater (started on first use) | — | `Effect::SearchUpdate` (changed files only, run in order) | `SearchFileUpdate` per file |
 | find worker | — | `Effect::Find` (rope snapshot, O(1) clone; searched in 64 KiB pieces, no full copy) | `FindDone` |
+| terminal find worker (started on first use) | — | `Effect::TermFind` (a `Searcher` handle on the terminal grid; a newer job stops the running one) | `TermFindDone` (match + count, capped at 1000) |
 | watcher thread (`run::FsWatcher`) | the `notify` watcher | `Effect::Watch` / `Unwatch` | `FsChanged`, `FsRescan` (queue overflow), `WatchFailed` |
 | file loader | — | `Effect::LoadFile` (files > 1 MiB) | `FileLoaded` |
 | syntax worker (started on first use) | — | `Effect::Parse` (rope snapshot + old tree); jobs for the same document collapse to the newest | `Parsed { cost }` |

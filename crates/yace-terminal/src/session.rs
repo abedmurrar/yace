@@ -17,10 +17,14 @@ use alacritty_terminal::{
     event::{Event, EventListener, WindowSize},
     event_loop::{EventLoop, EventLoopSender, Msg},
     grid::{Dimensions, Scroll},
-    index::{Column, Line, Point, Side},
+    index::{Boundary, Column, Direction, Line, Point, Side},
     selection::{Selection, SelectionType},
     sync::FairMutex,
-    term::{Config, TermMode, cell::Flags},
+    term::{
+        Config, TermMode,
+        cell::Flags,
+        search::{RegexIter, RegexSearch},
+    },
     tty,
     vte::ansi::{Color, NamedColor, Rgb},
 };
@@ -177,6 +181,53 @@ pub enum TermColor {
     Rgb(u8, u8, u8),
 }
 
+/// A search match in the terminal: first and last cell, inclusive, as
+/// (absolute line, column). Absolute lines count from the oldest line in
+/// the scrollback, so a match stays put while new output arrives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TermMatch {
+    pub start: (usize, usize),
+    pub end: (usize, usize),
+}
+
+impl TermMatch {
+    fn from<T>(m: &std::ops::RangeInclusive<Point>, t: &Term<T>) -> Self {
+        let h = t.grid().history_size() as i32;
+        let abs = |p: &Point| ((p.line.0 + h).max(0) as usize, p.column.0);
+        Self { start: abs(m.start()), end: abs(m.end()) }
+    }
+    fn point<T>(t: &Term<T>, (line, col): (usize, usize)) -> Point {
+        Point::new(Line(line as i32 - t.grid().history_size() as i32), Column(col))
+    }
+}
+
+/// Lines searched while holding the terminal lock, at most: output keeps
+/// flowing during a long search.
+const SEARCH_CHUNK: i32 = 1_000;
+
+/// A compiled terminal search (spec §11: search in the scrollback).
+#[derive(Debug, Clone)]
+pub struct TermQuery {
+    re: RegexSearch,
+}
+
+impl TermQuery {
+    /// Literal unless `regex`; `whole_word` adds word boundaries. Case
+    /// follows `case_sensitive` (not alacritty's smart case).
+    pub fn new(query: &str, case_sensitive: bool, whole_word: bool, regex: bool) -> Result<Self, String> {
+        if query.is_empty() {
+            return Err("empty query".into());
+        }
+        let body = if regex { query.to_string() } else { regex::escape(query) };
+        // The DFA engine only supports ASCII word boundaries.
+        let body = if whole_word { format!(r"(?-u:\b)(?:{body})(?-u:\b)") } else { body };
+        let flags = if case_sensitive { "(?-i)" } else { "(?i)" };
+        RegexSearch::new(&format!("{flags}{body}"))
+            .map(|re| Self { re })
+            .map_err(|e| e.to_string().lines().last().unwrap_or("invalid regular expression").trim().to_string())
+    }
+}
+
 /// Cell attributes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CellStyle {
@@ -188,6 +239,9 @@ pub struct CellStyle {
     pub strike: bool,
     pub hidden: bool,
     pub selected: bool,
+    /// Part of a search match / of the current one.
+    pub find_match: bool,
+    pub find_current: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -326,6 +380,141 @@ pub struct Session {
     size: Arc<Mutex<WindowSize>>,
     pid: u32,
     shutdown: bool,
+}
+
+/// Searches a terminal's screen and scrollback from a worker thread, a
+/// chunk of lines at a time, so neither the UI nor the shell's output
+/// waits for it.
+#[derive(Clone)]
+pub struct Searcher {
+    term: Arc<FairMutex<Term<Listener>>>,
+}
+
+impl std::fmt::Debug for Searcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Searcher")
+    }
+}
+
+impl Searcher {
+    /// The nearest match older (`up`) or newer than `from` (from the
+    /// bottom when `None`), wrapping around. `stop` is checked between
+    /// chunks; a stopped search returns `None`.
+    pub fn find(
+        &self,
+        q: &mut TermQuery,
+        from: Option<TermMatch>,
+        up: bool,
+        stop: &dyn Fn() -> bool,
+    ) -> Option<TermMatch> {
+        // Work in absolute lines; convert under each lock.
+        let (total, origin_abs) = {
+            let t = self.term.lock();
+            let total = t.grid().history_size() + t.screen_lines();
+            let origin = match from {
+                None => (total - 1, t.columns()), // past the last cell
+                Some(m) if up => m.start,
+                Some(m) => m.end,
+            };
+            (total, origin)
+        };
+        // Scan from the origin to the edge, then wrap from the other edge
+        // back to the origin.
+        let mut line = origin_abs.0 as i64;
+        let mut first = true;
+        let mut wrapped = false;
+        loop {
+            if stop() {
+                return None;
+            }
+            let t = self.term.lock();
+            let h = t.grid().history_size() as i64;
+            let last = t.last_column();
+            let (from_pt, to_pt, next) = if up {
+                let end_line = (line - i64::from(SEARCH_CHUNK) + 1).max(0);
+                let col = if first { origin_abs.1 } else { last.0 + 1 };
+                let a = Point::new(Line((line - h) as i32), Column(col.min(last.0)));
+                (a, Point::new(Line((end_line - h) as i32), Column(0)), end_line - 1)
+            } else {
+                let end_line = (line + i64::from(SEARCH_CHUNK) - 1).min(total as i64 - 1);
+                let col = if first { origin_abs.1 } else { 0 };
+                let a = Point::new(Line((line - h) as i32), Column(col.min(last.0)));
+                (a, Point::new(Line((end_line - h) as i32), last), end_line + 1)
+            };
+            let skip_origin = first && from.is_some();
+            let dir = if up { Direction::Left } else { Direction::Right };
+            let hit = RegexIter::new(from_pt, to_pt, dir, &t, &mut q.re).map(|m| TermMatch::from(&m, &t)).find(|m| {
+                !(skip_origin && Some(*m) == from) && (from.is_none() || !first || before(m, origin_abs, up))
+            });
+            if let Some(m) = hit {
+                return Some(m);
+            }
+            drop(t);
+            first = false;
+            if wrapped && ((up && next < origin_abs.0 as i64) || (!up && next > origin_abs.0 as i64)) {
+                return None;
+            }
+            if next < 0 || next >= total as i64 {
+                if wrapped {
+                    return None;
+                }
+                wrapped = true;
+                line = if up { total as i64 - 1 } else { 0 };
+            } else {
+                line = next;
+            }
+        }
+    }
+
+    /// How many matches there are (at most `cap`), and the 1-based number
+    /// of `current` counted from the top. `None` when stopped.
+    pub fn count(
+        &self,
+        q: &mut TermQuery,
+        current: Option<TermMatch>,
+        cap: usize,
+        stop: &dyn Fn() -> bool,
+    ) -> Option<(usize, Option<usize>)> {
+        let total = {
+            let t = self.term.lock();
+            t.grid().history_size() + t.screen_lines()
+        };
+        let mut n = 0;
+        let mut at = None;
+        let mut line = 0usize;
+        let mut col = 0usize;
+        while line < total && n < cap {
+            if stop() {
+                return None;
+            }
+            let t = self.term.lock();
+            let h = t.grid().history_size() as i64;
+            let end_line = (line + SEARCH_CHUNK as usize).min(total) - 1;
+            let a = Point::new(Line((line as i64 - h) as i32), Column(col.min(t.last_column().0)));
+            let b = Point::new(Line((end_line as i64 - h) as i32), t.last_column());
+            let mut next = (end_line + 1, 0);
+            for m in RegexIter::new(a, b, Direction::Right, &t, &mut q.re) {
+                let tm = TermMatch::from(&m, &t);
+                n += 1;
+                if current == Some(tm) {
+                    at = Some(n);
+                }
+                if tm.end.0 > end_line {
+                    next = (tm.end.0, tm.end.1 + 1); // continue after a match that ran on
+                }
+                if n >= cap {
+                    break;
+                }
+            }
+            (line, col) = next;
+        }
+        Some((n, at))
+    }
+}
+
+/// `m` lies before `origin` in the search direction.
+fn before(m: &TermMatch, origin: (usize, usize), up: bool) -> bool {
+    if up { m.start < origin } else { m.start > origin }
 }
 
 impl std::fmt::Debug for Session {
@@ -491,6 +680,53 @@ impl Session {
         self.term.lock().selection.as_ref().is_some_and(|s| !s.is_empty())
     }
 
+    // --- search --------------------------------------------------------------
+
+    /// A handle for searching this terminal from another thread.
+    pub fn searcher(&self) -> Searcher {
+        Searcher { term: Arc::clone(&self.term) }
+    }
+
+    /// Scroll to a match and select it (so copying takes it).
+    pub fn show_match(&self, m: TermMatch) {
+        let mut t = self.term.lock();
+        let (a, b) = (TermMatch::point(&t, m.start), TermMatch::point(&t, m.end));
+        if a.line.0 < -(t.grid().history_size() as i32) {
+            return; // scrolled out of the history meanwhile
+        }
+        t.scroll_to_point(a);
+        let mut sel = Selection::new(SelectionType::Simple, a, Side::Left);
+        sel.update(b, Side::Right);
+        t.selection = Some(sel);
+    }
+
+    /// [`Session::screen`] with the matches of `q` on screen highlighted
+    /// (and `current` marked). Only the visible lines are searched.
+    pub fn screen_with_matches(&self, out: &mut Screen, q: &mut TermQuery, current: Option<TermMatch>) {
+        self.screen(out);
+        let t = self.term.lock();
+        let offset = t.grid().display_offset() as i32;
+        let top = Point::new(Line(-offset), Column(0));
+        let bottom = Point::new(Line(t.screen_lines() as i32 - 1 - offset), t.last_column());
+        let cols = out.cols;
+        for m in RegexIter::new(top, bottom, Direction::Right, &t, &mut q.re) {
+            let is_current = current.is_some_and(|c| TermMatch::from(&m, &t) == c);
+            let mut p = *m.start();
+            loop {
+                let row = p.line.0 + offset;
+                if row >= 0 && (row as usize) < out.rows && p.column.0 < cols {
+                    let st = &mut out.cells[row as usize * cols + p.column.0].style;
+                    st.find_match = true;
+                    st.find_current |= is_current;
+                }
+                if p >= *m.end() {
+                    break;
+                }
+                p = p.add(&*t, Boundary::None, 1);
+            }
+        }
+    }
+
     /// Snapshot the visible screen.
     pub fn screen(&self, out: &mut Screen) {
         let t = self.term.lock();
@@ -540,6 +776,8 @@ impl Session {
                     strike: f.contains(Flags::STRIKEOUT),
                     hidden: f.contains(Flags::HIDDEN),
                     selected,
+                    find_match: false,
+                    find_current: false,
                 },
             };
         }

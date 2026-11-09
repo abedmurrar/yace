@@ -271,3 +271,153 @@ fn f6_cycles_editor_terminal_sidebar() {
     h.key("shift+f6");
     assert_eq!(h.app.focus, Focus::Editor, "Shift+F6 goes back to the editor");
 }
+
+/// Ctrl+F in a terminal searches its scrollback: typing finds the newest
+/// match first, Enter goes up to older output, Shift+Enter back down; the
+/// match is selected (Ctrl+C copies it) and the shell gets none of the
+/// keys typed into the find bar.
+#[test]
+fn find_in_the_terminal_scrollback() {
+    let d = tempfile::tempdir().unwrap();
+    let mut h = Harness::with_config(SH);
+    initial_workspace(
+        &mut h.app,
+        &Launch { target: Target::Folder(d.path().to_path_buf()), add_roots: vec![], goto: None, restore: false },
+    );
+    h.settle();
+    h.key("ctrl+`");
+    assert!(h.wait_for(T, |h| screen_has(h, "$ ")));
+    run(&mut h, "i=0; while [ $i -lt 400 ]; do echo item$i; i=$((i+1)); done; echo LIST''DONE");
+    assert!(h.wait_for(T, |h| screen_has(h, "LISTDONE")));
+    h.key("ctrl+f");
+    assert_eq!(h.app.focus, Focus::TerminalFind);
+    h.type_text("item25");
+    assert_eq!(h.app.term_find.status(), "11 of 11", "item25, item250–259: the newest is selected");
+    assert!(screen_has(&mut h, "item259"), "scrolled to it");
+    let tab = h.app.panel.active_tab().unwrap();
+    assert_eq!(tab.session.as_ref().unwrap().selection_text().as_deref(), Some("item25"));
+    h.key("enter");
+    assert_eq!(h.app.term_find.status(), "10 of 11", "Enter goes up");
+    h.key("shift+enter");
+    h.key("shift+enter");
+    assert_eq!(h.app.term_find.status(), "1 of 11", "past the newest wraps to the oldest");
+    // Whole word: only item25.
+    h.key("alt+w");
+    assert_eq!(h.app.term_find.status(), "1 of 1");
+    h.key("alt+w");
+    h.key("alt+r");
+    h.key("ctrl+a");
+    h.type_text("item3\\d\\d");
+    assert_eq!(h.app.term_find.status(), "100 of 100");
+    h.type_text("(");
+    assert!(h.app.term_find.error.is_some(), "invalid regex is reported");
+    h.key("backspace");
+    // Escape closes the bar; the match stays selected, so Ctrl+C copies it.
+    h.key("escape");
+    assert_eq!(h.app.focus, Focus::Terminal);
+    assert!(!h.app.term_find.visible);
+    h.key("ctrl+c");
+    assert_eq!(h.app.clipboard.get().text, "item399");
+    // None of the find-bar typing reached the shell.
+    run(&mut h, "echo AFTER''FIND");
+    assert!(h.wait_for(T, |h| screen_has(h, "AFTERFIND")));
+    assert!(!screen_has(&mut h, "item25item"), "no stray input in the shell");
+}
+
+fn pane_rects(h: &Harness) -> Vec<(usize, ratatui::layout::Rect)> {
+    let content = yace_app::ui::workbench_layout(&h.app).panel_content.unwrap();
+    yace_app::ui::terminal_panes(&h.app, content)
+}
+
+/// Split terminals: shells side by side, each PTY sized to its pane, keys
+/// to the focused one; Alt+arrows move between panes, Ctrl+Shift+arrows
+/// resize; one tab per group; kill, unsplit, and the session round trip.
+#[test]
+fn split_terminals_side_by_side() {
+    let d = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let cfg = state.path().join("config");
+    std::fs::create_dir_all(&cfg).unwrap();
+    std::fs::write(cfg.join("config.toml"), SH).unwrap();
+    let state_path = state.path().to_path_buf();
+    let mut h = Harness::with_state(state);
+    initial_workspace(
+        &mut h.app,
+        &Launch { target: Target::Folder(d.path().to_path_buf()), add_roots: vec![], goto: None, restore: false },
+    );
+    h.settle();
+    h.key("ctrl+`");
+    assert!(h.wait_for(T, |h| screen_has(h, "$ ")));
+    h.key("ctrl+shift+5");
+    assert_eq!(h.app.panel.tabs.len(), 2, "Ctrl+Shift+5 splits");
+    let panes = pane_rects(&h);
+    assert_eq!(panes.len(), 2);
+    assert_eq!(panes[1].0, h.app.panel.active, "the new pane has focus");
+    let (a, b) = (panes[0].1, panes[1].1);
+    assert_eq!(a.right() + 1, b.x, "one-column divider");
+    assert!(a.width.abs_diff(b.width) <= 1, "split evenly: {a:?} {b:?}");
+    assert!(h.wait_for(T, |h| {
+        h.app.panel.tabs[1].session.as_ref().is_some_and(|s| {
+            let mut sc = yace_terminal::Screen::default();
+            s.screen(&mut sc);
+            sc.text().contains('$')
+        })
+    }));
+    // Each PTY matches its pane.
+    run(&mut h, "stty size; echo RIGHT''PANE");
+    let want_b = format!("{} {}", b.height, b.width);
+    assert!(h.wait_for(T, |h| screen_has(h, &want_b) && screen_has(h, "RIGHTPANE")), "{}", h.screen());
+    h.key("alt+left");
+    assert_eq!(h.app.panel.active, panes[0].0);
+    run(&mut h, "stty size; echo LEFT''PANE");
+    let want_a = format!("{} {}", a.height, a.width);
+    assert!(h.wait_for(T, |h| screen_has(h, &want_a) && screen_has(h, "LEFTPANE")));
+    // The tab strip shows one tab for the group.
+    assert!(screen_has(&mut h, "1: sh │ sh"), "{}", h.screen());
+    // Resize: the left pane grows.
+    h.key("ctrl+shift+right");
+    h.settle();
+    let wider = pane_rects(&h)[0].1;
+    assert!(wider.width > a.width, "{wider:?} vs {a:?}");
+    run(&mut h, "stty size");
+    let want = format!("{} {}", wider.height, wider.width);
+    assert!(h.wait_for(T, |h| screen_has(h, &want)), "PTY follows the resize");
+    // A second tab, then back: Ctrl+PageDown moves between tabs (groups).
+    h.command("workbench.action.terminal.new");
+    assert_eq!(pane_rects(&h).len(), 1);
+    h.key("ctrl+pagedown");
+    assert_eq!(pane_rects(&h).len(), 2, "back to the split tab");
+    // Kill one pane: the other stays, alone in its tab.
+    h.app.panel.active = pane_rects(&h)[1].0;
+    h.command("workbench.action.terminal.kill");
+    assert_eq!(h.app.panel.tabs.len(), 2);
+    assert_eq!(pane_rects(&h).len(), 1);
+    // Split again (Alt+\ in a terminal without the enhanced keyboard
+    // protocol) and unsplit: two tabs of one pane each.
+    h.app.keyboard_enhanced = false;
+    h.key("alt+\\");
+    h.app.keyboard_enhanced = true;
+    assert_eq!(pane_rects(&h).len(), 2);
+    h.command("workbench.action.terminal.unsplit");
+    assert_eq!(pane_rects(&h).len(), 1);
+    assert_eq!(h.app.panel.groups().len(), 3);
+    h.command("workbench.action.terminal.split");
+    let groups = h.app.panel.groups().len();
+    let tabs = h.app.panel.tabs.len();
+    // Session: the group survives a restart.
+    h.app.save_session();
+    std::mem::forget(h.state);
+    let reopened = tempfile::TempDir::new_in(state_path.parent().unwrap()).unwrap();
+    copy_dir(&state_path, reopened.path());
+    {
+        let mut h2 = Harness::with_state(reopened);
+        initial_workspace(
+            &mut h2.app,
+            &Launch { target: Target::Folder(d.path().to_path_buf()), add_roots: vec![], goto: None, restore: true },
+        );
+        h2.settle();
+        assert_eq!(h2.app.panel.tabs.len(), tabs);
+        assert_eq!(h2.app.panel.groups().len(), groups, "split groups are restored");
+    }
+    let _ = std::fs::remove_dir_all(&state_path);
+}

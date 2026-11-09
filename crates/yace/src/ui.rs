@@ -265,6 +265,11 @@ pub fn draw(app: &App, f: &mut Frame) {
             }
             Focus::Explorer => None,
             Focus::Terminal => terminal_cursor(app, &wl),
+            Focus::TerminalFind => term_find_layout(app, &wl).map(|l| {
+                let cells = app.term_find.query.cursor_cells() as u16;
+                let scroll = cells.saturating_sub(l.query.width.saturating_sub(2));
+                (l.query.x + 1 + cells - scroll, l.query.y)
+            }),
         };
     }
     if let Some(o) = app.overlays.last() {
@@ -1904,6 +1909,91 @@ fn draw_find_bar(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
     }
 }
 
+/// The active terminal's screen, with find matches marked while the
+/// terminal find bar is open.
+fn terminal_screen(app: &App, tab: &crate::app::TermTab) -> Option<yace_terminal::Screen> {
+    let f = &app.term_find;
+    if f.visible
+        && let Some(s) = tab.session.as_ref()
+        && let Some(q) = f.highlight.borrow_mut().as_mut()
+    {
+        let mut screen = yace_terminal::Screen::default();
+        let current = if f.session == Some(tab.id) { f.current } else { None };
+        s.screen_with_matches(&mut screen, q, current);
+        s.mark_seen();
+        return Some(screen);
+    }
+    crate::app::terminal_snapshot(tab)
+}
+
+/// Clickable parts of the terminal find bar (top right of the panel).
+#[derive(Debug, Clone)]
+pub struct TermFindBar {
+    pub row: Rect,
+    pub query: Rect,
+    pub status: Rect,
+    pub toggles: Vec<(char, Rect)>,
+    pub close: Rect,
+}
+
+pub fn term_find_layout(app: &App, wl: &WorkbenchLayout) -> Option<TermFindBar> {
+    if !app.term_find.visible || !app.panel.visible {
+        return None;
+    }
+    let content = active_pane(app, wl)?;
+    let w = content.width.min(56);
+    if w < 24 || content.height == 0 {
+        return None;
+    }
+    let row = Rect { x: content.right() - w, y: content.y, width: w, height: 1 };
+    // ▌[query……] 12 of 345 Aa ab .* ×
+    let status_w = 10;
+    let toggles_w = 3 * 3;
+    let input_w = w.saturating_sub(1 + status_w + toggles_w + 2).max(6);
+    let query = Rect { x: row.x + 1, width: input_w, ..row };
+    let status = Rect { x: query.right(), width: status_w, ..row };
+    let mut x = status.right();
+    let mut toggles = Vec::new();
+    for c in ['c', 'w', 'r'] {
+        toggles.push((c, Rect { x, width: 2, ..row }));
+        x += 3;
+    }
+    let close = Rect { x: row.right().saturating_sub(2), width: 2, ..row };
+    Some(TermFindBar { row, query, status, toggles, close })
+}
+
+fn draw_term_find_bar(app: &App, buf: &mut Buffer) {
+    let wl = workbench_layout(app);
+    let Some(lay) = term_find_layout(app, &wl) else { return };
+    let t = &app.theme;
+    let bar = Style::new().fg(t.overlay_fg).bg(t.overlay_bg);
+    let focused = app.focus == Focus::TerminalFind && app.overlays.is_empty();
+    fill(buf, lay.row, bar);
+    put(
+        buf,
+        lay.row.x,
+        lay.row.y,
+        if focused { "▌" } else { " " },
+        1,
+        Style::new().fg(t.focus_border).bg(t.overlay_bg),
+    );
+    let f = &app.term_find;
+    draw_input(app, buf, lay.query, &f.query, "Find");
+    let status = if f.query.text.is_empty() { "Esc closes".to_string() } else { f.status() };
+    let st_style = if f.error.is_some() || status == "No results" { bar.fg(t.error) } else { bar.fg(t.muted) };
+    put(buf, lay.status.x + 1, lay.status.y, &ellipsize(&status, 9, app.glyphs.ellipsis), 9, st_style);
+    for (c, r) in &lay.toggles {
+        let (label, on) = match c {
+            'c' => ("Aa", f.opts.case_sensitive),
+            'w' => ("ab", f.opts.whole_word),
+            _ => (".*", f.opts.regex),
+        };
+        let s = if on { Style::new().fg(t.list_active_fg).bg(t.focus_border) } else { bar.fg(t.muted) };
+        put(buf, r.x, r.y, label, r.width, s);
+    }
+    put(buf, lay.close.x, lay.close.y, &format!(" {}", app.glyphs.close), 2, bar);
+}
+
 fn find_bar_cursor(app: &App, gl: &GroupLayout) -> Option<(u16, u16)> {
     let lay = find_bar_layout(app, gl)?;
     let (ir, input) = match app.find.field {
@@ -2116,12 +2206,15 @@ pub type PanelTabCell = (usize, u16, u16, u16);
 pub fn panel_tab_cells(app: &App, strip: Rect) -> (Vec<PanelTabCell>, Option<Rect>) {
     let mut x = strip.x + 10; // " TERMINAL "
     let mut out = Vec::new();
-    for i in 0..app.panel.tabs.len() {
-        let label = app.terminal_label(i);
+    // One tab per group of split terminals; it stands for the group's
+    // focused terminal (else its first).
+    for (n, panes) in app.panel.groups().into_iter().enumerate() {
+        let label = app.terminal_group_label(n + 1, &panes);
         let w = (UnicodeWidthStr::width(label.as_str()) as u16 + 4).min(40);
         if x + w > strip.right().saturating_sub(3) {
             break;
         }
+        let i = if panes.contains(&app.panel.active) { app.panel.active } else { panes[0] };
         out.push((i, x, w, x + w - 2));
         x += w;
     }
@@ -2158,13 +2251,14 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
     fill(buf, strip, Style::new().fg(t.sidebar_fg).bg(t.tab_bar_bg));
     put(buf, strip.x, strip.y, " TERMINAL ", 10, t.title(focused).bg(t.tab_bar_bg));
     let (cells, plus) = panel_tab_cells(app, strip);
-    for (i, x, w, close_x) in cells {
-        let active = i == app.panel.active;
+    for (n, (i, x, w, close_x)) in cells.into_iter().enumerate() {
+        let panes = app.panel.panes_of(i);
+        let active = panes.contains(&app.panel.active);
         let style =
             if active && !t.is_mono() { Style::new().fg(t.tab_active_fg).bg(t.terminal_bg) } else { t.tab(active) };
         let r = Rect { x, y: strip.y, width: w, height: 1 };
         fill(buf, r, style);
-        let label = app.terminal_label(i);
+        let label = app.terminal_group_label(n + 1, &panes);
         put(
             buf,
             x + 1,
@@ -2179,7 +2273,7 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
         put(buf, p.x, p.y, "+", 1, Style::new().fg(t.sidebar_fg).bg(t.tab_bar_bg).add_modifier(Modifier::BOLD));
     }
     fill(buf, content, Style::new().fg(t.terminal_fg).bg(t.terminal_bg));
-    let Some(tab) = app.panel.active_tab() else {
+    let Some(_) = app.panel.active_tab() else {
         put(
             buf,
             content.x + 2,
@@ -2190,6 +2284,57 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
         );
         return;
     };
+    let panes = terminal_panes(app, content);
+    let several = panes.len() > 1;
+    for (k, (idx, rect)) in panes.iter().enumerate() {
+        if k > 0 {
+            // The divider left of this pane.
+            let div = Rect { x: rect.x - 1, y: rect.y, width: 1, height: rect.height };
+            fill_with(buf, div, app.glyphs.vbar, Style::new().fg(t.border).bg(t.terminal_bg));
+        }
+        let tab = &app.panel.tabs[*idx];
+        draw_terminal_pane(app, buf, tab, *rect);
+        // In a split, mark the focused pane's top-left corner.
+        if several && *idx == app.panel.active && focused {
+            put(buf, rect.x, rect.y, "▘", 1, Style::new().fg(t.focus_border).bg(t.terminal_bg));
+        }
+    }
+    draw_term_find_bar(app, buf);
+}
+
+/// The panes shown in the panel: the active terminal's group, side by
+/// side by weight, with a one-column divider between them.
+pub fn terminal_panes(app: &App, content: Rect) -> Vec<(usize, Rect)> {
+    let panes = app.panel.visible_panes();
+    if panes.is_empty() {
+        return vec![];
+    }
+    let n = panes.len() as u16;
+    let usable = content.width.saturating_sub(n - 1);
+    if usable < n {
+        return vec![(app.panel.active, content)];
+    }
+    let total: f32 = panes.iter().map(|i| app.panel.tabs[*i].weight.max(0.01)).sum();
+    let mut out = Vec::with_capacity(panes.len());
+    let mut x = content.x;
+    let mut acc = 0.0f32;
+    for (k, i) in panes.iter().enumerate() {
+        acc += app.panel.tabs[*i].weight.max(0.01);
+        let right = if k + 1 == panes.len() {
+            content.x + content.width
+        } else {
+            let edge = content.x + k as u16 + ((acc / total) * f32::from(usable)).round() as u16;
+            edge.max(x + 1).min(content.right().saturating_sub(n - k as u16 - 1))
+        };
+        out.push((*i, Rect { x, y: content.y, width: right.saturating_sub(x).max(1), height: content.height }));
+        x = right + 1;
+    }
+    out
+}
+
+/// One terminal's screen in `content`.
+fn draw_terminal_pane(app: &App, buf: &mut Buffer, tab: &crate::app::TermTab, content: Rect) {
+    let t = &app.theme;
     if tab.not_started && tab.session.is_none() {
         let msg = format!("Restored terminal — press Enter to start a new shell in {}", tab.cwd.display());
         put(
@@ -2202,7 +2347,7 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
         );
         return;
     }
-    let Some(screen) = crate::app::terminal_snapshot(tab) else { return };
+    let Some(screen) = terminal_screen(app, tab) else { return };
     let rows = screen.rows.min(content.height as usize);
     let cols = screen.cols.min(content.width as usize);
     for r in 0..rows {
@@ -2223,7 +2368,13 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
             if st.selected {
                 bg = t.selection_bg;
             }
+            if st.find_match && !t.is_mono() {
+                bg = if st.find_current { t.find_current_bg } else { t.find_match_bg };
+            }
             let mut style = Style::new().fg(fg).bg(bg);
+            if st.find_match && t.is_mono() {
+                style = style.patch(t.find_match(st.find_current));
+            }
             if st.selected && t.is_mono() {
                 style = style.add_modifier(Modifier::REVERSED);
             }
@@ -2275,7 +2426,7 @@ fn draw_panel(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout) {
 }
 
 fn terminal_cursor(app: &App, wl: &WorkbenchLayout) -> Option<(u16, u16)> {
-    let content = wl.panel_content?;
+    let content = active_pane(app, wl)?;
     let tab = app.panel.active_tab()?;
     if tab.exited.is_some() {
         return None;
@@ -2286,4 +2437,10 @@ fn terminal_cursor(app: &App, wl: &WorkbenchLayout) -> Option<(u16, u16)> {
     }
     let (r, c) = screen.cursor?;
     ((r as u16) < content.height && (c as u16) < content.width).then(|| (content.x + c as u16, content.y + r as u16))
+}
+
+/// The focused terminal's pane.
+pub fn active_pane(app: &App, wl: &WorkbenchLayout) -> Option<Rect> {
+    let content = wl.panel_content?;
+    terminal_panes(app, content).into_iter().find(|(i, _)| *i == app.panel.active).map(|(_, r)| r)
 }

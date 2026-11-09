@@ -84,7 +84,8 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
   that stays live as files come and go; workspace search and replace
   (Ctrl+Shift+F) with results that follow your edits and a before/after
   preview of every replacement; find/replace in the editor.
-- **Integrated terminal.** Real shells per root (Ctrl+`), several tabs.
+- **Integrated terminal.** Real shells per root (Ctrl+`), several tabs,
+  split panes side by side, and find in the scrollback (Ctrl+F).
 - **Syntax.** Tree-sitter highlighting for Rust, TypeScript/TSX,
   JavaScript/JSX, JSON, YAML, TOML, HTML, CSS, Markdown, Python and Bash
   built in, with embedded languages; C/C++, Go, Java, Ruby, SCSS, SQL and

@@ -6,13 +6,17 @@ terminal floods, then reports the editor's own input/render latency and
 resident memory of the editor process (shells are separate processes).
 
 Usage: scripts/bench_terminal.py [N_LINES]
+YACE_BENCH_SPLIT=1 splits the terminal first and floods the new pane (two
+panes drawn); YACE_BENCH_BIN overrides the binary.
 """
 import os, pty, select, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 2_000_000
-subprocess.run(["cargo", "build", "--release", "-q", "-p", "yace"], cwd=ROOT, check=True)
-binary = os.path.join(ROOT, "target", "release", "yace")
+binary = os.environ.get("YACE_BENCH_BIN")
+if not binary:
+    subprocess.run(["cargo", "build", "--release", "-q", "-p", "yace"], cwd=ROOT, check=True)
+    binary = os.path.join(ROOT, "target", "release", "yace")
 tmp = tempfile.mkdtemp()
 os.makedirs(f"{tmp}/config")
 with open(f"{tmp}/config/config.toml", "w") as f:
@@ -49,6 +53,8 @@ def palette(cmd):
 drain(1.5)
 base = rss()
 os.write(fd, b"\x1b`"); drain(1.0)               # Alt+`: open terminal
+if os.environ.get("YACE_BENCH_SPLIT"):
+    os.write(fd, b"\x1b\\"); drain(1.0)          # Alt+\\: split, the new pane has focus
 one = rss()
 start = time.time()
 os.write(fd, f"seq 1 {N}; echo FLOOD-DONE\r".encode())

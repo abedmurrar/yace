@@ -80,8 +80,25 @@ fn terminal_runs_commands_and_leaves_no_orphans() {
         "command output in the panel:\n{}",
         screen()
     );
+    // Split (Alt+\ in a legacy terminal) and run a command in the new pane.
+    w.write_all(b"\x1b\\").unwrap();
+    w.flush().unwrap();
+    assert!(
+        wait_for(Duration::from_secs(10), || children_of(yace_pid).len() >= 2),
+        "a second shell for the split:\n{}",
+        screen()
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    w.write_all(b"echo right-pane-$((6*7))\r").unwrap();
+    w.flush().unwrap();
+    assert!(
+        wait_for(Duration::from_secs(10), || screen().contains("right-pane-42") && screen().contains("hi-from-42")),
+        "both panes visible:\n{}",
+        screen()
+    );
+    assert!(screen().contains("1: sh │ sh"), "one tab for the split:\n{}", screen());
     let shells = children_of(yace_pid);
-    assert!(!shells.is_empty(), "a shell runs as a child of yace");
+    assert!(shells.len() >= 2, "a shell per pane runs as a child of yace");
     w.write_all(b"\x1bOP").unwrap(); // F1 (skip-shell): command palette
     w.flush().unwrap();
     std::thread::sleep(Duration::from_millis(300));

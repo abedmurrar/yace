@@ -6,14 +6,61 @@ use std::path::{Path, PathBuf};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use yace_config::{ConfirmKill, TerminalCwd};
 use yace_keymap::{KeyCode, KeyPress, Mods};
-use yace_terminal::{Notice, Screen, Session, SessionConfig, SessionId, default_shell, encode_key, encode_paste};
+use yace_search::FindOptions;
+use yace_terminal::{
+    Notice, Screen, Session, SessionConfig, SessionId, TermMatch, TermQuery, default_shell, encode_key, encode_paste,
+};
 use yace_workspace::{RootId, RootStatus};
 
 use super::{App, Focus, Severity};
 use crate::{
     actions::{AfterClose, ConfirmAction, PickerAction, PromptAction},
-    overlay::{Confirm, Overlay, Picker, PickerItem},
+    overlay::{Confirm, LineInput, Overlay, Picker, PickerItem},
+    workers::{TERM_FIND_COUNT_CAP, TermFindJob},
 };
+
+/// Find in the terminal's scrollback (`Ctrl+F` in a terminal). The search
+/// runs on the terminal find worker; drawing highlights the visible
+/// matches with `highlight`.
+#[derive(Debug, Default)]
+pub struct TermFindState {
+    pub visible: bool,
+    pub query: LineInput,
+    pub opts: FindOptions,
+    /// The match shown (selected) and the terminal it is in.
+    pub current: Option<TermMatch>,
+    pub session: Option<SessionId>,
+    /// Matches (at most 1000) and the current one's number.
+    pub count: Option<(usize, Option<usize>)>,
+    pub searching: bool,
+    pub error: Option<String>,
+    seq: u64,
+    /// The compiled query, for highlighting while drawing.
+    pub highlight: std::cell::RefCell<Option<TermQuery>>,
+}
+
+impl TermFindState {
+    /// "3 of 41", "1000+", "No results"…
+    pub fn status(&self) -> String {
+        if let Some(e) = &self.error {
+            return e.clone();
+        }
+        if self.query.text.is_empty() {
+            return String::new();
+        }
+        match self.count {
+            None if self.searching => "…".into(),
+            None | Some((0, _)) => "No results".into(),
+            Some((n, at)) => {
+                let total = if n >= TERM_FIND_COUNT_CAP { format!("{n}+") } else { n.to_string() };
+                match at {
+                    Some(i) => format!("{i} of {total}"),
+                    None => format!("? of {total}"),
+                }
+            }
+        }
+    }
+}
 
 /// Commands that keep working while a terminal has focus; every other key
 /// goes to the shell (VS Code's `commandsToSkipShell`, spec §11.6).
@@ -40,6 +87,14 @@ pub const DEFAULT_SKIP_SHELL: &[&str] = &[
     "workbench.action.focusThirdEditorGroup",
     "workbench.action.focusNextPart",
     "workbench.action.focusPreviousPart",
+    "workbench.action.terminal.focusFind",
+    "workbench.action.terminal.split",
+    "workbench.action.terminal.focusNextPane",
+    "workbench.action.terminal.focusPreviousPane",
+    "workbench.action.terminal.resizePaneLeft",
+    "workbench.action.terminal.resizePaneRight",
+    "workbench.action.terminal.findNext",
+    "workbench.action.terminal.findPrevious",
 ];
 
 #[derive(Debug)]
@@ -59,6 +114,12 @@ pub struct TermTab {
     pub not_started: bool,
     /// Typed into the shell once it starts (plugin tasks).
     pub startup: Option<String>,
+    /// Terminals with the same group are shown side by side (one tab).
+    pub group: u32,
+    /// Share of the group's width.
+    pub weight: f32,
+    /// PTY size last applied (rows, cols).
+    pub applied_size: Option<(u16, u16)>,
 }
 
 impl TermTab {
@@ -79,10 +140,9 @@ pub struct PanelState {
     pub tabs: Vec<TermTab>,
     pub active: usize,
     next_id: SessionId,
+    next_group: u32,
     notice_tx: Sender<Notice>,
     pub notice_rx: Receiver<Notice>,
-    /// Size last applied to the sessions (rows, cols).
-    applied_size: Option<(u16, u16)>,
 }
 
 /// Bottom panel height (rows of terminal content) for a new window and
@@ -99,9 +159,9 @@ impl Default for PanelState {
             tabs: Vec::new(),
             active: 0,
             next_id: 1,
+            next_group: 1,
             notice_tx,
             notice_rx,
-            applied_size: None,
         }
     }
 }
@@ -119,7 +179,35 @@ impl PanelState {
     fn tab_index(&self, id: SessionId) -> Option<usize> {
         self.tabs.iter().position(|t| t.id == id)
     }
+    /// Indices of the terminals shown with `idx` (its group), in order.
+    pub fn panes_of(&self, idx: usize) -> Vec<usize> {
+        let Some(g) = self.tabs.get(idx).map(|t| t.group) else { return vec![] };
+        (0..self.tabs.len()).filter(|i| self.tabs[*i].group == g).collect()
+    }
+    /// The terminals shown now (the active terminal's group).
+    pub fn visible_panes(&self) -> Vec<usize> {
+        self.panes_of(self.active)
+    }
+    /// Groups in tab-strip order, each with its terminals.
+    pub fn groups(&self) -> Vec<Vec<usize>> {
+        let mut out: Vec<(u32, Vec<usize>)> = Vec::new();
+        for (i, t) in self.tabs.iter().enumerate() {
+            match out.iter_mut().find(|(g, _)| *g == t.group) {
+                Some((_, v)) => v.push(i),
+                None => out.push((t.group, vec![i])),
+            }
+        }
+        out.into_iter().map(|(_, v)| v).collect()
+    }
+    fn new_group(&mut self) -> u32 {
+        let g = self.next_group;
+        self.next_group += 1;
+        g
+    }
 }
+
+/// Narrowest terminal pane, in columns.
+pub const MIN_PANE_COLS: u16 = 10;
 
 /// Snapshot of the active terminal for drawing.
 pub fn snapshot(tab: &TermTab) -> Option<Screen> {
@@ -187,7 +275,7 @@ impl App {
         }
     }
 
-    fn session_config(&self, cwd: &Path, profile: Option<&str>) -> (SessionConfig, String) {
+    fn session_config(&self, cwd: &Path, profile: Option<&str>, size: Option<(u16, u16)>) -> (SessionConfig, String) {
         let t = &self.settings.terminal;
         let prof = profile
             .or(Some(t.default_profile.as_str()).filter(|p| !p.is_empty()))
@@ -205,7 +293,7 @@ impl App {
         if let Some(p) = prof {
             env.extend(p.env.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
-        let (rows, cols) = self.panel.applied_size.unwrap_or((10, 80));
+        let (rows, cols) = size.unwrap_or((10, 80));
         let name = prof.map(|p| p.name.clone()).unwrap_or_else(|| {
             Path::new(&shell).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "shell".into())
         });
@@ -223,12 +311,12 @@ impl App {
     }
 
     fn spawn_into(&mut self, idx: usize) {
-        let (cwd, profile, id) = {
+        let (cwd, profile, id, size) = {
             let t = &self.panel.tabs[idx];
-            (t.cwd.clone(), t.profile.clone(), t.id)
+            (t.cwd.clone(), t.profile.clone(), t.id, t.applied_size)
         };
         let cwd = if cwd.is_dir() { cwd } else { std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")) };
-        let (cfg, name) = self.session_config(&cwd, profile.as_deref());
+        let (cfg, name) = self.session_config(&cwd, profile.as_deref(), size);
         match Session::spawn(&cfg, id, self.panel.notice_tx.clone()) {
             Ok(s) => {
                 let t = &mut self.panel.tabs[idx];
@@ -247,13 +335,14 @@ impl App {
                 self.panel.tabs[idx].exited = Some(None);
             }
         }
-        self.panel.applied_size = None; // re-apply the panel size
+        self.panel.tabs[idx].applied_size = None; // re-apply the pane size
     }
 
     /// Open a new terminal in `cwd` (root-aware) and focus it.
     pub(crate) fn new_terminal(&mut self, root: Option<RootId>, cwd: PathBuf, profile: Option<String>) {
         let id = self.panel.next_id;
         self.panel.next_id += 1;
+        let group = self.panel.new_group();
         self.panel.tabs.push(TermTab {
             id,
             session: None,
@@ -265,6 +354,9 @@ impl App {
             exited: None,
             not_started: false,
             startup: None,
+            group,
+            weight: 1.0,
+            applied_size: None,
         });
         self.panel.active = self.panel.tabs.len() - 1;
         self.panel.visible = true;
@@ -304,7 +396,7 @@ impl App {
 
     /// `` Ctrl+` ``: show and focus the terminal, or hide it.
     pub(crate) fn toggle_terminal(&mut self) {
-        if self.panel.visible && self.focus == Focus::Terminal {
+        if self.panel.visible && matches!(self.focus, Focus::Terminal | Focus::TerminalFind) {
             self.panel.visible = false;
             self.focus_changed(Focus::Editor);
             return;
@@ -316,7 +408,7 @@ impl App {
     pub(crate) fn toggle_panel(&mut self) {
         if self.panel.visible {
             self.panel.visible = false;
-            if self.focus == Focus::Terminal {
+            if matches!(self.focus, Focus::Terminal | Focus::TerminalFind) {
                 self.focus_changed(Focus::Editor);
             }
         } else {
@@ -339,10 +431,11 @@ impl App {
         if !self.panel.visible {
             return;
         }
-        let idx = self.panel.active;
-        if self.panel.tabs.get(idx).is_some_and(|t| t.not_started && t.session.is_none()) {
-            self.sync_terminal_size();
-            self.spawn_into(idx);
+        for idx in self.panel.visible_panes() {
+            if self.panel.tabs.get(idx).is_some_and(|t| t.not_started && t.session.is_none()) {
+                self.sync_terminal_size();
+                self.spawn_into(idx);
+            }
         }
     }
 
@@ -450,6 +543,8 @@ impl App {
 
     pub(crate) fn kill_terminal(&mut self, id: SessionId) {
         let Some(i) = self.panel.tab_index(id) else { return };
+        // Stay in the same group when it still has a terminal.
+        let sibling = self.panel.panes_of(i).into_iter().filter(|p| *p != i).min_by_key(|p| p.abs_diff(i));
         let mut tab = self.panel.tabs.remove(i);
         if let Some(s) = tab.session.as_mut() {
             s.kill();
@@ -457,11 +552,22 @@ impl App {
         if self.panel.tabs.is_empty() {
             self.panel.visible = false;
             self.panel.active = 0;
-            if self.focus == Focus::Terminal {
+            self.terminal_find_close();
+            if matches!(self.focus, Focus::Terminal | Focus::TerminalFind) {
                 self.focus_changed(Focus::Editor);
             }
         } else {
-            self.panel.active = self.panel.active.min(self.panel.tabs.len() - 1);
+            self.panel.active = match sibling {
+                Some(p) if i == self.panel.active || p == self.panel.active => {
+                    if p > i {
+                        p - 1
+                    } else {
+                        p
+                    }
+                }
+                _ if self.panel.active > i => self.panel.active - 1,
+                _ => self.panel.active.min(self.panel.tabs.len() - 1),
+            };
             self.ensure_active_started();
         }
         self.request_trim();
@@ -514,14 +620,123 @@ impl App {
         }
     }
 
+    /// `Ctrl+PageDown` / `Ctrl+PageUp`: the next or previous tab (group).
     pub(crate) fn focus_terminal_tab(&mut self, delta: isize) {
-        let n = self.panel.tabs.len();
+        let groups = self.panel.groups();
+        let n = groups.len();
         if n == 0 {
             return;
         }
-        self.panel.active = (self.panel.active as isize + delta).rem_euclid(n as isize) as usize;
+        let cur = groups.iter().position(|g| g.contains(&self.panel.active)).unwrap_or(0);
+        let next = (cur as isize + delta).rem_euclid(n as isize) as usize;
+        self.panel.active = groups[next][0];
         self.ensure_active_started();
         self.focus_changed(Focus::Terminal);
+    }
+
+    // --- split panes -----------------------------------------------------------
+
+    /// Split the active terminal: a new shell beside it, in the same
+    /// folder (the shell's current one when known).
+    pub(crate) fn split_terminal(&mut self) {
+        let Some(tab) = self.panel.active_tab() else {
+            self.new_terminal_default();
+            return;
+        };
+        let content_w = crate::ui::workbench_layout(self).panel_content.map_or(0, |r| r.width);
+        let n = self.panel.visible_panes().len() as u16 + 1;
+        if content_w < n * MIN_PANE_COLS + (n - 1) {
+            self.notify(Severity::Info, "Not enough room to split the terminal");
+            return;
+        }
+        let cwd = tab.session.as_ref().and_then(Session::current_dir).unwrap_or_else(|| tab.cwd.clone());
+        let (root, profile, group) = (tab.root, tab.profile.clone(), tab.group);
+        let id = self.panel.next_id;
+        self.panel.next_id += 1;
+        let at = self.panel.active + 1;
+        self.panel.tabs.insert(
+            at,
+            TermTab {
+                id,
+                session: None,
+                name: String::new(),
+                title: None,
+                root,
+                cwd,
+                profile,
+                exited: None,
+                not_started: false,
+                startup: None,
+                group,
+                weight: 1.0,
+                applied_size: None,
+            },
+        );
+        // Split evenly, as VS Code does.
+        for i in self.panel.panes_of(at) {
+            self.panel.tabs[i].weight = 1.0;
+        }
+        self.panel.active = at;
+        self.panel.visible = true;
+        self.sync_terminal_size();
+        self.spawn_into(at);
+        self.sync_terminal_size();
+        self.focus_changed(Focus::Terminal);
+    }
+
+    /// Focus the next / previous pane of the active tab.
+    pub(crate) fn focus_terminal_pane(&mut self, delta: isize) {
+        let panes = self.panel.visible_panes();
+        if panes.len() < 2 {
+            return;
+        }
+        let cur = panes.iter().position(|p| *p == self.panel.active).unwrap_or(0);
+        self.panel.active = panes[(cur as isize + delta).rem_euclid(panes.len() as isize) as usize];
+        self.focus_changed(Focus::Terminal);
+    }
+
+    /// Move the active pane's divider left or right by about 5 columns
+    /// (its right divider; the last pane moves its left one).
+    pub(crate) fn resize_terminal_pane(&mut self, right: bool) {
+        let panes = self.panel.visible_panes();
+        if panes.len() < 2 {
+            return;
+        }
+        let cur = panes.iter().position(|p| *p == self.panel.active).unwrap_or(0);
+        let (a, b) = if cur + 1 < panes.len() { (panes[cur], panes[cur + 1]) } else { (panes[cur - 1], panes[cur]) };
+        let width = crate::ui::workbench_layout(self).panel_content.map_or(80, |r| r.width).max(1) as f32;
+        let total: f32 = panes.iter().map(|i| self.panel.tabs[*i].weight).sum();
+        let step = total * 5.0 / width;
+        let d = if right { step } else { -step };
+        self.set_divider(a, b, d);
+    }
+
+    /// Shift weight between neighbouring panes `a` (left) and `b`, keeping
+    /// both at least [`MIN_PANE_COLS`] wide.
+    pub(crate) fn set_divider(&mut self, a: usize, b: usize, delta: f32) {
+        let panes = self.panel.panes_of(a);
+        let width = crate::ui::workbench_layout(self).panel_content.map_or(80, |r| r.width).max(1) as f32;
+        let total: f32 = panes.iter().map(|i| self.panel.tabs[*i].weight).sum();
+        let min = total * f32::from(MIN_PANE_COLS + 1) / width;
+        let (wa, wb) = (self.panel.tabs[a].weight, self.panel.tabs[b].weight);
+        let d = delta.clamp(min - wa, wb - min);
+        if wa + d >= min && wb - d >= min {
+            self.panel.tabs[a].weight = wa + d;
+            self.panel.tabs[b].weight = wb - d;
+        }
+    }
+
+    /// Move the active terminal out of its split into a tab of its own.
+    pub(crate) fn unsplit_terminal(&mut self) {
+        let idx = self.panel.active;
+        if self.panel.panes_of(idx).len() < 2 {
+            return;
+        }
+        let g = self.panel.new_group();
+        let t = &mut self.panel.tabs[idx];
+        t.group = g;
+        t.weight = 1.0;
+        self.sync_terminal_size();
     }
 
     pub(crate) fn terminal_scroll(&mut self, lines: i32) {
@@ -589,8 +804,18 @@ impl App {
         let ctx = self.context();
         if let Some(b) = self.keymap.lookup_single(key, &ctx) {
             let cmd = b.command.clone();
-            let skip = DEFAULT_SKIP_SHELL.contains(&cmd.as_str())
-                || self.settings.terminal.commands_to_skip_shell.contains(&cmd);
+            // Pane keys (Alt+arrows, Ctrl+Shift+arrows) reach the shell
+            // unless the terminal is split.
+            let pane_only = matches!(
+                cmd.as_str(),
+                "workbench.action.terminal.focusNextPane"
+                    | "workbench.action.terminal.focusPreviousPane"
+                    | "workbench.action.terminal.resizePaneLeft"
+                    | "workbench.action.terminal.resizePaneRight"
+            );
+            let skip = (DEFAULT_SKIP_SHELL.contains(&cmd.as_str())
+                || self.settings.terminal.commands_to_skip_shell.contains(&cmd))
+                && (!pane_only || self.panel.visible_panes().len() > 1);
             if skip {
                 let args = b.args.clone();
                 self.execute(&cmd, args.as_ref());
@@ -622,15 +847,136 @@ impl App {
         }
     }
 
-    /// Keep every session's PTY size equal to the panel content area.
-    pub(crate) fn sync_terminal_size(&mut self) {
-        let Some(r) = crate::ui::workbench_layout(self).panel_content else { return };
-        let size = (r.height.max(1), r.width.max(2));
-        if self.panel.applied_size == Some(size) {
+    // --- find in the scrollback ----------------------------------------------
+
+    /// `Ctrl+F` in a terminal: show the find bar (searching for what it
+    /// holds again).
+    pub(crate) fn terminal_find_open(&mut self) {
+        if self.panel.active_tab().and_then(|t| t.session.as_ref()).is_none() {
             return;
         }
-        self.panel.applied_size = Some(size);
-        for t in &self.panel.tabs {
+        self.term_find.visible = true;
+        self.term_find.query.all_selected = true;
+        self.focus_changed(Focus::TerminalFind);
+        if !self.term_find.query.text.is_empty() {
+            self.terminal_find_run(None, true);
+        }
+    }
+
+    pub(crate) fn terminal_find_close(&mut self) {
+        let f = &mut self.term_find;
+        f.visible = false;
+        f.current = None;
+        f.count = None;
+        f.error = None;
+        f.highlight.replace(None);
+        if self.focus == Focus::TerminalFind {
+            self.focus_changed(Focus::Terminal);
+        }
+    }
+
+    /// `Enter` / `F3` (`up`: older output) and `Shift+…`.
+    pub(crate) fn terminal_find_next(&mut self, up: bool) {
+        if !self.term_find.visible {
+            self.terminal_find_open();
+            return;
+        }
+        let same = self.term_find.session == self.panel.active_tab().map(|t| t.id);
+        let from = if same { self.term_find.current } else { None };
+        self.terminal_find_run(from, up);
+    }
+
+    pub(crate) fn terminal_find_toggle(&mut self, c: char) {
+        let o = &mut self.term_find.opts;
+        match c {
+            'c' => o.case_sensitive = !o.case_sensitive,
+            'w' => o.whole_word = !o.whole_word,
+            _ => o.regex = !o.regex,
+        }
+        self.terminal_find_run(None, true);
+    }
+
+    /// Start a search in the active terminal from `from` (the bottom when
+    /// `None`).
+    fn terminal_find_run(&mut self, from: Option<TermMatch>, up: bool) {
+        let f = &mut self.term_find;
+        f.seq += 1;
+        f.error = None;
+        if f.query.text.is_empty() {
+            f.current = None;
+            f.count = None;
+            f.searching = false;
+            f.highlight.replace(None);
+            return;
+        }
+        let o = f.opts;
+        let query = match TermQuery::new(&f.query.text, o.case_sensitive, o.whole_word, o.regex) {
+            Ok(q) => q,
+            Err(e) => {
+                f.error = Some(e);
+                f.count = None;
+                f.highlight.replace(None);
+                return;
+            }
+        };
+        f.highlight.replace(Some(query.clone()));
+        let Some(tab) = self.panel.active_tab() else { return };
+        let Some(s) = tab.session.as_ref() else { return };
+        let (session, searcher) = (tab.id, s.searcher());
+        let f = &mut self.term_find;
+        f.searching = true;
+        f.session = Some(session);
+        let job = TermFindJob { seq: f.seq, session, searcher, query, from, up };
+        self.emit(super::Effect::TermFind(Box::new(job)));
+    }
+
+    pub(crate) fn on_term_find_done(
+        &mut self,
+        seq: u64,
+        session: SessionId,
+        found: Option<TermMatch>,
+        count: (usize, Option<usize>),
+    ) {
+        if seq != self.term_find.seq {
+            return;
+        }
+        self.term_find.searching = false;
+        self.term_find.count = Some(count);
+        if let Some(m) = found {
+            self.term_find.current = Some(m);
+            if let Some(s) = self.panel.tabs.iter().find(|t| t.id == session).and_then(|t| t.session.as_ref()) {
+                s.show_match(m);
+            }
+        }
+        self.needs_render = true;
+    }
+
+    /// Typing in the terminal find bar searches as you type.
+    pub(crate) fn terminal_find_input_key(&mut self, key: KeyPress, ch: Option<char>) {
+        let before = self.term_find.query.text.clone();
+        self.term_find.query.handle(key, ch);
+        if self.term_find.query.text != before {
+            self.terminal_find_run(None, true);
+        }
+    }
+
+    pub(crate) fn terminal_find_paste(&mut self, text: &str) {
+        self.term_find.query.insert(text.lines().next().unwrap_or(""));
+        self.terminal_find_run(None, true);
+    }
+
+    /// Keep each visible terminal's PTY size equal to its pane. Terminals
+    /// of other tabs keep their size until shown.
+    pub(crate) fn sync_terminal_size(&mut self) {
+        let wl = crate::ui::workbench_layout(self);
+        let Some(content) = wl.panel_content else { return };
+        for (idx, r) in crate::ui::terminal_panes(self, content) {
+            let size = (r.height.max(1), r.width.max(2));
+            let t = &mut self.panel.tabs[idx];
+            if t.applied_size == Some(size) {
+                continue;
+            }
+            t.applied_size = Some(size);
             if let Some(s) = &t.session {
                 s.resize(size.0, size.1);
             }
@@ -645,9 +991,20 @@ impl App {
         active: usize,
         visible: bool,
     ) {
+        // Saved group numbers map to new groups (0: an older session file,
+        // one tab per terminal).
+        let mut groups: Vec<(u32, u32)> = Vec::new();
         for (root, t) in tabs {
             let id = self.panel.next_id;
             self.panel.next_id += 1;
+            let group = match groups.iter().find(|(saved, _)| *saved == t.group && t.group != 0) {
+                Some((_, g)) => *g,
+                None => {
+                    let g = self.panel.new_group();
+                    groups.push((t.group, g));
+                    g
+                }
+            };
             self.panel.tabs.push(TermTab {
                 id,
                 session: None,
@@ -659,10 +1016,32 @@ impl App {
                 exited: None,
                 not_started: true,
                 startup: None,
+                group,
+                weight: if t.weight > 0.0 { t.weight } else { 1.0 },
+                applied_size: None,
             });
         }
         self.panel.active = active.min(self.panel.tabs.len().saturating_sub(1));
         self.panel.visible = visible && !self.panel.tabs.is_empty();
+    }
+
+    /// Label for a tab (a group of split terminals): "1: zsh │ node".
+    pub fn terminal_group_label(&self, number: usize, panes: &[usize]) -> String {
+        if panes.len() == 1 {
+            let mut l = self.terminal_label(panes[0]);
+            if let Some(rest) = l.split_once(": ").map(|(_, r)| r.to_string()) {
+                l = format!("{number}: {rest}");
+            }
+            return l;
+        }
+        let names: Vec<String> = panes
+            .iter()
+            .map(|i| {
+                let t = &self.panel.tabs[*i];
+                t.title.clone().unwrap_or_else(|| t.name.clone())
+            })
+            .collect();
+        format!("{number}: {}", names.join(" │ "))
     }
 
     /// Label for a tab: "1: zsh — GLOBAL API".

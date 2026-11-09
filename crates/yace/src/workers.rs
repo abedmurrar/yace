@@ -446,6 +446,56 @@ pub fn run_find(job: &FindJob) -> AppEvent {
     AppEvent::FindDone { seq: job.seq, result }
 }
 
+// ---------------------------------------------------------------------------
+// Find in the terminal
+
+/// Search a terminal's scrollback for the next match, then count matches.
+#[derive(Debug, Clone)]
+pub struct TermFindJob {
+    pub seq: u64,
+    pub session: yace_terminal::SessionId,
+    pub searcher: yace_terminal::Searcher,
+    pub query: yace_terminal::TermQuery,
+    pub from: Option<yace_terminal::TermMatch>,
+    pub up: bool,
+}
+
+/// Matches counted at most ("1000+").
+pub const TERM_FIND_COUNT_CAP: usize = 1_000;
+
+pub fn run_term_find(job: TermFindJob, stop: &dyn Fn() -> bool) -> Option<AppEvent> {
+    let mut q = job.query;
+    let found = job.searcher.find(&mut q, job.from, job.up, stop);
+    if stop() {
+        return None;
+    }
+    let count = job.searcher.count(&mut q, found.or(job.from), TERM_FIND_COUNT_CAP, stop)?;
+    Some(AppEvent::TermFindDone { seq: job.seq, session: job.session, found, count })
+}
+
+/// The terminal find worker (started on first use): a newer job stops the
+/// running one between chunks.
+pub fn spawn_term_find_worker(events: Sender<AppEvent>) -> Sender<TermFindJob> {
+    let (tx, rx): (Sender<TermFindJob>, Receiver<TermFindJob>) = unbounded();
+    thread::Builder::new()
+        .name("yace-term-find".into())
+        .spawn(move || {
+            while let Ok(mut job) = rx.recv() {
+                for newer in rx.try_iter() {
+                    job = newer;
+                }
+                let stop = || !rx.is_empty();
+                if let Some(ev) = run_term_find(job, &stop)
+                    && events.send(ev).is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .expect("spawn terminal find worker");
+    tx
+}
+
 /// A find worker that only runs the latest job of a burst.
 pub fn spawn_find_worker(events: Sender<AppEvent>) -> Sender<FindJob> {
     let (tx, rx): (Sender<FindJob>, Receiver<FindJob>) = unbounded();

@@ -193,6 +193,8 @@ pub struct Runtime {
     /// Started on the first live search update.
     search_updates: Option<crate::workers::SearchUpdater>,
     find: Sender<crate::workers::FindJob>,
+    /// Started on the first terminal search.
+    term_find: Option<Sender<crate::workers::TermFindJob>>,
     /// Started on the first background parse.
     syntax: Option<Sender<crate::syntax::ParseJob>>,
     git: Option<Sender<crate::git::GitTask>>,
@@ -256,6 +258,7 @@ impl Runtime {
             index,
             search: Default::default(),
             search_updates: None,
+            term_find: None,
             find,
             syntax: None,
             git: None,
@@ -309,6 +312,11 @@ impl Runtime {
                 }
                 Effect::Find(job) => {
                     let _ = self.find.send(*job);
+                }
+                Effect::TermFind(job) => {
+                    let tx = self.tx.clone();
+                    let w = self.term_find.get_or_insert_with(|| crate::workers::spawn_term_find_worker(tx));
+                    let _ = w.send(*job);
                 }
                 Effect::TrimMemory => crate::mem::trim(),
                 Effect::Parse(job) => {

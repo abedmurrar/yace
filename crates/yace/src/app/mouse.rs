@@ -24,10 +24,12 @@ use crate::{
 pub enum Drag {
     Sidebar,
     Panel,
-    /// Selecting text in the terminal.
-    TermSelect,
+    /// Selecting text in a terminal pane (by session id).
+    TermSelect(yace_terminal::SessionId),
     /// Forwarding drags to a terminal application (mouse mode).
-    TermReport,
+    TermReport(yace_terminal::SessionId),
+    /// The divider between split terminal panes `left` and `left + 1`.
+    TermDivider(usize),
     Split(SplitHandle),
     Select {
         group: GroupId,
@@ -80,10 +82,30 @@ impl App {
                     self.mouse_panel_tabs(strip, x, button);
                     return;
                 }
+                if let Some(bar) = ui::term_find_layout(self, &wl)
+                    && hit(bar.row, x, y)
+                {
+                    if hit(bar.close, x, y) {
+                        self.terminal_find_close();
+                    } else if let Some((c, _)) = bar.toggles.iter().find(|(_, r)| hit(*r, x, y)) {
+                        self.terminal_find_toggle(*c);
+                    } else {
+                        self.focus_changed(Focus::TerminalFind);
+                    }
+                    return;
+                }
                 if let Some(content) = wl.panel_content
                     && hit(content, x, y)
                 {
-                    self.mouse_terminal(content, m, count);
+                    let panes = ui::terminal_panes(self, content);
+                    if let Some(k) = panes.iter().position(|(_, r)| x + 1 == r.x && y >= r.y && y < r.bottom()) {
+                        self.mouse.drag = Some(Drag::TermDivider(panes[k - 1].0));
+                        return;
+                    }
+                    if let Some((idx, r)) = panes.iter().find(|(_, r)| hit(*r, x, y)).copied() {
+                        self.panel.active = idx;
+                        self.mouse_terminal(r, m, count);
+                    }
                     return;
                 }
                 if let Some(h) = wl.handles.iter().find(|h| hit(h.rect, x, y)) {
@@ -161,9 +183,24 @@ impl App {
                         bottom.saturating_sub(y).saturating_sub(2).clamp(3, self.area.height.saturating_sub(8).max(3));
                     self.panel.maximized = false;
                 }
-                Some(Drag::TermSelect) | Some(Drag::TermReport) => {
+                Some(Drag::TermSelect(id) | Drag::TermReport(id)) => {
+                    if let Some(r) = self.pane_rect(&wl, id) {
+                        self.mouse_terminal(r, m, 1);
+                    }
+                }
+                Some(Drag::TermDivider(left)) => {
                     if let Some(content) = wl.panel_content {
-                        self.mouse_terminal(content, m, 1);
+                        let panes = ui::terminal_panes(self, content);
+                        if let Some(k) = panes.iter().position(|(i, _)| *i == left)
+                            && let (Some((a, ra)), Some((b, _))) = (panes.get(k), panes.get(k + 1))
+                        {
+                            // Move the divider to the pointer.
+                            let total: f32 = panes.iter().map(|(i, _)| self.panel.tabs[*i].weight).sum();
+                            let cols = f32::from(content.width.max(1));
+                            let want = f32::from(x.saturating_sub(ra.x));
+                            let have = f32::from(ra.width);
+                            self.set_divider(*a, *b, (want - have) * total / cols);
+                        }
                     }
                 }
                 Some(Drag::Select { group, anchor }) => {
@@ -181,10 +218,10 @@ impl App {
                 None => {}
             },
             MouseEventKind::Up(_) => {
-                if matches!(self.mouse.drag, Some(Drag::TermReport))
-                    && let Some(content) = wl.panel_content
+                if let Some(Drag::TermReport(id)) = self.mouse.drag
+                    && let Some(r) = self.pane_rect(&wl, id)
                 {
-                    self.mouse_terminal(content, m, 1);
+                    self.mouse_terminal(r, m, 1);
                 }
                 self.mouse.drag = None;
             }
@@ -193,7 +230,13 @@ impl App {
                 if let Some(content) = wl.panel_content
                     && hit(content, x, y)
                 {
-                    self.mouse_terminal(content, m, 1);
+                    if let Some((idx, r)) = ui::terminal_panes(self, content).into_iter().find(|(_, r)| hit(*r, x, y)) {
+                        // The wheel scrolls the pane under the pointer.
+                        let keep = self.panel.active;
+                        self.panel.active = idx;
+                        self.mouse_terminal(r, m, 1);
+                        self.panel.active = keep;
+                    }
                     return;
                 }
                 if wl.sidebar.is_some_and(|s| hit(s, x, y)) && self.sidebar_view == super::SidebarView::Plugin {
@@ -276,6 +319,14 @@ impl App {
         }
     }
 
+    /// The pane of terminal `id`, if shown.
+    fn pane_rect(&mut self, wl: &ui::WorkbenchLayout, id: yace_terminal::SessionId) -> Option<Rect> {
+        let content = wl.panel_content?;
+        let (idx, r) = ui::terminal_panes(self, content).into_iter().find(|(i, _)| self.panel.tabs[*i].id == id)?;
+        self.panel.active = idx;
+        Some(r)
+    }
+
     fn mouse_panel_tabs(&mut self, strip: Rect, x: u16, button: MouseButton) {
         let (cells, plus) = ui::panel_tab_cells(self, strip);
         if plus.is_some_and(|p| x >= p.x && x < p.x + p.width) {
@@ -312,7 +363,9 @@ impl App {
         if m.modifiers.contains(KeyModifiers::CONTROL) {
             mods = mods | yace_keymap::Mods::CTRL;
         }
-        let Some(s) = self.panel.active_tab().and_then(|t| t.session.as_ref()) else { return };
+        let Some(tab) = self.panel.active_tab() else { return };
+        let id = tab.id;
+        let Some(s) = tab.session.as_ref() else { return };
         let modes = s.modes();
         // Shift bypasses mouse reporting (select text in a TUI app).
         let report = modes.any_mouse() && !m.modifiers.contains(KeyModifiers::SHIFT);
@@ -327,11 +380,11 @@ impl App {
                     if let Some(bytes) = encode_mouse(button(b), TK::Press, row, col, mods, modes) {
                         s.write(&bytes);
                     }
-                    self.mouse.drag = Some(Drag::TermReport);
+                    self.mouse.drag = Some(Drag::TermReport(id));
                 } else if b == MouseButton::Left {
                     s.select_clear();
                     s.select_start(row, col, count >= 2);
-                    self.mouse.drag = Some(Drag::TermSelect);
+                    self.mouse.drag = Some(Drag::TermSelect(id));
                 } else if b == MouseButton::Middle {
                     self.terminal_paste();
                 }

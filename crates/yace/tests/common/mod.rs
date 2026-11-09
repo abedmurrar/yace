@@ -203,6 +203,7 @@ impl Harness {
                         self.search_update_files += job.only.as_ref().map_or(0, |p| p.len());
                         events.extend(out.into_inner().unwrap());
                     }
+                    Effect::TermFind(job) => events.extend(workers::run_term_find(*job, &|| false)),
                     Effect::Find(job) => {
                         self.find_jobs += 1;
                         events.push(workers::run_find(&job))

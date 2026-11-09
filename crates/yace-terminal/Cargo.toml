@@ -9,6 +9,7 @@ authors.workspace = true
 
 [dependencies]
 alacritty_terminal = "0.26"
+regex = "1"
 yace-keymap.workspace = true
 crossbeam-channel.workspace = true
 

@@ -335,7 +335,7 @@ fn cycle_part(app: &mut App, forward: bool) {
     }
     let current = match app.focus {
         Focus::Editor | Focus::Find => Part::Editor,
-        Focus::Terminal => Part::Panel,
+        Focus::Terminal | Focus::TerminalFind => Part::Panel,
         Focus::Explorer => Part::Sidebar,
     };
     let i = parts.iter().position(|p| *p == current).unwrap_or(0) as isize;
@@ -630,6 +630,31 @@ fn builtin_commands() -> Vec<Command> {
             a.terminal_copy();
         }),
         c!("workbench.action.terminal.paste", "Terminal", "Paste into Active Terminal", |a, _| a.terminal_paste()),
+        c!("workbench.action.terminal.focusFind", "Terminal", "Find", |a, _| a.terminal_find_open()),
+        c!("workbench.action.terminal.split", "Terminal", "Split Terminal", |a, _| a.split_terminal()),
+        c!("workbench.action.terminal.unsplit", "Terminal", "Unsplit Terminal", |a, _| a.unsplit_terminal()),
+        c!("workbench.action.terminal.focusNextPane", "Terminal", "Focus Next Terminal in Terminal Group", |a, _| a
+            .focus_terminal_pane(1)),
+        c!(
+            "workbench.action.terminal.focusPreviousPane",
+            "Terminal",
+            "Focus Previous Terminal in Terminal Group",
+            |a, _| a.focus_terminal_pane(-1)
+        ),
+        c!("workbench.action.terminal.resizePaneLeft", "Terminal", "Resize Terminal Left", |a, _| a
+            .resize_terminal_pane(false)),
+        c!("workbench.action.terminal.resizePaneRight", "Terminal", "Resize Terminal Right", |a, _| a
+            .resize_terminal_pane(true)),
+        c!("workbench.action.terminal.findNext", "Terminal", "Find Next (Up)", |a, _| a.terminal_find_next(true)),
+        c!("workbench.action.terminal.findPrevious", "Terminal", "Find Previous (Down)", |a, _| a
+            .terminal_find_next(false)),
+        c!("workbench.action.terminal.hideFind", "Terminal", "Hide Find", |a, _| a.terminal_find_close()),
+        c!(hidden "workbench.action.terminal.toggleFindCaseSensitive", "Terminal", "Toggle Find Match Case", |a, _| a
+            .terminal_find_toggle('c')),
+        c!(hidden "workbench.action.terminal.toggleFindWholeWord", "Terminal", "Toggle Find Whole Word", |a, _| a
+            .terminal_find_toggle('w')),
+        c!(hidden "workbench.action.terminal.toggleFindRegex", "Terminal", "Toggle Find Regex", |a, _| a
+            .terminal_find_toggle('r')),
         c!("workbench.action.toggleMaximizedPanel", "View", "Toggle Maximized Panel", |a, _| {
             a.panel.maximized = !a.panel.maximized;
             a.show_terminal();

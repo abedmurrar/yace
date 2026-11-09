@@ -501,8 +501,8 @@ Legend:
 - [x] [M5] Resize propagates to the PTY (§3.3)
 - [x] [M5] Lifecycle: exit, failed spawn, crash, closing with a running process (confirm), app quit policy, broken pipe; no orphaned processes (§11.8)
 - [x] [M5] Session restore: layout and metadata only; never pretends a process survived (§4.9)
-- [~] [M5] Split terminal views (desirable) — deferred: one terminal visible at a time (tabs)
-- [~] [M5] Terminal scrollback search / copy mode — partial: mouse selection + copy, scrollback scrolling; search in scrollback not yet
+- [x] [M5] Split terminal views — groups of panes side by side (`Ctrl+Shift+5` / `Alt+\`), per-pane PTY size, `Alt+arrows` focus and `Ctrl+Shift+Left/Right` or drag to resize (keys reach the shell when not split), one tab per group, unsplit, restored with the session — v0.10.0
+- [x] [M5] Terminal scrollback search — `Ctrl+F` bar (case, whole word, regex, count to 1000+), alacritty's regex DFAs on a worker in 1,000-line chunks so the PTY never stalls; the match is selected for copying — v0.10.0
 - [x] [M5] PTY integration tests: shell startup, input, ANSI, resize, alt screen, Ctrl+C, exit, high volume, scrollback limit, concurrency (§28.3)
 - [~] [M5] Manual: Claude Code runs correctly inside the integrated terminal (Workflow D) — awaiting the user's manual check
 
@@ -703,6 +703,12 @@ Real binary against v0.8.2 on node (`scripts/bench.sh` and a PTY idle script):
 - **Idle CPU:** 0.
 - **Typing** (`bench_interactive.py`, 300 keys): input p95 0.32 ms against 0.24–0.30; render p95 0.39–0.46 ms against 0.43–0.44. Within run-to-run noise.
 - **Binary:** 18.05 → 18.30 MB.
+
+Leftovers batch 2, terminal (v0.10.0, 2026-11-09, i5-1135G7):
+- **Terminal find** (`cargo test --release -p yace-terminal -- --ignored --nocapture search_cost`): a whole-scrollback search takes 14–21 ms over 10k lines and 140–160 ms over 100k. It runs on the worker in 1,000-line chunks, about 1.5 ms of lock each, so the shell's output keeps flowing. Highlighting the visible matches costs 0.11–0.14 ms per frame, only while the bar is open.
+- **Flood** (`scripts/bench_terminal.py`, `YACE_BENCH_SPLIT=1` for two panes): input p95 0.56–0.64 ms with one pane, 0.30–0.71 ms with two. Render p95 0.16–0.17 ms with one pane, 0.09–0.18 ms with two.
+- **RSS against v0.8.2:** 1 terminal 10.6–10.9 MiB against 9.8–10.2; flood 29.5–29.8 against 28.7–29.0; 4 terminals 34.2–34.4 against 33.1–33.3. A split costs nothing measurable.
+  - The +0.5–1 MiB is clean binary pages (`RssFile` 8.4–8.6 against 7.9–8.3 MiB at idle). The heap (`RssAnon`) is identical at 768 kB, plus one thread (the watcher).
 
 Buffer benchmarks (`cargo bench -p yace-buffer`, 2026-11-03, i5-1135G7): type 1 char in a 10 MB file 0.76 µs (start) / 1.01 µs (middle) / 1.15 µs (end); type with 1,000 cursors 2.0 ms; undo+redo of a 100k-change transaction 55.6 ms.
 | Metric | Target | Measured | Date / hardware |

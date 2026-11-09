@@ -56,7 +56,7 @@ pub use find::FindField;
 pub use git_ops::{RepoCmd, ScmGroup, ScmRow, ScmUi};
 pub use mouse::MouseState;
 pub use search_view::{Row as SearchRow, SearchField};
-pub use terminal::{DEFAULT_PANEL_HEIGHT, PanelState, TermTab, snapshot as terminal_snapshot};
+pub use terminal::{DEFAULT_PANEL_HEIGHT, PanelState, TermFindState, TermTab, snapshot as terminal_snapshot};
 
 /// Inputs to the application.
 /// Least time between two heap trims.
@@ -108,6 +108,14 @@ pub enum AppEvent {
     WatchFailed {
         path: PathBuf,
         error: String,
+    },
+    /// A terminal search finished: the match found and the match count
+    /// (with the 1-based number of the match).
+    TermFindDone {
+        seq: u64,
+        session: yace_terminal::SessionId,
+        found: Option<yace_terminal::TermMatch>,
+        count: (usize, Option<usize>),
     },
     /// A live update of one file's results (`None`: no longer matches).
     SearchFileUpdate {
@@ -163,6 +171,8 @@ pub enum Effect {
     /// Re-search some files of the shown results (runs in order, never
     /// cancels the main search).
     SearchUpdate(Box<crate::workers::SearchJob>),
+    /// Search a terminal's scrollback.
+    TermFind(Box<crate::workers::TermFindJob>),
     /// Find matches in a document snapshot.
     Find(Box<crate::workers::FindJob>),
     /// Load a (large) file in the background.
@@ -194,6 +204,8 @@ pub enum Focus {
     Find,
     /// The active terminal in the bottom panel.
     Terminal,
+    /// The find bar of the terminal panel.
+    TerminalFind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -308,6 +320,8 @@ pub struct App {
     trim_due: Option<Instant>,
     /// The bottom panel and its terminals.
     pub panel: terminal::PanelState,
+    /// Find in the terminal's scrollback.
+    pub term_find: terminal::TermFindState,
     /// Per-document syntax trees and highlighting.
     pub syntax: crate::syntax::SyntaxStore,
     /// Alt+Z: word wrap toggled for this window (overrides the setting).
@@ -427,6 +441,7 @@ impl App {
             last_trim: None,
             trim_due: None,
             panel: Default::default(),
+            term_find: Default::default(),
             syntax: Default::default(),
             word_wrap_override: None,
             lsp: Default::default(),
@@ -753,6 +768,7 @@ impl App {
         c.set(ctx::MULTIPLE_EDITOR_GROUPS, self.layout.groups().len() > 1);
         c.set(ctx::FIND_WIDGET_VISIBLE, self.find.visible);
         c.set(ctx::PANEL_VISIBLE, self.panel.visible);
+        c.set(ctx::TERMINAL_FIND_VISIBLE, self.term_find.visible && self.panel.visible);
         c.set(ctx::SUGGEST_WIDGET_VISIBLE, self.completion.is_some());
         c.set(ctx::PARAMETER_HINTS_VISIBLE, self.signature.is_some());
         c.set(ctx::EDITOR_HOVER_VISIBLE, self.hover.is_some());
@@ -770,6 +786,9 @@ impl App {
             }
             Focus::Terminal => {
                 c.set(ctx::TERMINAL_FOCUS, true);
+            }
+            Focus::TerminalFind => {
+                c.set(ctx::TERMINAL_FIND_FOCUSED, true);
             }
             _ => {
                 if let Some(v) = self.layout.active_group().active_view() {
@@ -846,6 +865,7 @@ impl App {
                 self.request_trim();
             }
             AppEvent::FindDone { seq, result } => self.on_find_done(seq, result),
+            AppEvent::TermFindDone { seq, session, found, count } => self.on_term_find_done(seq, session, found, count),
             AppEvent::FileLoaded { doc, path, result } => self.on_file_loaded(doc, path, result),
             AppEvent::TerminalNotice(n) => self.on_terminal_notice(n),
             AppEvent::Lsp { server, msg } => self.on_lsp(server, *msg),
@@ -948,6 +968,8 @@ impl App {
                 // Text inputs (find bar, search view) take editing keys.
                 if self.focus == Focus::Find {
                     self.find_input_key(key, ch);
+                } else if self.focus == Focus::TerminalFind {
+                    self.terminal_find_input_key(key, ch);
                 } else if self.focus == Focus::Explorer && self.sidebar_view == SidebarView::Search {
                     self.search_input_key(key, ch);
                 } else {
@@ -961,7 +983,7 @@ impl App {
         let Some(c) = key.text_char(ch) else { return };
         match self.focus {
             Focus::Editor => self.type_char(c),
-            Focus::Find | Focus::Terminal => {}
+            Focus::Find | Focus::Terminal | Focus::TerminalFind => {}
             Focus::Explorer => {
                 if !(c == ' ' && self.explorer.filter.is_empty()) {
                     self.explorer.filter.push(c);
@@ -991,6 +1013,7 @@ impl App {
             Focus::Find => self.find_paste(text),
             Focus::Explorer if self.sidebar_view == SidebarView::Search => self.search_paste(text),
             Focus::Terminal => self.terminal_paste_text(text),
+            Focus::TerminalFind => self.terminal_find_paste(text),
             Focus::Explorer => {}
         }
     }

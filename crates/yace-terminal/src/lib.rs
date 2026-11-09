@@ -10,7 +10,8 @@ pub mod session;
 
 pub use input::{MouseButton, MouseKind, encode_key, encode_mouse, encode_paste};
 pub use session::{
-    CellStyle, Modes, Notice, Screen, ScreenCell, Session, SessionConfig, SessionId, TermColor, default_shell,
+    CellStyle, Modes, Notice, Screen, ScreenCell, Searcher, Session, SessionConfig, SessionId, TermColor, TermMatch,
+    TermQuery, default_shell,
 };
 
 #[cfg(test)]
@@ -141,5 +142,93 @@ mod tests {
         let state = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
         assert!(state.is_empty() || state.contains(") Z"), "process gone: {state}");
         assert!(!s.is_running());
+    }
+
+    #[test]
+    fn search_through_scrollback() {
+        let (s, _rx, _d) = spawn(None, 10, 40, 5000);
+        wait_screen(&s, Duration::from_secs(5), |sc| sc.text().contains('$'));
+        s.write(b"i=0; while [ $i -lt 3000 ]; do echo row$i; i=$((i+1)); done; echo Row-END\r");
+        wait_screen(&s, Duration::from_secs(20), |sc| sc.text().contains("Row-END"));
+        let f = s.searcher();
+        let go = || false;
+        let mut q = TermQuery::new("row1", false, false, false).unwrap();
+        // From the bottom upwards: row1999 is the newest "row1…" line.
+        let m = f.find(&mut q, None, true, &go).unwrap();
+        s.show_match(m);
+        let mut screen = Screen::default();
+        s.screen(&mut screen);
+        assert!(screen.display_offset > 0, "scrolled to the match");
+        assert_eq!(s.selection_text().as_deref(), Some("row1"));
+        assert!(screen.text().contains("row1999"));
+        let older = f.find(&mut q, Some(m), true, &go).unwrap();
+        assert!(older.start < m.start, "up goes to older output");
+        assert_eq!(f.find(&mut q, Some(older), false, &go), Some(m), "down comes back");
+        // Walk all the way up: crosses chunk boundaries, then wraps to m.
+        let mut cur = m;
+        let mut steps = 0;
+        loop {
+            cur = f.find(&mut q, Some(cur), true, &go).unwrap();
+            steps += 1;
+            if cur == m {
+                break;
+            }
+            assert!(steps < 2000);
+        }
+        assert_eq!(steps, 1111, "row1, row10–19, row100–199, row1000–1999");
+        let (n, at) = f.count(&mut q, Some(m), 5000, &go).unwrap();
+        assert_eq!(n, 1111);
+        assert_eq!(at, Some(1111));
+        assert_eq!(f.count(&mut q, None, 50, &go).unwrap().0, 50, "capped");
+        assert!(f.find(&mut q, None, true, &|| true).is_none(), "stopped");
+        // Case, whole word, regex.
+        let mut cs = TermQuery::new("Row", true, false, false).unwrap();
+        assert_eq!(f.count(&mut cs, None, 5000, &go).unwrap().0, 2, "the command line and its output");
+        let mut word = TermQuery::new("row2", false, true, false).unwrap();
+        assert_eq!(f.count(&mut word, None, 5000, &go).unwrap().0, 1, "whole word: row2 only");
+        let mut re = TermQuery::new(r"row\d\d\d\d", false, false, true).unwrap();
+        assert_eq!(f.count(&mut re, None, 5000, &go).unwrap().0, 2000);
+        assert!(TermQuery::new("(", false, false, true).is_err());
+        let mut none = TermQuery::new("nothing-like-this", false, false, false).unwrap();
+        assert_eq!(f.find(&mut none, None, true, &go), None);
+        // Highlights on screen.
+        s.screen_with_matches(&mut screen, &mut q, Some(m));
+        assert!(screen.cells.iter().any(|c| c.style.find_current));
+    }
+
+    /// Timings: `cargo test --release -p yace-terminal -- --ignored --nocapture search_cost`.
+    #[test]
+    #[ignore]
+    fn search_cost() {
+        for lines in [10_000usize, 100_000] {
+            let (s, _rx, _d) = spawn(None, 40, 120, lines);
+            wait_screen(&s, Duration::from_secs(5), |sc| sc.text().contains('$'));
+            s.write(format!("seq 1 {lines}; echo DONE-MARK\r").as_bytes());
+            wait_screen(&s, Duration::from_secs(60), |sc| sc.text().contains("DONE-MARK"));
+            let f = s.searcher();
+            let go = || false;
+            let mut q = TermQuery::new("12345", false, false, false).unwrap();
+            let t = Instant::now();
+            let m = f.find(&mut q, None, true, &go);
+            let find = t.elapsed();
+            let mut rare = TermQuery::new("not-there-at-all", false, false, false).unwrap();
+            let t = Instant::now();
+            let none = f.find(&mut rare, None, true, &go);
+            let miss = t.elapsed();
+            let t = Instant::now();
+            let n = f.count(&mut q, m, 1000, &go);
+            let count = t.elapsed();
+            // The longest the lock is held: one chunk.
+            let t = Instant::now();
+            let _ = f.count(&mut rare, None, 1000, &|| t.elapsed() > Duration::ZERO);
+            let mut screen = Screen::default();
+            let t = Instant::now();
+            s.screen_with_matches(&mut screen, &mut q, m);
+            let draw = t.elapsed();
+            eprintln!(
+                "{lines} lines: find {find:?}, no match (whole scrollback) {miss:?} ({none:?}), count {n:?} {count:?}, \
+                 screen+highlights {draw:?}"
+            );
+        }
     }
 }

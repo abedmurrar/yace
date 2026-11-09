@@ -3737,6 +3737,7 @@ version = "0.9.0"
 dependencies = [
  "alacritty_terminal",
  "crossbeam-channel",
+ "regex",
  "tempfile",
  "yace-keymap",
 ]

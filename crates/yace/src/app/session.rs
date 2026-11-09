@@ -91,6 +91,8 @@ impl App {
                 cwd: t.session.as_ref().and_then(|s| s.current_dir()).unwrap_or_else(|| t.cwd.clone()),
                 root_path: t.root.and_then(|r| self.workspace.root(r)).map(|r| r.path.display().to_string()),
                 profile: t.profile.clone(),
+                group: t.group,
+                weight: t.weight,
             })
             .collect();
         if let Err(e) = session::save(&self.state_path(), &st) {

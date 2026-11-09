@@ -54,6 +54,11 @@ pub struct TerminalState {
     /// Absolute path of the workspace root it belonged to.
     pub root_path: Option<String>,
     pub profile: Option<String>,
+    /// Terminals with the same group were split side by side (0: none
+    /// saved).
+    pub group: u32,
+    /// Share of the group's width.
+    pub weight: f32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

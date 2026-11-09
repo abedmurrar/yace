@@ -22,6 +22,8 @@ pub mod ctx {
     pub const SEARCH_INPUT_FOCUS: &str = "searchInputFocus";
     pub const TERMINAL_FOCUS: &str = "terminalFocus";
     pub const PANEL_VISIBLE: &str = "panelVisible";
+    pub const TERMINAL_FIND_VISIBLE: &str = "terminalFindVisible";
+    pub const TERMINAL_FIND_FOCUSED: &str = "terminalFindFocused";
     pub const SUGGEST_WIDGET_VISIBLE: &str = "suggestWidgetVisible";
     pub const PARAMETER_HINTS_VISIBLE: &str = "parameterHintsVisible";
     pub const EDITOR_HOVER_VISIBLE: &str = "editorHoverVisible";
@@ -245,6 +247,30 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+shift+down", "workbench.action.terminal.scrollDown", "terminalFocus"),
     ("ctrl+pagedown", "workbench.action.terminal.focusNext", "terminalFocus"),
     ("ctrl+pageup", "workbench.action.terminal.focusPrevious", "terminalFocus"),
+    // Split terminals. Ctrl+Shift+5 needs the enhanced keyboard protocol;
+    // Alt+\ is the fallback.
+    ("ctrl+shift+5", "workbench.action.terminal.split", "terminalFocus"),
+    ("alt+\\", "workbench.action.terminal.split", "terminalFocus && !keyboardEnhanced"),
+    ("alt+right", "workbench.action.terminal.focusNextPane", "terminalFocus"),
+    ("alt+down", "workbench.action.terminal.focusNextPane", "terminalFocus"),
+    ("alt+left", "workbench.action.terminal.focusPreviousPane", "terminalFocus"),
+    ("alt+up", "workbench.action.terminal.focusPreviousPane", "terminalFocus"),
+    ("ctrl+shift+left", "workbench.action.terminal.resizePaneLeft", "terminalFocus"),
+    ("ctrl+shift+right", "workbench.action.terminal.resizePaneRight", "terminalFocus"),
+    // Find in the scrollback: Enter goes up (older output), as in VS Code.
+    ("ctrl+f", "workbench.action.terminal.focusFind", "terminalFocus || terminalFindFocused"),
+    ("enter", "workbench.action.terminal.findNext", "terminalFindFocused"),
+    ("shift+enter", "workbench.action.terminal.findPrevious", "terminalFindFocused"),
+    ("f3", "workbench.action.terminal.findNext", "terminalFindFocused || terminalFocus && terminalFindVisible"),
+    (
+        "shift+f3",
+        "workbench.action.terminal.findPrevious",
+        "terminalFindFocused || terminalFocus && terminalFindVisible",
+    ),
+    ("escape", "workbench.action.terminal.hideFind", "terminalFindFocused"),
+    ("alt+c", "workbench.action.terminal.toggleFindCaseSensitive", "terminalFindFocused"),
+    ("alt+w", "workbench.action.terminal.toggleFindWholeWord", "terminalFindFocused"),
+    ("alt+r", "workbench.action.terminal.toggleFindRegex", "terminalFindFocused"),
     // --- Language features (M7) ------------------------------------------
     ("ctrl+shift+space", "editor.action.triggerParameterHints", "editorFocus"),
     ("ctrl+k ctrl+i", "editor.action.showHover", "editorFocus"),

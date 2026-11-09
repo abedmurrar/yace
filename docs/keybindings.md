@@ -93,7 +93,11 @@ Rebind those in the terminal, or use the fallbacks below.
 | `` Ctrl+` `` | show and focus the terminal; again to hide it (works in GNOME Terminal too) |
 | `` Ctrl+Shift+` `` | new terminal in the active file's workspace folder |
 | `Ctrl+J` | show / hide the bottom panel |
-| `Ctrl+PgDn` / `Ctrl+PgUp` (terminal focused) | next / previous terminal |
+| `Ctrl+PgDn` / `Ctrl+PgUp` (terminal focused) | next / previous terminal tab |
+| `Ctrl+Shift+5` (`Alt+\` without the enhanced keyboard protocol) | split: a new shell beside the focused one, in its current folder |
+| `Alt+Left` / `Alt+Right` (also `Alt+Up` / `Alt+Down`) | previous / next pane of a split; with no split the keys go to the shell |
+| `Ctrl+Shift+Left` / `Ctrl+Shift+Right` | move the focused pane's divider (with no split the keys go to the shell); dragging the divider works too |
+| `Ctrl+F` | find in the scrollback (see below) |
 | `Ctrl+C` | interrupt (or copy, when text is selected) |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | copy selection / paste |
 | `Shift+PgUp` / `Shift+PgDn`, `Ctrl+Shift+Up` / `Ctrl+Shift+Down`, mouse wheel | scroll back |
@@ -105,10 +109,27 @@ commands, which keep working: Quick Open (`Ctrl+P`), Command Palette
 (`Ctrl+Shift+P`, `F1`), toggle terminal/panel, new terminal, next/previous
 terminal, terminal copy/paste/scroll, maximize panel, Explorer
 (`Ctrl+Shift+E`), Find in Files (`Ctrl+Shift+F`), focus editor group
-(`Ctrl+1`–`3`) and `F6`. Add more with `terminal.commandsToSkipShell`.
+(`Ctrl+1`–`3`), `F6`, terminal find (`Ctrl+F`, `F3`), split and the pane
+keys while split. Add more with `terminal.commandsToSkipShell`.
 `Ctrl+K`, `Ctrl+R`, `Ctrl+D`, `Ctrl+B` and so on reach the shell.
 
-Other terminal commands are in the palette: "Open Terminal in Workspace
+**Find in the terminal** (`Ctrl+F`, a bar at the top right of the pane):
+type to search the screen and scrollback. The newest match is selected
+first, so `Ctrl+C` copies it.
+
+| Keys | Action |
+|---|---|
+| `Enter` / `F3` | next match, going **up** to older output (as in VS Code) |
+| `Shift+Enter` / `Shift+F3` | previous match, going down |
+| `Alt+C` / `Alt+W` / `Alt+R` | match case / whole word / regex |
+| `Escape` | close the bar (the match stays selected) |
+
+The count shows up to "1000+". The search runs off the UI thread, a
+thousand lines at a time, so neither typing nor the shell's output waits.
+Regex `^` and `$` don't mark line starts and ends (terminal lines are
+padded), and whole word uses ASCII word boundaries.
+
+Other terminal commands are in the palette: "Unsplit Terminal", "Open Terminal in Workspace
 Folder…", "Open Terminal in Active File's Folder", "Create New Terminal
 (With Profile)…", "Kill the Active Terminal Instance", "Rename…", "Clear",
 "Toggle Maximized Panel". In the Explorer, "Open in Integrated Terminal"
