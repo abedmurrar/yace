@@ -525,7 +525,7 @@ Legend:
 - [x] [M6] Layout persistence (sidebar, panel size/maximised, group split ratios — per workspace) and "Reset Layout"; side bar left/right (`workbench.sideBarLocation`, toggle command) (§3.2, §17.3)
 - [x] [M6] Responsive layout: side bar overlays below 50 columns, panel only when focused/maximised below 12 rows, tabs and status bar hidden below 3 rows; property test renders every size 1×1…50×15 in 11 UI states (§3.3)
 - [x] [M6+] VS Code colour theme import, data only, no JS: installed extensions (VS Code, server, OSS, Cursor, Windsurf, bundled) or a `.json` file; `include` chains, TextMate rules resolved by selector specificity, semantic colours (§16.7)
-- [ ] [M6] Theme picker: show installed-but-not-imported VS Code themes inline (import on select)
+- [~] [M6] Theme picker: show installed-but-not-imported VS Code themes inline — dropped (2026-11-09): colour themes will ship as plugins
 
 ---
 
@@ -581,6 +581,7 @@ Legend:
 - [~] [M7] Semantic tokens — deferred: tree-sitter covers colouring
 - [ ] [M7] Several language servers per document (core mechanism: merged diagnostics, code actions, formatting); tool-specific servers such as ESLint or Biome ship as plugins, not built in
 - [ ] [Plugins] External ESLint and Biome plugins (outside the core, optional) built on several servers per document; test both on a real repo with `biome.json` and one with an ESLint config; without the plugin nothing changes — later, after the core mechanism
+- [ ] [Plugins] Colour themes as plugins (later; replaces showing VS Code themes in the picker)
 - [ ] [M7] Mouse-hover popups; completion item documentation side panel
 - [ ] [M7] Code lens, inlay hints, call hierarchy, document highlights (not in the M7 scope)
 
