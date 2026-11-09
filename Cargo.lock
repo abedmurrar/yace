@@ -3568,7 +3568,7 @@ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 
 [[package]]
 name = "yace"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -3607,7 +3607,7 @@ dependencies = [
 
 [[package]]
 name = "yace-buffer"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "criterion",
  "ropey",
@@ -3620,7 +3620,7 @@ dependencies = [
 
 [[package]]
 name = "yace-config"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "directories",
  "jsonc-parser",
@@ -3635,7 +3635,7 @@ dependencies = [
 
 [[package]]
 name = "yace-git"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "imara-diff",
  "tempfile",
@@ -3643,7 +3643,7 @@ dependencies = [
 
 [[package]]
 name = "yace-keymap"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3654,7 +3654,7 @@ dependencies = [
 
 [[package]]
 name = "yace-lsp"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "crossbeam-channel",
  "ropey",
@@ -3665,7 +3665,7 @@ dependencies = [
 
 [[package]]
 name = "yace-plugin"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3674,7 +3674,7 @@ dependencies = [
 
 [[package]]
 name = "yace-plugin-api"
-version = "0.13.0"
+version = "0.14.0"
 
 [[package]]
 name = "yace-plugin-hello"
@@ -3686,7 +3686,7 @@ dependencies = [
 
 [[package]]
 name = "yace-plugin-host"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "flate2",
  "libloading",
@@ -3718,7 +3718,7 @@ dependencies = [
 
 [[package]]
 name = "yace-search"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "criterion",
  "globset",
@@ -3734,7 +3734,7 @@ dependencies = [
 
 [[package]]
 name = "yace-syntax"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "criterion",
  "globset",
@@ -3767,7 +3767,7 @@ dependencies = [
 
 [[package]]
 name = "yace-terminal"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "alacritty_terminal",
  "crossbeam-channel",
@@ -3778,7 +3778,7 @@ dependencies = [
 
 [[package]]
 name = "yace-workspace"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "jsonc-parser",
  "serde",
