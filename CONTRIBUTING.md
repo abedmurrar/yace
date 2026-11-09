@@ -6,7 +6,7 @@ with first-class multi-root workspaces. A few rules keep it that way.
 ## Ground rules
 
 - **No JavaScript runtimes.** Electron, Node.js, V8, QuickJS and anything
-  similar are out, in the editor and in its plugins (spec §2.2).
+  similar are out, in the editor and in its plugins.
 - **Performance is a requirement.**
   - No unbounded queues, caches or background work.
   - Nothing heavy at startup.
@@ -44,7 +44,7 @@ with first-class multi-root workspaces. A few rules keep it that way.
 - App behaviour is tested headlessly in `crates/yace/tests/` with the
   harness in `tests/common`. It drives `App` with synthetic keys and mouse
   events and renders to ratatui's `TestBackend`.
-- Multi-root tests must use folders that don't share a parent (spec §28.5).
+- Multi-root tests must use folders that don't share a parent.
   `common::multi_root()` sets these up.
 - `tests/pty_smoke.rs` runs the real binary in a pseudo-terminal.
 

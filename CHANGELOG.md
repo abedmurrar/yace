@@ -13,6 +13,21 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Fixed
+
+- `scripts/build_plugin.sh` now builds plugin crates that live outside the
+  YACE repository. It builds the crate with its own manifest and packages
+  it with the `yace` on `PATH` (or `$YACE`).
+- The desktop entry lists only the Development menu category, so menus
+  that place an app in each main category (KDE, Xfce) show YACE once.
+- `SECURITY.md`, the release guide and the architecture notes described
+  plugins and packaging as planned; they now describe what ships.
+
+### Changed
+
+- Releases add themselves to the AppStream metadata, so software centres
+  list every version.
+
 ## [0.11.3] - 2026-11-09
 
 ### Added

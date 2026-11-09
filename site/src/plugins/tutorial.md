@@ -229,10 +229,16 @@ yace --package-plugin package -o todo-count-0.1.0.tar.gz
 `--package-plugin` checks the manifest and the files, writes the
 package, and prints its SHA-256.
 
-> Plugins that live inside the YACE repository, under `plugins/`, are
-> members of its Cargo workspace. For those, `scripts/build_plugin.sh
-> plugins/<name>` does the build and the packaging in one step; that is how
-> `plugins/hello` and `plugins/tasks` are built.
+Or do both steps with the script from the YACE repository, which also
+copies any `themes/`, `queries/`, `grammars/` or `assets/` folders:
+
+```sh
+path/to/yace/scripts/build_plugin.sh . dist
+```
+
+It works for your own crate anywhere on disk and for the plugins under
+YACE's `plugins/` folder. Outside the YACE repository it packages with the
+`yace` on your `PATH` (or `$YACE`).
 
 ## 6. Install and try it
 

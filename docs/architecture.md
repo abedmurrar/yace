@@ -39,12 +39,12 @@ isolation.
   directories through a bounded queue, and duplicate requests are dropped.
   Watches are non-recursive and cover only expanded directories and the
   parents of open files. Events are coalesced over ~100 ms.
-- **No Tokio.** Threads plus one channel. M7 kept it that way: each
-  language server gets three small blocking threads (writer, reader,
+- **No Tokio.** Threads plus one channel. Language servers keep it
+  that way: each language server gets three small blocking threads (writer, reader,
   stderr); the reader decodes JSON into typed replies, so the UI thread
   never parses a large response.
 
-### Workers (M4)
+### Workers
 
 | Worker | Owns | Fed by | Emits |
 |---|---|---|---|
@@ -58,7 +58,7 @@ isolation.
 | syntax worker (started on first use) | — | `Effect::Parse` (rope snapshot + old tree); jobs for the same document collapse to the newest | `Parsed { cost }` |
 | language servers (`yace-lsp`) | per server: writer, reader (decodes into `Reply`), stderr ring | `Client::request` / `notify` | `AppEvent::Lsp` (`Response`, `Diagnostics`, `Progress`, server requests, `Exited`) |
 
-#### Syntax and language servers (M7)
+#### Syntax and language servers
 
 - Every `Document` can keep an **edit log** of `(rope before, ChangeSet)`
   pairs (rope clones share nodes, so this is O(1)). `App::sync_documents`
@@ -168,7 +168,7 @@ The context is computed per key and includes: focus (`editorFocus`,
 selections, whether the explorer filter is active, `keyboardEnhanced` and
 `notificationVisible`.
 
-## Themes and configuration (M6)
+## Themes and configuration
 
 - `theme/` holds the `Theme` (semantic colour tokens + syntax styles) and
   its loader. Theme files are TOML whose UI keys are VS Code colour ids;
@@ -199,7 +199,7 @@ selections, whether the explorer filter is active, `keyboardEnhanced` and
   turns them into `keybindings.toml` edits (`-command` entries to replace
   defaults) and reloads the keymap.
 
-## Native plugins (M8)
+## Native plugins
 
 ```
 yace-plugin-api   #[repr(C)] tables only (YaceHost, YacePlugin), ABI 1, C header
@@ -232,7 +232,7 @@ crates/yace       plugins.rs (host functions, the only unsafe plugin code),
   built-in table; the app loads a plugin grammar the first time a document
   of its language is open, then re-attaches those documents.
 
-## Git (M9)
+## Git
 
 - `yace-git`: runs the `git` program (timeouts, no prompts/pager/editor,
   `--no-optional-locks` for reads, a command log), parses `status

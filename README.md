@@ -8,12 +8,13 @@ work across all of them in one Explorer with VS Code keyboard shortcuts.
 No Electron, no Node.js, no JavaScript runtime, no cloud account, no
 telemetry.
 
-> **Status:** milestones M1–M9 are implemented: multi-root workspaces,
-> Explorer, full editing, fuzzy Quick Open and workspace search, the
-> integrated terminal, themes and a keybinding editor, tree-sitter syntax
-> highlighting, folding, word wrap, language servers (completion,
-> diagnostics, go to definition, rename, symbols, code actions,
-> formatting), native plugins and Git. Next: preparing the public release. See [`TODO.md`](TODO.md) for the complete, itemised status.
+> **Status:** pre-1.0, Linux only (x86_64 and arm64). YACE has multi-root
+> workspaces, the Explorer, full editing with multiple cursors, fuzzy Quick
+> Open and workspace search with replace, an integrated terminal with
+> splits, themes and a keybinding editor, tree-sitter highlighting and
+> folding, language servers (completion, diagnostics, go to definition,
+> rename, symbols, code actions, formatting), native plugins and Git. See
+> [`TODO.md`](TODO.md) for the complete, itemised status.
 
 ## Install
 

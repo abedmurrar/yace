@@ -34,10 +34,17 @@ if m:
     base, prev = m.group(1), m.group(2)
     c = c.replace(m.group(0), f"[Unreleased]: {base}/compare/v{v}...HEAD\n[{v}]: {base}/compare/{prev}...v{v}")
 open("CHANGELOG.md", "w").write(c)
+# AppStream metadata (software centres show this list); stable releases only.
+if "-" not in v:
+    mp = "packaging/linux/io.github.abedmurrar.yace.metainfo.xml"
+    x = open(mp).read()
+    if f'version="{v}"' not in x:
+        x = x.replace("<releases>\n", f'<releases>\n    <release version="{v}" date="{today}"/>\n', 1)
+        open(mp, "w").write(x)
 PY
 cargo update --workspace --quiet
 python3 scripts/third_party.py >/dev/null
-git add Cargo.toml Cargo.lock CHANGELOG.md THIRD_PARTY_LICENSES.md
+git add Cargo.toml Cargo.lock CHANGELOG.md THIRD_PARTY_LICENSES.md packaging/linux/io.github.abedmurrar.yace.metainfo.xml
 git commit -q -m "chore(release): v$v"
 scripts/changelog-section.sh "$v" > /tmp/yace-tag-msg.$$
 { echo "YACE v$v"; echo; cat /tmp/yace-tag-msg.$$; } | git tag -a "v$v" -F -

@@ -124,8 +124,7 @@ in "Developer: Show Configuration Errors".
 
 ### `[terminal]`
 
-User settings only: a workspace file can never choose which program runs
-(spec §4.12).
+User settings only: a workspace file can never choose which program runs.
 
 | Key | Default | Meaning |
 |---|---|---|
