@@ -31,6 +31,7 @@ Security, Performance.
   hides when there's no room. "Toggle Suggestion Details" (`Ctrl+Space`
   while the list is open, with the enhanced keyboard protocol) shows
   and hides it.
+- Clicking a plugin's status bar item runs its command.
 
 ### Performance
 

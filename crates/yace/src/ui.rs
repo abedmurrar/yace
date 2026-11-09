@@ -1313,10 +1313,11 @@ fn editor_cursor(app: &App, wl: &WorkbenchLayout) -> Option<(u16, u16)> {
     Some((gl.text_x + (col - scroll_col) as u16, gl.content.y + dy as u16))
 }
 
-fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {
+/// The status bar's own texts (before plugin items): the left text, its
+/// style (notifications colour it) and the right-hand items.
+fn status_base(app: &App) -> (String, Style, Vec<String>) {
     let t = &app.theme;
     let base = t.status(app.workspace.roots().is_empty());
-    fill(buf, r, base);
     let mut left;
     let mut right: Vec<String> = Vec::new();
     let active = app.active();
@@ -1392,32 +1393,100 @@ fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {
             Severity::Info => base,
         };
     }
+    (left, left_style, right)
+}
+
+/// Where a status bar item landed, and the command a click runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusCell {
+    pub x: u16,
+    pub w: u16,
+    pub command: String,
+}
+
+/// The status bar's layout, shared by drawing and clicking.
+struct StatusLayout {
+    branch: Option<String>,
+    left: String,
+    left_style: Style,
+    right_text: String,
+    rw: u16,
+    shown_right: u16,
+    lx: u16,
+    left_max: u16,
+    cells: Vec<StatusCell>,
+}
+
+fn status_layout(app: &App, r: Rect) -> StatusLayout {
+    let (mut left, left_style, mut right) = status_base(app);
+    let w = |s: &str| UnicodeWidthStr::width(s) as u16;
     // The branch stays at the far left, even under notifications.
     let branch = app.git_status_label().map(|b| format!(" {b} "));
-    let (pl, pr) = app.plugin_status_texts();
-    if !pl.is_empty() {
-        left = format!("{left}   {}", pl.join("   "));
+    let (pl, pr) = app.plugin_status_items();
+    // Left plugin items follow the left text; remember their offsets.
+    let mut left_cells: Vec<(u16, u16, Option<String>)> = Vec::new();
+    for item in &pl {
+        left.push_str("   ");
+        left_cells.push((w(&left), w(&item.text), item.command.clone()));
+        left.push_str(&item.text);
     }
-    for (i, item) in pr.into_iter().enumerate() {
-        right.insert(i, item);
+    let n_plugin_right = pr.len();
+    for (i, item) in pr.iter().enumerate() {
+        right.insert(i, item.text.clone());
     }
     let right_text = format!("{}  ", right.join("   "));
-    let rw = UnicodeWidthStr::width(right_text.as_str()) as u16;
+    let rw = w(&right_text);
     let lw_max = r.width.saturating_sub(rw + 1);
     let shown_right = if lw_max < 10 { 0 } else { rw };
     let mut left_max = r.width.saturating_sub(shown_right);
     let mut lx = r.x;
     if let Some(b) = &branch {
-        let bw = (UnicodeWidthStr::width(b.as_str()) as u16).min(left_max / 2);
-        put(buf, lx, r.y, b, bw, base);
+        let bw = w(b).min(left_max / 2);
         lx += bw;
         left_max = left_max.saturating_sub(bw);
     }
-    let left = ellipsize(&left, left_max as usize, app.glyphs.ellipsis);
-    fill(buf, Rect { x: lx, width: (UnicodeWidthStr::width(left.as_str()) as u16 + 1).min(left_max), ..r }, left_style);
-    put(buf, lx, r.y, &left, left_max, left_style);
+    let mut cells = Vec::new();
+    // A left item counts only if it is fully shown (not cut by the ellipsis).
+    let fits = w(&left) <= left_max;
+    for (off, iw, cmd) in left_cells {
+        if let Some(command) = cmd
+            && (fits || off + iw < left_max)
+        {
+            cells.push(StatusCell { x: lx + off, w: iw, command });
+        }
+    }
     if shown_right > 0 {
-        put(buf, r.right().saturating_sub(rw), r.y, &right_text, rw, base);
+        let mut x = r.right().saturating_sub(rw);
+        for (i, item) in pr.iter().enumerate().take(n_plugin_right) {
+            if let Some(command) = &item.command {
+                cells.push(StatusCell { x, w: w(&item.text), command: command.clone() });
+            }
+            x += w(&right[i]) + 3;
+        }
+    }
+    StatusLayout { branch, left, left_style, right_text, rw, shown_right, lx, left_max, cells }
+}
+
+/// Clickable status bar items (plugin items with a command).
+pub fn status_cells(app: &App, r: Rect) -> Vec<StatusCell> {
+    status_layout(app, r).cells
+}
+
+fn draw_status(app: &App, buf: &mut Buffer, r: Rect) {
+    let t = &app.theme;
+    let base = t.status(app.workspace.roots().is_empty());
+    fill(buf, r, base);
+    let lay = status_layout(app, r);
+    if let Some(b) = &lay.branch {
+        let bw = lay.lx - r.x;
+        put(buf, r.x, r.y, b, bw, base);
+    }
+    let left = ellipsize(&lay.left, lay.left_max as usize, app.glyphs.ellipsis);
+    let lw = (UnicodeWidthStr::width(left.as_str()) as u16 + 1).min(lay.left_max);
+    fill(buf, Rect { x: lay.lx, width: lw, ..r }, lay.left_style);
+    put(buf, lay.lx, r.y, &left, lay.left_max, lay.left_style);
+    if lay.shown_right > 0 {
+        put(buf, r.right().saturating_sub(lay.rw), r.y, &lay.right_text, lay.rw, base);
     }
 }
 

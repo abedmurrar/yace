@@ -63,6 +63,16 @@ impl App {
         match m.kind {
             MouseEventKind::Down(button) => {
                 let count = self.click_count(x, y);
+                // A status bar item with a command (plugin items).
+                if hit(wl.status, x, y) {
+                    if button == MouseButton::Left
+                        && let Some(cell) =
+                            ui::status_cells(self, wl.status).into_iter().find(|c| x >= c.x && x < c.x + c.w)
+                    {
+                        self.execute(&cell.command, None);
+                    }
+                    return;
+                }
                 if let Some(b) = wl.sidebar_border
                     && hit(b, x, y)
                     && button == MouseButton::Left

@@ -623,27 +623,34 @@ impl App {
         out
     }
 
-    /// Status bar texts from plugins: (left side, right side), highest
-    /// priority first.
-    pub fn plugin_status_texts(&self) -> (Vec<String>, Vec<String>) {
-        let mut items: Vec<(bool, i32, String)> = Vec::new();
+    /// Status bar items from plugins: (left side, right side), highest
+    /// priority first, each with the command a click runs (the one the
+    /// plugin set, else the manifest's).
+    pub fn plugin_status_items(&self) -> (Vec<PluginStatusItem>, Vec<PluginStatusItem>) {
+        let mut items: Vec<(bool, i32, PluginStatusItem)> = Vec::new();
         for e in &self.plugins.entries {
             let Some(m) = &e.manifest else { continue };
             for decl in &m.status_items {
-                let text = match e.status.get(&decl.id) {
-                    Some(c) => c.text.clone(),
-                    None if e.state.contributes() && !decl.text.is_empty() => decl.text.clone(),
+                let declared = Some(decl.command.clone()).filter(|c| !c.is_empty());
+                let (text, command) = match e.status.get(&decl.id) {
+                    Some(c) => (c.text.clone(), Some(c.command.clone()).filter(|c| !c.is_empty()).or(declared)),
+                    None if e.state.contributes() && !decl.text.is_empty() => (decl.text.clone(), declared),
                     None => continue,
                 };
                 if !text.is_empty() {
-                    items.push((decl.alignment == "left", decl.priority, text));
+                    items.push((decl.alignment == "left", decl.priority, PluginStatusItem { text, command }));
                 }
             }
         }
         items.sort_by_key(|i| std::cmp::Reverse(i.1));
-        let left = items.iter().filter(|i| i.0).map(|i| i.2.clone()).collect();
-        let right = items.iter().filter(|i| !i.0).map(|i| i.2.clone()).collect();
-        (left, right)
+        let (left, right): (Vec<_>, Vec<_>) = items.into_iter().partition(|i| i.0);
+        (left.into_iter().map(|i| i.2).collect(), right.into_iter().map(|i| i.2).collect())
+    }
+
+    /// Status bar texts from plugins (left side, right side).
+    pub fn plugin_status_texts(&self) -> (Vec<String>, Vec<String>) {
+        let (l, r) = self.plugin_status_items();
+        (l.into_iter().map(|i| i.text).collect(), r.into_iter().map(|i| i.text).collect())
     }
 
     pub fn plugin_view_title(&self) -> String {
@@ -1307,4 +1314,11 @@ mod tests {
         assert_eq!(shell_quote("it's"), "'it'\\''s'");
         assert_eq!(shell_quote(""), "''");
     }
+}
+
+/// A plugin's status bar item as shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginStatusItem {
+    pub text: String,
+    pub command: Option<String>,
 }

@@ -120,6 +120,14 @@ fn install_through_the_ui_then_lazy_activation_commands_settings_events_jobs() {
     h.key("ctrl+s");
     h.settle();
     assert!(h.screen().contains("💾 1"), "{}", h.screen());
+    // Clicking it runs its command (hello.greet).
+    h.app.notifications.clear();
+    let status = yace_app::ui::workbench_layout(&h.app).status;
+    let cell = yace_app::ui::status_cells(&h.app, status).into_iter().find(|c| c.command == "hello.greet").unwrap();
+    let row: String = (cell.x..cell.x + cell.w).map(|x| h.render()[(x, status.y)].symbol().to_string()).collect();
+    assert!(row.contains("💾"), "the cell is where the item is drawn: {row:?}");
+    h.click(cell.x + 1, status.y, ratatui::crossterm::event::KeyModifiers::NONE);
+    assert!(notes(&h).contains("Hi!"), "{}", notes(&h));
 
     // Reading and editing the active document.
     h.app.notifications.clear();

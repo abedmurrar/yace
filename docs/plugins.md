@@ -221,7 +221,7 @@ Validated before any code is loaded; every problem is reported.
 | `unloadable` | bool | the library may be unloaded and loaded again in one session (default false: an updated plugin's code loads after a restart) |
 | `[[commands]]` | `id`, `title`, `category`, `palette` | ids must be namespaced and must not start with `workbench.`, `editor.`, `yace.`, `explorer.`, `search.` or `terminal.` |
 | `[[keybindings]]` | `key`, `command`, `when`, `args` | VS Code key syntax; between the defaults and the user's `keybindings.toml` |
-| `[[status_items]]` | `id`, `alignment` (`left`/`right`), `priority`, `text`, `command` | `text` is shown before the plugin loads |
+| `[[status_items]]` | `id`, `alignment` (`left`/`right`), `priority`, `text`, `command` | `text` is shown before the plugin loads; clicking the item runs `command` (the one passed to `set_status_item`, else the manifest's), which also activates a plugin that hasn't loaded yet |
 | `[[views]]` | `id`, `title`, `location` (`sidebar`), `empty_text` | a tree in the side bar |
 | `[[quick_open]]` | `prefix`, `title` | 1–3 characters, not `>` `:` `?` `@` `#` |
 | `[[themes]]` | `path` | a theme file ([themes.md](themes.md)) |

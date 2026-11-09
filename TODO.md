@@ -613,7 +613,8 @@ Legend:
 - [x] [M8] Hybrid grammars: `all-grammars` feature, runtime grammar/language registries in `yace-syntax`, `scripts/build_grammars.py` (package + licences), lazy load with hash check, re-highlighting of open files, one-time hint when missing; release workflow publishes the package
 - [x] [M8] Tests: valid load, invalid manifest, unsupported ABI (manifest and init), init failure, short table, wrong ABI answer, changed code, hand-copied code, incompatible version, activation (command, workspace contents, event), deactivation (disable), registration, settings validation, slow and failing callbacks, safe mode, malformed ABI input (null/invalid UTF-8/oversized strings, null outputs, unknown handles, undeclared ids, missing capabilities, bad JSON), crash markers, data-only theme package, packaging, grammar package (load, tamper), C header layout, PTY install + run (§28.6)
 - [ ] [M8] Load and hash-check grammar libraries on a worker (C++: 8.8 ms hash + query compile on first open)
-- [ ] [M8] Status item click runs its command; plugin view context actions
+- [x] [M8] Status item click runs its command — the status bar layout is shared by drawing and clicks (`ui::status_cells`); the command set by the plugin wins over the manifest's — v0.11.0
+- [ ] [M8] Plugin view context actions
 - [~] [M8+] Install from Git or release artifact; registry (optional) (§18.13, §34.10)
 - [~] [M8+] Out-of-process plugin host for stronger isolation (§18.9)
 
