@@ -8,6 +8,11 @@ unrelated places on disk.
 
 ![YACE with a workspace of three folders, Git changes in the Explorer and the gutter, and the integrated terminal](media/overview.svg)
 
+A 25-second tour: Quick Open, multiple cursors, completion from a language
+server, search and replace across folders, and a split terminal.
+
+![A tour of YACE](media/tour.anim.svg)
+
 ## Why YACE
 
 - **Light and fast.** YACE is a single native Rust program: no Electron,

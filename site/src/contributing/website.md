@@ -51,6 +51,17 @@ cargo run --release --manifest-path site/capture/Cargo.toml          # every sce
 cargo run --release --manifest-path site/capture/Cargo.toml -- git   # one scene
 ```
 
+The README's GIF is made from the tour recording with
+[agg](https://github.com/asciinema/agg) 1.9.0, because GitHub, Reddit and
+Hacker News show GIFs but not animated SVGs:
+
+```sh
+cargo run --release --manifest-path site/capture/Cargo.toml -- tour
+agg --font-family "DejaVu Sans Mono,Noto Sans Symbols 2" --font-size 15 \
+  --fps-cap 15 --idle-time-limit 2 --last-frame-duration 3 \
+  site/src/media/tour.cast site/src/media/tour.gif
+```
+
 Captures use the default dark theme (one uses YACE Light), Unicode
 glyphs, and the legacy keyboard protocol, so they show the fallback keys a
 plain terminal needs. The language server scenes need

@@ -1,5 +1,7 @@
 # YACE — Yet Another Code Editor
 
+![A 25-second tour of YACE: Quick Open, multiple cursors, completion from a language server, search and replace across folders, and a split terminal](site/src/media/tour.gif)
+
 A fast, terminal-native code editor written in Rust. Its defining feature is
 **first-class multi-root workspaces**: open an existing VS Code / Cursor
 `.code-workspace` whose folders live in completely unrelated directories, and
