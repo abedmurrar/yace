@@ -79,6 +79,10 @@ idle."""
 assets = [
     ["target/release/yace", "usr/bin/", "755"],
     ["../../docs/yace.1", "usr/share/man/man1/yace.1", "644"],
+    # Desktop entry (opens YACE in your terminal), icon, AppStream metadata.
+    ["../../packaging/linux/io.github.abedmurrar.yace.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/linux/io.github.abedmurrar.yace.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../../packaging/linux/io.github.abedmurrar.yace.metainfo.xml", "usr/share/metainfo/", "644"],
     ["../../target/deb-extra/changelog.gz", "usr/share/doc/yace/", "644"],
     ["../../target/deb-extra/README.md.gz", "usr/share/doc/yace/", "644"],
     ["../../target/deb-extra/CREDITS.md.gz", "usr/share/doc/yace/", "644"],

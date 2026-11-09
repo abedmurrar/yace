@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.abedmurrar.yace</id>
+  <name>YACE</name>
+  <summary>Fast, light, terminal-native multi-root code editor</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <developer id="io.github.abedmurrar">
+    <name>Abed Murrar</name>
+  </developer>
+  <description>
+    <p>
+      YACE is a code editor for the terminal with VS Code's keys and concepts.
+      It opens multi-root workspaces (including VS Code and Cursor
+      .code-workspace files) and stays light: about 9 MiB of memory at idle.
+    </p>
+    <ul>
+      <li>Explorer, fuzzy Quick Open and the Command Palette</li>
+      <li>Workspace search and replace with a before/after preview</li>
+      <li>Integrated terminal with split panes and scrollback search</li>
+      <li>Language servers: completion, hover, go to definition, rename</li>
+      <li>Git: status, gutter changes, diffs, commit and branches</li>
+      <li>Tree-sitter highlighting, folding, themes and native plugins</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.abedmurrar.yace.desktop</launchable>
+  <url type="homepage">https://abedmurrar.github.io/yace/</url>
+  <url type="bugtracker">https://github.com/abedmurrar/yace/issues</url>
+  <url type="vcs-browser">https://github.com/abedmurrar/yace</url>
+  <provides>
+    <binary>yace</binary>
+  </provides>
+  <categories>
+    <category>Development</category>
+    <category>TextEditor</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.11.3" date="2026-11-09"/>
+    <release version="0.11.2" date="2026-11-09"/>
+  </releases>
+</component>

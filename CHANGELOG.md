@@ -13,6 +13,15 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- YACE appears in your desktop's app grid and search after installing
+  the `.deb`. A desktop entry opens it in your terminal, with an icon and
+  AppStream metadata.
+- A Snap package (`snap/snapcraft.yaml`, classic confinement), built for
+  amd64 and arm64 by `.github/workflows/snap.yml`. Releases publish it to
+  the Snap Store once the store token is set up.
+
 ## [0.11.2] - 2026-11-09
 
 ### Fixed

@@ -1,0 +1,49 @@
+name: Snap
+
+# Builds the YACE snap. Run by hand (Actions → Snap → Run workflow) to
+# check the build, and by release.yml for every release. Publishing needs
+# the SNAPCRAFT_STORE_CREDENTIALS secret (`snapcraft export-login`); without
+# it the snap is only built and attached as an artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Store channel to publish to (needs SNAPCRAFT_STORE_CREDENTIALS)"
+        default: edge
+  workflow_call:
+    inputs:
+      channel:
+        type: string
+        default: stable
+    secrets:
+      SNAPCRAFT_STORE_CREDENTIALS:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  snap:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: snapcore/action-build@v1
+        id: build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snap-${{ matrix.os }}
+          path: ${{ steps.build.outputs.snap }}
+      - name: Publish to the Snap Store
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        run: |
+          if [ -z "$SNAPCRAFT_STORE_CREDENTIALS" ]; then
+            echo "::notice::No SNAPCRAFT_STORE_CREDENTIALS secret: built only, not published"
+            exit 0
+          fi
+          sudo snap install snapcraft --classic
+          snapcraft upload --release="${{ inputs.channel }}" "${{ steps.build.outputs.snap }}"
