@@ -44,9 +44,10 @@ pub fn initial_workspace(app: &mut App, launch: &Launch) {
                 None
             }
         },
+        // A file on its own, like `code file.js`: no folder is opened.
         Target::File { path, line, col } => {
             goto = Some((path.clone(), *line, *col));
-            Some(Workspace::from_folder(&cli::folder_for_file(path)))
+            None
         }
         Target::Recent => {
             let recent =

@@ -319,3 +319,34 @@ fn file_icons_in_every_glyph_mode() {
     assert_eq!(cols[2], cols[3], "{cols:?}");
     assert_eq!(cols[0], cols[4], "{cols:?}");
 }
+
+/// `yace file.js` opens just that file (no folder), like `code file.js`;
+/// `yace dir` opens the folder and `yace x.code-workspace` the workspace.
+#[test]
+fn command_line_targets() {
+    use yace_app::cli::{Args, plan};
+    let d = tempfile::tempdir().unwrap();
+    files(
+        d.path(),
+        &[("app/main.js", "let a = 1;\n"), ("w.code-workspace", "{ \"folders\": [{ \"path\": \"app\" }] }")],
+    );
+    let args = |p: &Path| Args { path: Some(p.to_path_buf()), ..Default::default() };
+    // A file: opened alone.
+    let mut h = Harness::new();
+    yace_app::initial_workspace(&mut h.app, &plan(&args(&d.path().join("app/main.js"))).unwrap());
+    h.settle();
+    assert!(h.app.workspace.roots().is_empty(), "no folder opened for a single file");
+    assert_eq!(h.active_text(), "let a = 1;\n");
+    // A folder.
+    let mut h = Harness::new();
+    yace_app::initial_workspace(&mut h.app, &plan(&args(&d.path().join("app"))).unwrap());
+    h.settle();
+    assert_eq!(h.app.workspace.roots().len(), 1);
+    assert!(h.app.active().is_none(), "nothing open yet");
+    // A workspace file.
+    let mut h = Harness::new();
+    yace_app::initial_workspace(&mut h.app, &plan(&args(&d.path().join("w.code-workspace"))).unwrap());
+    h.settle();
+    assert_eq!(h.app.workspace.roots().len(), 1);
+    assert!(h.app.workspace.file().is_some());
+}

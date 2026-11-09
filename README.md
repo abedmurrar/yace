@@ -19,13 +19,17 @@ telemetry.
 
 ```sh
 cargo build --release
-./target/release/yace                         # reopen the most recent workspace
-./target/release/yace .                       # open the current folder
-./target/release/yace ~/work.code-workspace   # open a multi-root workspace
-./target/release/yace --goto src/main.rs:42:8 # open a file at a position
-./target/release/yace api --add-root ../web   # combine unrelated folders
-./target/release/yace --safe-mode             # start without loading any plugin code
-./target/release/yace --install-plugin pkg.tar.gz   # install a plugin (asks first)
+ln -s "$PWD/target/release/yace" ~/.local/bin/yace   # or: cargo install --path crates/yace
+
+yace                          # reopen the most recent workspace
+yace .                        # open the current folder
+yace ~/Dev/api-folder         # open a folder
+yace file.js                  # open just that file (no folder)
+yace src/main.rs:42:8         # a file at line 42, column 8
+yace ~/work.code-workspace    # open a multi-root workspace
+yace api --add-root ../web    # combine unrelated folders
+yace --safe-mode              # start without loading any plugin code
+yace --install-plugin pkg.tar.gz   # install a plugin (asks first)
 ```
 
 Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).

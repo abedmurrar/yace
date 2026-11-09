@@ -26,6 +26,14 @@ Security, Performance.
     open
   - Fold All Block Comments (`Ctrl+K Ctrl+/`)
 
+### Changed
+
+- `yace file.js` opens just that file, like `code file.js`; it used to
+  open the file's folder (its repository root) as the workspace. A
+  language server for such a file still starts in its repository root,
+  so it finds `tsconfig.json` and the like. `yace folder` and
+  `yace x.code-workspace` are unchanged.
+
 ## [0.10.0] - 2026-11-09
 
 ### Added

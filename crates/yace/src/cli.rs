@@ -9,7 +9,7 @@ use clap::Parser;
     name = "yace",
     version,
     about = "YACE — Yet Another Code Editor. A fast, terminal-native, multi-root code editor.",
-    after_help = "Examples:\n  yace                          reopen the most recent workspace\n  yace .                        open the current directory\n  yace ~/work.code-workspace    open a VS Code multi-root workspace\n  yace --goto src/main.rs:42:8  open a file at line 42, column 8\n  yace api --add-root ../web    open two unrelated folders together"
+    after_help = "Examples:\n  yace                          reopen the most recent workspace\n  yace .                        open the current directory\n  yace ~/Dev/api                open a folder\n  yace file.js                  open just that file\n  yace ~/work.code-workspace    open a VS Code multi-root workspace\n  yace --goto src/main.rs:42:8  open a file at line 42, column 8\n  yace api --add-root ../web    open two unrelated folders together"
 )]
 pub struct Args {
     /// A folder, a file, or a `.code-workspace` file to open.
@@ -67,7 +67,7 @@ pub enum Target {
     Recent,
     Folder(PathBuf),
     WorkspaceFile(PathBuf),
-    /// A file: its folder (repository root if found) is opened too.
+    /// A file, opened on its own (no folder).
     File {
         path: PathBuf,
         line: Option<usize>,
@@ -161,8 +161,9 @@ pub fn plan(args: &Args) -> Result<Launch, String> {
     Ok(Launch { target, add_roots: args.add_root.clone(), goto, restore: !args.no_restore })
 }
 
-/// The folder to open for a file: the nearest ancestor with a `.git`
-/// entry, otherwise the file's own directory.
+/// The project folder of a file: the nearest ancestor with a `.git`
+/// entry, otherwise the file's own directory. Language servers for a file
+/// outside every workspace folder start there.
 pub fn folder_for_file(file: &Path) -> PathBuf {
     let abs = yace_workspace::paths::absolutize(file);
     let dir = abs.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("/"));

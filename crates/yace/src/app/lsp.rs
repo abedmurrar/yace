@@ -134,7 +134,8 @@ impl App {
     // ------------------------------------------------------------------
     // Document sync
 
-    /// The workspace root containing `path` (deepest), else its directory.
+    /// The workspace root containing `path` (deepest), else its project
+    /// folder (repository root, else its directory).
     fn root_for(&self, path: &Path) -> (PathBuf, String) {
         let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         self.workspace
@@ -144,7 +145,7 @@ impl App {
             .max_by_key(|r| r.path.components().count())
             .map(|r| (r.path.clone(), r.display_name()))
             .unwrap_or_else(|| {
-                let dir = path.parent().unwrap_or(Path::new("/")).to_path_buf();
+                let dir = crate::cli::folder_for_file(path);
                 let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 (dir, name)
             })
