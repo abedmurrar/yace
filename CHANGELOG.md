@@ -13,6 +13,12 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Fixed
+
+- A test read the Git branch of the repository around its folders, so it
+  failed in release builds, which check out a tag. That blocked the
+  v0.11.1 release workflow, so v0.11.1 was never published.
+
 ## [0.11.1] - 2026-11-09
 
 ### Added

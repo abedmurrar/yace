@@ -52,8 +52,13 @@ fn open_files_across_roots_with_disambiguated_tabs() {
     assert!(screen.contains("index.ts — Global API / src"), "{screen}");
     assert!(screen.contains("index.ts — Learn App / src"), "{screen}");
     assert_eq!(h.active_text(), "export const web = 2;\n");
-    // Status bar shows the owning root.
-    assert!(screen.contains("Learn App › src/index.ts"), "{screen}");
+    // Status bar shows the owning root. Rendered wide: the branch label
+    // comes from the repository around the test folders (a release build
+    // checks out a tag, so it reads "(abc1234)", not "main"), and at
+    // 120 columns a long label would cut the path short.
+    let wide = h.render_at(220, 40);
+    let status: String = (0..220).map(|x| wide[(x, 39)].symbol().to_string()).collect();
+    assert!(status.contains("Learn App › src/index.ts"), "{status}");
 }
 
 #[test]
