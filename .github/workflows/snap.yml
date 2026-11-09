@@ -31,6 +31,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # Docker on the x86 runners drops forwarded traffic, which cuts the
+      # LXD build container off the network (apt update fails inside it).
+      - name: Let the LXD build container reach the network
+        run: sudo iptables -P FORWARD ACCEPT
       - uses: snapcore/action-build@v1
         id: build
       - uses: actions/upload-artifact@v4

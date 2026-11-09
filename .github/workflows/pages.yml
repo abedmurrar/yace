@@ -42,6 +42,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The sitemap's <lastmod> dates come from git.
+          fetch-depth: 0
       - name: Cache mdBook ${{ env.MDBOOK_VERSION }}
         id: mdbook
         uses: actions/cache@v4
@@ -53,6 +56,8 @@ jobs:
         run: cargo install mdbook --locked --version "$MDBOOK_VERSION"
       - uses: actions/configure-pages@v5
       - run: mdbook build site
+      - name: Search engine tags, sitemap
+        run: python3 site/seo.py site/book https://abedmurrar.github.io/yace/
       - name: APT repository (latest release's packages, signed)
         env:
           GH_TOKEN: ${{ github.token }}

@@ -18,6 +18,12 @@ Security, Performance.
 - YACE appears in your desktop's app grid and search after installing
   the `.deb`. A desktop entry opens it in your terminal, with an icon and
   AppStream metadata.
+- The website is ready for search engines:
+  - a description, canonical URL and share card for every page
+  - a sitemap
+  - structured data on the home page
+  - a share image showing the editor
+  - the YACE icon as the favicon
 - A Snap package (`snap/snapcraft.yaml`, classic confinement), built for
   amd64 and arm64 by `.github/workflows/snap.yml`. Releases publish it to
   the Snap Store once the store token is set up.

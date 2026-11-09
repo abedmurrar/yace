@@ -62,3 +62,20 @@ plain terminal needs. The language server scenes need
 deploys it to GitHub Pages whenever `main` changes `site/`, `docs/`,
 `README.md`, `CHANGELOG.md` or `CREDITS.md`, or when started by hand. It
 doesn't run the capture tool: the media are committed.
+
+## Search engines
+
+mdBook can't set tags per page, so `site/seo.py` runs after
+`mdbook build` (standard library Python):
+
+- each page gets a description (its first paragraph), a canonical URL,
+  and Open Graph and Twitter tags with the share image `og.png`
+- the home page gets a keyword-rich title and schema.org data
+  (`SoftwareApplication`)
+- `print.html` and `toc.html` are marked `noindex`
+- `sitemap.xml` is written with each page's last change from git
+
+The share image is drawn from `site/assets/og.svg` with the current
+overview screenshot; re-render it with `site/assets/render-og.sh` after a
+UI change. The Google Search Console verification file is
+`site/src/google2cbdae45647b3230.html`.

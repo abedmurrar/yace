@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- The share image (site/src/og.png). The screenshot is site/src/media/overview.svg,
+       rendered to PNG and embedded at render time (see site/assets/render-og.sh). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#151925"/>
+      <stop offset="1" stop-color="#232a3d"/>
+    </linearGradient>
+    <clipPath id="shot"><rect x="560" y="120" width="580" height="337" rx="12"/></clipPath>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <g transform="translate(60,70) scale(1.1)">
+    <rect x="8" y="8" width="112" height="112" rx="24" fill="#1e2230"/>
+    <rect x="8" y="8" width="112" height="22" rx="24" fill="#2b3145"/>
+    <rect x="8" y="19" width="112" height="11" fill="#2b3145"/>
+    <circle cx="26" cy="19" r="4" fill="#f07178"/>
+    <circle cx="40" cy="19" r="4" fill="#ffcb6b"/>
+    <circle cx="54" cy="19" r="4" fill="#c3e88d"/>
+    <path d="M36 46 L58 72 V96 M80 46 L58 72" fill="none" stroke="#82aaff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="78" y="86" width="22" height="10" rx="2" fill="#c3e88d"/>
+  </g>
+  <text x="70" y="290" font-family="DejaVu Sans, sans-serif" font-size="96" font-weight="bold" fill="#e6e9f2">YACE</text>
+  <text x="72" y="342" font-family="DejaVu Sans, sans-serif" font-size="30" fill="#a9b1c6">A fast, light code editor</text>
+  <text x="72" y="380" font-family="DejaVu Sans, sans-serif" font-size="30" fill="#a9b1c6">for the terminal,</text>
+  <text x="72" y="418" font-family="DejaVu Sans, sans-serif" font-size="30" fill="#a9b1c6">with VS Code's keys</text>
+  <text x="72" y="482" font-family="DejaVu Sans, sans-serif" font-size="21" fill="#82aaff">Multi-root · LSP · Git · Terminal</text>
+  <text x="72" y="516" font-family="DejaVu Sans, sans-serif" font-size="21" fill="#c3e88d">~9 MiB at idle · Rust · Open source</text>
+  <text x="72" y="575" font-family="DejaVu Sans Mono, monospace" font-size="22" fill="#6b7590">abedmurrar.github.io/yace</text>
+  <rect x="556" y="116" width="588" height="345" rx="14" fill="#0e1118"/>
+  <image x="560" y="120" width="580" height="337" clip-path="url(#shot)" preserveAspectRatio="xMidYMid slice" xlink:href="OVERVIEW_PNG"/>
+</svg>
