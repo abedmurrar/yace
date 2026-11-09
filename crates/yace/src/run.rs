@@ -350,6 +350,29 @@ impl Runtime {
                         let _ = self.tx.send(AppEvent::OpenExternalFailed(e));
                     }
                 }
+                Effect::FetchPluginIndex(url) => {
+                    let tx = self.tx.clone();
+                    thread::Builder::new()
+                        .name("yace-plugin-index".into())
+                        .spawn(move || {
+                            drop(tx.send(AppEvent::PluginIndex(yace_plugin_host::registry::load_index(&url))))
+                        })
+                        .ok();
+                }
+                Effect::DownloadPlugin { entry, plugins_dir } => {
+                    let tx = self.tx.clone();
+                    thread::Builder::new()
+                        .name("yace-plugin-download".into())
+                        .spawn(move || {
+                            let r = yace_plugin_host::registry::plan_download(
+                                &entry,
+                                &plugins_dir,
+                                crate::app::App::yace_version(),
+                            );
+                            drop(tx.send(AppEvent::PluginDownloaded(r.map(Box::new))))
+                        })
+                        .ok();
+                }
                 Effect::DiscoverPlugins(dir) => {
                     let tx = self.tx.clone();
                     thread::Builder::new()

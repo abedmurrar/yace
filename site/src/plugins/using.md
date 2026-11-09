@@ -1,8 +1,9 @@
 # Using plugins
 
-**A YACE plugin is a native shared library with a manifest. You install it
-from a package or a folder, YACE shows you what it declares and the hash
-of its code, and nothing loads until you confirm.**
+**A YACE plugin is a manifest, with data (themes, settings) or a native
+shared library. You install it from the plugin index, a package or a
+folder; YACE shows you what it declares and the hash of its code, and
+nothing loads until you confirm.**
 
 > **Plugins are not sandboxed.** A native plugin runs inside YACE with
 > your user's permissions: it can read and change your files, start
@@ -36,10 +37,35 @@ only when needed: here, when a folder contains a `package.json`,
 
 ![Quick Open with the ! prefix, provided by the Task Runner](../media/plugin-quick-open.svg)
 
-## Plugins from other repositories
+## Browse and install published plugins
 
-- [YACE Themes](https://github.com/abedmurrar/yace-themes): Retro Blue,
-  Phosphor (green on black), High Contrast and Low Contrast. Data only.
+**"Extensions: Browse Plugins…"** lists the plugins published for YACE.
+Pick one: YACE downloads it, checks it against the plugin index, and
+shows the same install prompt as above. From a shell, install one by its
+id:
+
+```sh
+yace --install-plugin io.github.abedmurrar.yace-themes
+```
+
+The list comes from the plugin index on this website,
+[`plugins/index.json`](index.json). It holds each plugin's download link
+and SHA-256: YACE refuses a download whose hash, id or version doesn't
+match. Browsing and installing are the only times YACE uses the network,
+and only when you ask. It downloads with the `curl` program
+(`sudo apt install curl` if it's missing).
+
+Plugins in the index:
+
+<!-- plugin-index:start -->
+| Plugin | What it is | Install |
+|---|---|---|
+| [YACE Themes](https://github.com/abedmurrar/yace-themes) | Four colour themes: Retro Blue, Phosphor (green on black), High Contrast and Low Contrast. Data only. | `yace --install-plugin io.github.abedmurrar.yace-themes` |
+<!-- plugin-index:end -->
+
+Browse Plugins marks the ones you have installed, and offers the newer
+version when there is one. To list your own plugin, see
+[Publish a plugin](../docs/plugins.md#publish-a-plugin).
 
 ## Manage plugins
 

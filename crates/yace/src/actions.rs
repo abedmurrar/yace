@@ -138,6 +138,8 @@ pub enum PickerAction {
     PluginUninstall,
     /// Show `PluginHost::views()[data]`.
     PluginView,
+    /// Install `App::plugin_index[data]` (Extensions: Browse Plugins…).
+    PluginBrowse,
     /// Run a repository command on repository `data`.
     GitRepo(crate::app::RepoCmd),
     /// Switch to `GitState::branch_pick` entry `data - 1` (0 = create).

@@ -15,6 +15,14 @@ Security, Performance.
 
 ### Added
 
+- A plugin index: "Extensions: Browse Plugins…" lists the plugins
+  published for YACE, marks the installed ones and newer versions, and
+  installs the one you pick after the usual prompt. From a shell,
+  `yace --install-plugin <id>` installs one by id. The index lives on the
+  website (`plugins/index.json`); `scripts/plugin_index.py` adds a release
+  to it and checks every entry. Downloads use the `curl` program over
+  HTTPS, and a package is refused unless its SHA-256, id and version match
+  the index. This is YACE's only network use, and only when you ask.
 - The theme docs and "Using plugins" link to
   [YACE Themes](https://github.com/abedmurrar/yace-themes), a separate
   plugin with four themes: Retro Blue, Phosphor, High Contrast and Low

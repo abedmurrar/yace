@@ -39,8 +39,9 @@ pub struct Args {
     #[arg(long, visible_alias = "no-plugins")]
     pub safe_mode: bool,
 
-    /// Install a plugin from a folder or a `.tar.gz` package, then exit.
-    #[arg(long, value_name = "PATH")]
+    /// Install a plugin from a folder, a `.tar.gz` package, or by id from the
+    /// plugin index (downloaded with curl), then exit.
+    #[arg(long, value_name = "PATH|ID")]
     pub install_plugin: Option<PathBuf>,
 
     /// With --install-plugin: don't ask for confirmation.

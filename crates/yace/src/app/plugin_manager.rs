@@ -1,10 +1,10 @@
-//! The plugin manager (spec §18.13, §18.14): "Extensions: …" commands.
+//! The plugin manager: "Extensions: …" commands.
 
 use std::path::PathBuf;
 
-use yace_plugin_host::{TrustRecord, store};
+use yace_plugin_host::{TrustRecord, registry, store};
 
-use super::{App, Severity};
+use super::{App, Effect, Severity};
 use crate::{
     actions::{ConfirmAction, PickerAction, PromptAction},
     overlay::{Confirm, Overlay, Picker, PickerItem},
@@ -245,6 +245,97 @@ impl App {
     pub(crate) fn plugins_install_from(&mut self, text: &str) -> Result<(), String> {
         let path = yace_workspace::paths::expand_tilde(text);
         let plan = store::plan_install(&path, &self.plugins_dir(), Self::yace_version())?;
+        self.confirm_install(plan);
+        Ok(())
+    }
+
+    /// Extensions: Browse Plugins… — download the plugin index (the only
+    /// network use, and only on request), then list it.
+    pub(crate) fn plugins_browse(&mut self) {
+        if self.plugin_fetching {
+            self.notify(Severity::Info, "Still downloading…");
+            return;
+        }
+        self.plugin_fetching = true;
+        self.notify(Severity::Info, "Getting the plugin list…");
+        self.effects.push(Effect::FetchPluginIndex(self.plugin_index_url.clone()));
+    }
+
+    pub(crate) fn on_plugin_index(&mut self, result: Result<registry::Index, String>) {
+        self.plugin_fetching = false;
+        let index = match result {
+            Ok(i) => i,
+            Err(e) => {
+                self.notify(Severity::Error, format!("Could not get the plugin list: {e}"));
+                return;
+            }
+        };
+        if index.plugins.is_empty() {
+            self.notify(Severity::Info, "The plugin index lists no plugins yet");
+            return;
+        }
+        let version = Self::yace_version();
+        let items = index
+            .plugins
+            .iter()
+            .enumerate()
+            .map(|(k, e)| {
+                let installed = self.installed_version(&e.id);
+                let state = if let Err(why) = e.compatible(version) {
+                    why
+                } else {
+                    match installed {
+                        Some(v) if v == e.version => "installed".into(),
+                        Some(v) => format!("installed {v}, update to {}", e.version),
+                        None if e.code => "native code".into(),
+                        None => String::new(),
+                    }
+                };
+                let mut detail = e.description.clone();
+                if !e.publisher.is_empty() {
+                    detail = format!("{detail} · {}", e.publisher);
+                }
+                PickerItem::new(format!("{} {}", e.name, e.version), detail, state, k)
+            })
+            .collect();
+        self.plugin_index = index.plugins;
+        self.open_overlay(Overlay::Picker(Picker::new("Browse Plugins", items, PickerAction::PluginBrowse)));
+    }
+
+    fn installed_version(&self, id: &str) -> Option<String> {
+        let i = self.plugins.find(id)?;
+        self.plugins.entries[i].manifest.as_ref().map(|m| m.version.clone())
+    }
+
+    pub(crate) fn plugin_browse_pick(&mut self, data: usize) {
+        let Some(entry) = self.plugin_index.get(data).cloned() else { return };
+        if let Err(why) = entry.compatible(Self::yace_version()) {
+            self.notify(Severity::Error, format!("{}: {why}", entry.name));
+            return;
+        }
+        if self.installed_version(&entry.id).as_deref() == Some(entry.version.as_str()) {
+            self.notify(Severity::Info, format!("{} {} is already installed", entry.name, entry.version));
+            return;
+        }
+        if self.plugin_fetching {
+            self.notify(Severity::Info, "Still downloading…");
+            return;
+        }
+        self.plugin_fetching = true;
+        self.notify(Severity::Info, format!("Downloading {} {}…", entry.name, entry.version));
+        self.effects.push(Effect::DownloadPlugin { entry: Box::new(entry), plugins_dir: self.plugins_dir() });
+    }
+
+    pub(crate) fn on_plugin_downloaded(&mut self, result: Result<Box<yace_plugin_host::InstallPlan>, String>) {
+        self.plugin_fetching = false;
+        match result {
+            Ok(plan) => self.confirm_install(*plan),
+            Err(e) => self.notify(Severity::Error, format!("Could not install: {e}")),
+        }
+    }
+
+    /// Ask to install `plan`, showing what it is and what it can do.
+    fn confirm_install(&mut self, plan: yace_plugin_host::InstallPlan) {
         let mut message = crate::plugin_cli::trust_summary(&plan);
         if self.plugins.safe_mode {
             message.push("(Safe mode: it will be loaded after a restart without --safe-mode.)".into());
@@ -257,7 +348,6 @@ impl App {
             selected: 1,
             cancel: ConfirmAction::Nothing,
         }));
-        Ok(())
     }
 
     pub(crate) fn plugins_install_confirmed(&mut self) {

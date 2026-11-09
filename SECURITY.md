@@ -19,8 +19,12 @@ follows once the report is triaged.
 
 ## Scope and security model
 
-- **YACE runs entirely locally.** It sends no telemetry and makes no
-  network requests in normal use. It never sends file contents anywhere.
+- **YACE runs locally.** It sends no telemetry and never sends file
+  contents anywhere. Its only network use is downloading the plugin
+  index and a plugin, and only when you ask ("Extensions: Browse
+  Plugins…" or `yace --install-plugin <id>`): over HTTPS with `curl`, and
+  a download is refused unless its SHA-256, id and version match the
+  index.
 - **Opening a workspace never runs anything.** `tasks`, `launch` and other
   executable configuration in `.code-workspace` files are ignored.
 - **Native plugins are not sandboxed.** A plugin loaded into the YACE

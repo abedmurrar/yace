@@ -204,7 +204,8 @@ selections, whether the explorer filter is active, `keyboardEnhanced` and
 ```
 yace-plugin-api   #[repr(C)] tables only (YaceHost, YacePlugin), ABI 1, C header
 yace-plugin-host  manifest validation, discovery, trust record (SHA-256),
-                  install/uninstall/package, dlopen + ABI checks, timed calls, job pool
+                  install/uninstall/package, plugin index (curl), dlopen + ABI checks,
+                  timed calls, job pool
 yace-plugin       Rust SDK: Plugin trait, Host wrappers, export_plugin!, MockHost
 crates/yace       plugins.rs (host functions, the only unsafe plugin code),
                   app/plugins.rs (activation, events, views, …), app/plugin_manager.rs

@@ -319,7 +319,8 @@ pub fn safe_relative(p: &str) -> Option<PathBuf> {
     path.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)).then(|| path.to_path_buf())
 }
 
-fn valid_id(id: &str) -> bool {
+/// A plugin id: lowercase dotted words (`io.github.you.name`).
+pub fn valid_id(id: &str) -> bool {
     let parts: Vec<&str> = id.split('.').collect();
     parts.len() >= 2
         && id.len() <= 100

@@ -48,8 +48,10 @@ Do not restore the previous session (tabs, layout) for this workspace.
 .BR \-\-safe\-mode ", " \-\-no\-plugins
 Start without loading any plugin code or plugin grammars.
 .TP
-.BR \-\-install\-plugin " " \fIPATH\fR
+.BR \-\-install\-plugin " " \fIPATH\fR|\fIID\fR
 Install a plugin from a folder or a \fI.tar.gz\fR package, then exit.
+An \fIID\fR that is not a file or folder is downloaded from the plugin
+index with \fBcurl\fR(1) and checked against its SHA\-256.
 Asks for confirmation unless \fB\-\-yes\fR is given.
 .TP
 .B \-\-list\-plugins
@@ -85,6 +87,11 @@ Use these folders instead of the defaults above.
 .B YACE_LOG
 Write a log (\fBYACE_LOG=debug\fR, \fBinfo\fR…) to the state folder. Off by
 default; file contents are never logged.
+.TP
+.B YACE_PLUGIN_INDEX
+Read the plugin index from this URL instead of
+\fIhttps://abedmurrar.github.io/yace/plugins/index.json\fR (a \fIfile://\fR
+URL tests an entry before publishing it).
 .TP
 .B YACE_OPENER
 The program "Reveal in File Manager" runs (default \fBxdg\-open\fR).

@@ -221,6 +221,13 @@ impl Harness {
                         }
                     }
                     Effect::Git(git, job) => events.push(AppEvent::Git(Box::new(yace_app::git::run_job(&git, job)))),
+                    Effect::FetchPluginIndex(url) => {
+                        events.push(AppEvent::PluginIndex(yace_plugin_host::registry::load_index(&url)))
+                    }
+                    Effect::DownloadPlugin { entry, plugins_dir } => events.push(AppEvent::PluginDownloaded(
+                        yace_plugin_host::registry::plan_download(&entry, &plugins_dir, App::yace_version())
+                            .map(Box::new),
+                    )),
                     Effect::DiscoverPlugins(dir) => {
                         events.push(AppEvent::PluginsDiscovered(yace_plugin_host::store::discover(&dir)))
                     }

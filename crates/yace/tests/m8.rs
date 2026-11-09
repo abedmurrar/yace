@@ -488,3 +488,99 @@ fn a_modified_grammar_library_is_refused() {
     assert!(!h.app.syntax.has_tree(d));
     assert!(notes(&h).contains("the go grammar could not be loaded: grammars/go.so changed on disk"), "{}", notes(&h));
 }
+
+/// A data-only plugin packaged into `dir`, and a `file://` plugin index
+/// listing it (plus one entry this YACE is too old for).
+fn local_index(dir: &Path) -> String {
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("yace-plugin.toml"),
+        "id = \"dev.yace.demo-data\"\nname = \"Demo Data\"\nversion = \"1.0.0\"\npublisher = \"Tester\"\n",
+    )
+    .unwrap();
+    let pkg = dir.join("demo.tar.gz");
+    let sha = store::package(&src, &pkg, yace_app::app::App::yace_version()).unwrap();
+    let url = format!("file://{}", pkg.display());
+    let index = format!(
+        r#"{{"format":1,"plugins":[
+          {{"id":"dev.yace.demo-data","name":"Demo Data","version":"1.0.0","description":"Nothing but data",
+            "publisher":"Tester","packages":[{{"target":"any","url":"{url}","sha256":"{sha}"}}]}},
+          {{"id":"dev.yace.future","name":"Future","version":"1.0.0","yace":">=99",
+            "packages":[{{"target":"any","url":"{url}","sha256":"{sha}"}}]}}]}}"#
+    );
+    std::fs::write(dir.join("index.json"), index).unwrap();
+    format!("file://{}", dir.join("index.json").display())
+}
+
+#[test]
+fn browse_plugins_downloads_checks_and_installs_from_the_index() {
+    let work = tempfile::tempdir().unwrap();
+    let mut h = Harness::new();
+    h.app.plugin_index_url = local_index(work.path());
+
+    h.command("yace.extensions.browse");
+    let screen = h.screen();
+    assert!(screen.contains("Browse Plugins") && screen.contains("Demo Data 1.0.0"), "{screen}");
+    assert!(screen.contains("Nothing but data · Tester"), "{screen}");
+    assert!(screen.contains("needs YACE >=99"), "{screen}");
+
+    // Too new for this YACE: nothing is downloaded.
+    h.type_text("future");
+    h.key("enter");
+    assert!(notes(&h).contains("Future: needs YACE >=99"), "{}", notes(&h));
+
+    h.command("yace.extensions.browse");
+    h.type_text("demo data");
+    h.key("enter");
+    let screen = h.screen();
+    assert!(screen.contains("Install Plugin") && screen.contains("Demo Data 1.0.0 (dev.yace.demo-data)"), "{screen}");
+    assert!(screen.contains("Data only"), "{screen}");
+    h.key("i");
+    h.settle();
+    assert_eq!(state(&h, "dev.yace.demo-data"), PluginState::Inactive);
+    let trust = yace_plugin_host::TrustRecord::load(&h.paths().config_dir.join("plugins"));
+    assert!(trust.plugins["dev.yace.demo-data"].source.starts_with("file://"), "the source is the download URL");
+
+    // Listed as installed now.
+    h.command("yace.extensions.browse");
+    assert!(h.screen().contains("installed"), "{}", h.screen());
+    h.key("escape");
+
+    // A tampered package (the index's hash no longer matches) is refused.
+    std::fs::write(work.path().join("demo.tar.gz"), b"not the package").unwrap();
+    yace_plugin_host::store::uninstall(&h.paths().config_dir.join("plugins"), "dev.yace.demo-data").unwrap();
+    h.app.discover_plugins();
+    h.settle();
+    h.app.notifications.clear();
+    h.command("yace.extensions.browse");
+    h.type_text("demo data");
+    h.key("enter");
+    assert!(notes(&h).contains("doesn't match the plugin index"), "{}", notes(&h));
+    assert!(!h.screen().contains("Install Plugin"));
+}
+
+#[test]
+fn install_plugin_by_id_from_the_command_line() {
+    let work = tempfile::tempdir().unwrap();
+    let index = local_index(work.path());
+    let cfg = work.path().join("config");
+    let run = |id: &str| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_yace"))
+            .args(["--install-plugin", id, "--yes"])
+            .env("YACE_CONFIG_DIR", &cfg)
+            .env("YACE_PLUGIN_INDEX", &index)
+            .output()
+            .unwrap()
+    };
+    let out = run("dev.yace.demo-data");
+    let (stdout, stderr) = (String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{stdout}{stderr}");
+    assert!(stderr.contains("Downloading Demo Data 1.0.0"), "{stderr}");
+    assert!(stdout.contains("Installed dev.yace.demo-data 1.0.0"), "{stdout}");
+    assert!(cfg.join("plugins/dev.yace.demo-data/yace-plugin.toml").is_file());
+
+    let out = run("dev.yace.missing");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("not a file, a folder or a plugin in the index"));
+}

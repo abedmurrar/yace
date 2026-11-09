@@ -136,6 +136,10 @@ pub enum AppEvent {
     TerminalNotice(yace_terminal::Notice),
     /// Plugin manifests were read (on a worker).
     PluginsDiscovered(Vec<yace_plugin_host::Discovered>),
+    /// The plugin index was downloaded (Extensions: Browse Plugins…).
+    PluginIndex(Result<yace_plugin_host::registry::Index, String>),
+    /// A plugin from the index was downloaded and checked, ready to confirm.
+    PluginDownloaded(Result<Box<yace_plugin_host::InstallPlan>, String>),
     /// A plugin job posted a message.
     Plugin(crate::plugins::PluginMsg),
     /// A git job finished.
@@ -187,6 +191,14 @@ pub enum Effect {
     Parse(Box<crate::syntax::ParseJob>),
     /// Read plugin manifests in this folder (no code is loaded).
     DiscoverPlugins(PathBuf),
+    /// Download the plugin index from this URL (only on request).
+    FetchPluginIndex(String),
+    /// Download a plugin from the index and plan installing it into the
+    /// plugins folder; nothing is installed before the user confirms.
+    DownloadPlugin {
+        entry: Box<yace_plugin_host::registry::Entry>,
+        plugins_dir: PathBuf,
+    },
     /// Run git (on a git worker).
     Git(yace_git::Git, crate::git::GitJob),
     /// Copy files and folders in the background (Explorer paste).
@@ -380,6 +392,12 @@ pub struct App {
     pub(crate) plugin_pick: Vec<String>,
     /// A plugin install waiting for confirmation.
     pub(crate) pending_install: Option<yace_plugin_host::InstallPlan>,
+    /// Where Extensions: Browse Plugins… reads the plugin index.
+    pub plugin_index_url: String,
+    /// The plugins listed by the last Browse Plugins picker.
+    pub(crate) plugin_index: Vec<yace_plugin_host::registry::Entry>,
+    /// A plugin index or plugin download is running.
+    pub(crate) plugin_fetching: bool,
     /// Plugin grammars not loaded yet: language id → (plugin, declaration).
     pub(crate) pending_grammars: HashMap<String, (usize, yace_plugin_host::manifest::GrammarDecl)>,
     /// Languages of open documents already handled by `check_new_languages`.
@@ -480,6 +498,9 @@ impl App {
             file_clipboard: None,
             watch_alias: HashMap::new(),
             pending_install: None,
+            plugin_index_url: yace_plugin_host::registry::index_url(),
+            plugin_index: Vec::new(),
+            plugin_fetching: false,
             pending_grammars: HashMap::new(),
             languages_seen: Default::default(),
             settings,
@@ -879,6 +900,8 @@ impl App {
             AppEvent::TerminalNotice(n) => self.on_terminal_notice(n),
             AppEvent::Lsp { server, msg } => self.on_lsp(server, *msg),
             AppEvent::PluginsDiscovered(found) => self.on_plugins_discovered(found),
+            AppEvent::PluginIndex(result) => self.on_plugin_index(result),
+            AppEvent::PluginDownloaded(result) => self.on_plugin_downloaded(result),
             AppEvent::Plugin(msg) => self.on_plugin_message(msg),
             AppEvent::Git(r) => self.on_git(*r),
             AppEvent::Parsed { doc, job, tree, cost } => {
@@ -1244,6 +1267,7 @@ impl App {
             PickerAction::EditUserTheme => self.edit_user_theme_pick(data),
             PickerAction::PluginOp(id) => self.plugin_op_pick(id, data),
             PickerAction::PluginView => self.plugin_view_pick(data),
+            PickerAction::PluginBrowse => self.plugin_browse_pick(data),
             PickerAction::GitRepo(cmd) => self.git_run_repo_cmd(data, cmd),
             PickerAction::GitBranch => self.git_branch_pick(data),
             a @ (PickerAction::PluginList

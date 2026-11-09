@@ -615,7 +615,9 @@ Legend:
 - [ ] [M8] Load and hash-check grammar libraries on a worker (C++: 8.8 ms hash + query compile on first open)
 - [x] [M8] Status item click runs its command — the status bar layout is shared by drawing and clicks (`ui::status_cells`); the command set by the plugin wins over the manifest's — v0.11.0
 - [ ] [M8] Plugin view context actions
-- [~] [M8+] Install from Git or release artifact; registry (optional) (§18.13, §34.10)
+- [x] [M8+] Install from a release artifact; plugin index on the website (`site/src/plugins/index.json`, `scripts/plugin_index.py`), "Extensions: Browse Plugins…", `--install-plugin <id>`, downloads with curl (a built-in HTTPS library measured +2.0 MB), SHA-256/id/version checked (§18.13, §34.10)
+- [ ] Plugin repositories open the index pull request from their release workflow (needs a token with access to the YACE repository)
+- [ ] Install from a Git URL
 - [~] [M8+] Out-of-process plugin host for stronger isolation (§18.9)
 
 ---

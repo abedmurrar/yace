@@ -78,6 +78,7 @@ yace ~/work.code-workspace    # open a multi-root workspace
 yace api --add-root ../web    # combine unrelated folders
 yace --safe-mode              # start without loading any plugin code
 yace --install-plugin pkg.tar.gz   # install a plugin (asks first)
+yace --install-plugin io.github.abedmurrar.yace-themes   # …or by id from the plugin index
 ```
 
 Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
@@ -156,6 +157,8 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
   Loaded lazily, code verified against what you approved, every call timed,
   safe mode. Not sandboxed — see [`docs/plugins.md`](docs/plugins.md).
   Example: a task runner for npm/pnpm/yarn scripts, Cargo and Makefiles.
+  "Extensions: Browse Plugins…" installs published ones, such as
+  [YACE Themes](https://github.com/abedmurrar/yace-themes).
 - **Language servers.** Completion while you type, diagnostics (Problems:
   Ctrl+Shift+M, F8), hover, parameter hints, go to definition (F12, also
   into other roots), references (Shift+F12), rename (F2), document and

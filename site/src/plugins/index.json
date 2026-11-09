@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "plugins": [
+    {
+      "id": "io.github.abedmurrar.yace-themes",
+      "name": "YACE Themes",
+      "version": "0.1.0",
+      "description": "Four colour themes: Retro Blue, Phosphor (green on black), High Contrast and Low Contrast",
+      "publisher": "Abed Murrar",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/abedmurrar/yace-themes",
+      "yace": ">=0.11",
+      "code": false,
+      "packages": [
+        {
+          "target": "any",
+          "url": "https://github.com/abedmurrar/yace-themes/releases/download/v0.1.0/yace-themes-0.1.0.tar.gz",
+          "sha256": "bb978ccaf8fdb911bde12b0b9fba3f491928be56168113837e10a96bbd123cac"
+        }
+      ]
+    }
+  ]
+}

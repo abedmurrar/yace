@@ -67,7 +67,7 @@ maintainer-scripts = "../../packaging/debian/scripts/"
 section = "editors"
 priority = "optional"
 depends = "$auto"
-recommends = "git"
+recommends = "git, curl"
 suggests = "xdg-utils"
 extended-description = """\
 A code editor for the terminal with VS Code's keys and concepts: multi-root \

@@ -805,6 +805,7 @@ fn builtin_commands() -> Vec<Command> {
         c!("git.showOutput", "Git", "Show Output", |a, _| a.git_show_output()),
         // --- Extensions (spec §18.14) -------------------------------------------
         c!("workbench.extensions.action.listInstalled", "Extensions", "List Installed", |a, _| a.plugins_list()),
+        c!("yace.extensions.browse", "Extensions", "Browse Plugins…", |a, _| a.plugins_browse()),
         c!("yace.extensions.installFromDirectory", "Extensions", "Install from Directory…", |a, _| a
             .plugins_install_prompt(false)),
         c!("yace.extensions.installFromPackage", "Extensions", "Install from Package…", |a, _| a

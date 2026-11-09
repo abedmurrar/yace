@@ -17,7 +17,7 @@ language that can export a C function. There is no JavaScript runtime.
 - [Manifest reference](#manifest-reference-yace-plugintoml)
 - [ABI reference](#abi-reference)
 - [Safety](#safety)
-- [Releasing a plugin](#releasing-a-plugin)
+- [Publish a plugin](#publish-a-plugin)
 
 ## Using plugins
 
@@ -26,6 +26,7 @@ Command Palette under "Extensions"):
 
 | Command | |
 |---|---|
+| Extensions: Browse Plugins… | lists the plugins in the [plugin index](#publish-a-plugin), marking the ones installed and newer versions; pick one to download it and see the same install prompt |
 | Extensions: Install from Package… / from Directory… | shows what the plugin is, its publisher, the capabilities it declares, the SHA-256 of its code and the security note; installs after you confirm |
 | Extensions: List Installed | every plugin with its state; pick one for: Show Details, Enable, Disable, Enable/Disable in This Workspace, Approve Its Code, Open Plugin Settings, Show Plugin Log, Uninstall |
 | Extensions: Enable… / Disable… / Uninstall… | |
@@ -33,8 +34,15 @@ Command Palette under "Extensions"):
 | Extensions: Show Performance | activation time, calls and time spent per callback, background jobs |
 | Extensions: Show Plugin Views… | open a view a plugin contributes (each view also has a "View: Show …" command) |
 
-From a shell: `yace --install-plugin <package-or-folder> [--yes]`,
-`yace --list-plugins`.
+From a shell: `yace --install-plugin <package-folder-or-id> [--yes]`,
+`yace --list-plugins`. An id (`io.github.abedmurrar.yace-themes`) that
+isn't a file or folder is installed from the plugin index.
+
+**The plugin index.** Browse Plugins and installing by id read
+`https://abedmurrar.github.io/yace/plugins/index.json`, download the
+package for this machine with the `curl` program (HTTPS only), and refuse
+it unless its SHA-256 and its manifest's id and version match the index.
+This is the only network use in YACE, and only when you ask.
 
 **Lazy loading.** Installing reads only the manifest: a plugin's commands,
 keybindings, themes, views and settings appear immediately, but its code is
@@ -305,7 +313,7 @@ memory. A plugin is as trustworthy as its author. An out-of-process plugin
 host (better fault isolation, at the cost of IPC overhead and memory) is a
 possible later addition.
 
-## Releasing a plugin
+## Publish a plugin
 
 1. Bump `version` in `yace-plugin.toml` (and `Cargo.toml`).
 2. `cargo test` (use `MockHost`), then build with
@@ -313,5 +321,22 @@ possible later addition.
    set `os` / `arch` in the manifest accordingly.
 3. Install the package in YACE and try it (Show Plugin Log, Show
    Performance).
-4. Publish the `.tar.gz` and its SHA-256 (printed by `--package-plugin`);
-   users can compare it with what the install prompt shows.
+4. Publish the `.tar.gz` and its SHA-256 (printed by `--package-plugin`)
+   as a release, with a versioned file name: the index links to that exact
+   file, so it must never change.
+5. List it in the plugin index: open a pull request on YACE that runs
+
+   ```sh
+   scripts/plugin_index.py add <package-url>               # data only
+   scripts/plugin_index.py add <package-url> --target linux-x86_64
+   ```
+
+   once per package (native plugins: one per `os-arch`), which adds or
+   updates the entry in `site/src/plugins/index.json` and the list on the
+   website. `scripts/plugin_index.py check` downloads every package and
+   checks it. Set `homepage` in your manifest: it becomes the link to
+   your repository.
+
+To try an entry before publishing it, point YACE at a local copy of the
+index: `YACE_PLUGIN_INDEX=file:///path/to/index.json yace`. A `file://`
+index may list `file://` packages; the published one can't.

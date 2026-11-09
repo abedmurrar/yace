@@ -1,5 +1,5 @@
 //! Plugin commands that run without the UI: `--install-plugin`,
-//! `--list-plugins`, `--package-plugin` (spec §18.13, §18.15).
+//! `--list-plugins`, `--package-plugin`.
 
 use std::{
     io::{BufRead, Write},
@@ -8,11 +8,11 @@ use std::{
 };
 
 use yace_config::Paths;
-use yace_plugin_host::{InstallPlan, TrustRecord, manifest::CAPABILITIES, store};
+use yace_plugin_host::{InstallPlan, TrustRecord, manifest::CAPABILITIES, registry, store};
 
 use crate::{app::App, cli::Args};
 
-/// What the user approves when installing (spec §18.9).
+/// What the user approves when installing.
 pub fn trust_summary(plan: &InstallPlan) -> Vec<String> {
     let m = &plan.manifest;
     let mut out = vec![
@@ -115,8 +115,26 @@ pub fn run(args: &Args, paths: &Paths) -> ExitCode {
     }
 }
 
+/// A plugin id that isn't a file or folder here: install it from the index.
+fn index_id(src: &Path) -> Option<&str> {
+    src.to_str().filter(|s| !src.exists() && yace_plugin_host::manifest::valid_id(s))
+}
+
 fn install_interactive(src: &Path, plugins_dir: &Path, version: &str, yes: bool) -> Result<String, String> {
-    let plan = store::plan_install(src, plugins_dir, version)?;
+    let plan = if let Some(id) = index_id(src) {
+        let url = registry::index_url();
+        eprintln!("Reading the plugin index ({url})…");
+        let index = registry::load_index(&url)?;
+        let entry = index
+            .plugins
+            .iter()
+            .find(|e| e.id == id)
+            .ok_or_else(|| format!("{id} is not a file, a folder or a plugin in the index ({url})"))?;
+        eprintln!("Downloading {} {}…", entry.name, entry.version);
+        registry::plan_download(entry, plugins_dir, version)?
+    } else {
+        store::plan_install(src, plugins_dir, version)?
+    };
     for l in trust_summary(&plan) {
         println!("{l}");
     }
