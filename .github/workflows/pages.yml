@@ -40,6 +40,10 @@ env:
 
 jobs:
   build:
+    # A release commit is published by release.yml, which runs this workflow
+    # once its packages exist. Deploying on the push too raced that run: the
+    # push's deploy (without the new .deb files) finished last.
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
