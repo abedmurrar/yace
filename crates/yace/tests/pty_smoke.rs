@@ -30,6 +30,9 @@ fn type_save_quit_restores_terminal() {
     let pty = native_pty_system();
     let pair = pty.openpty(PtySize { rows: 30, cols: 100, pixel_width: 0, pixel_height: 0 }).unwrap();
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_yace"));
+    // The folder, with the file open (`yace file` alone opens no folder).
+    cmd.arg(dir.path());
+    cmd.arg("--goto");
     cmd.arg(&file);
     cmd.cwd(dir.path());
     cmd.env("TERM", "xterm-256color");
@@ -200,6 +203,9 @@ fn spawn_yace_in(file: &std::path::Path, cfg: &std::path::Path, env: &[(&str, &s
     let pty = native_pty_system();
     let pair = pty.openpty(PtySize { rows: 20, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_yace"));
+    // The file's folder with the file open (`yace file` alone opens no folder).
+    cmd.arg(file.parent().unwrap());
+    cmd.arg("--goto");
     cmd.arg(file);
     cmd.cwd(file.parent().unwrap());
     cmd.env("TERM", "xterm-256color");

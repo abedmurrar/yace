@@ -712,6 +712,13 @@ Leftovers batch 2, terminal (v0.10.0, 2026-11-09, i5-1135G7):
 - **RSS against v0.8.2:** 1 terminal 10.6–10.9 MiB against 9.8–10.2; flood 29.5–29.8 against 28.7–29.0; 4 terminals 34.2–34.4 against 33.1–33.3. A split costs nothing measurable.
   - The +0.5–1 MiB is clean binary pages (`RssFile` 8.4–8.6 against 7.9–8.3 MiB at idle). The heap (`RssAnon`) is identical at 768 kB, plus one thread (the watcher).
 
+Leftovers batch 2, editor (v0.11.0, 2026-11-09, i5-1135G7, against v0.10.0, other work running, load 2–3.8):
+- **Binary:** 18.43 → 18.70 MB. The Makefile, Lua and INI grammars are +234 KB; they take no memory until such a file opens.
+- **First frame** on `~/Dev/node`, interleaved 3×20 runs: median 6.38–6.56 ms against 6.20–6.58; fastest runs 4.14–5.74 against 4.06–4.42.
+- **Idle RSS** (one file): 9.5 MiB against 9.2. `RssAnon` 768 kB against 896; the rest is clean binary pages.
+- **Typing** (`bench_interactive.py`): input p95 0.39 ms against 0.37; render p95 0.73 against 0.67. Same within noise.
+- **Completion:** see the item above.
+
 Buffer benchmarks (`cargo bench -p yace-buffer`, 2026-11-03, i5-1135G7): type 1 char in a 10 MB file 0.76 µs (start) / 1.01 µs (middle) / 1.15 µs (end); type with 1,000 cursors 2.0 ms; undo+redo of a 100k-change transaction 55.6 ms.
 | Metric | Target | Measured | Date / hardware |
 |---|---|---|---|
