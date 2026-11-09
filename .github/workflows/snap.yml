@@ -26,6 +26,8 @@ permissions:
 jobs:
   snap:
     strategy:
+      # One architecture failing (a mirror timing out) doesn't cancel the other.
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
