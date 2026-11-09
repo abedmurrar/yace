@@ -13,6 +13,18 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- Crash recovery. A second after an edit, YACE backs up every unsaved file
+  and untitled tab to its state folder (`~/.local/state/yace/backups/`,
+  readable only by you). If it ends without a clean quit (a crash, a kill,
+  a closed terminal), the next start in that folder reopens them with the
+  unsaved text, still unsaved, and says so. The file on disk is never
+  written: Undo shows it as it is on disk, and a file changed elsewhere
+  since is named. Closing the terminal (SIGHUP) or SIGTERM backs up the
+  latest text before exiting. Backups are deleted on save, on "Don't Save"
+  and on a clean quit; another window's backups are left alone.
+
 ## [0.13.0] - 2026-11-10
 
 ### Added

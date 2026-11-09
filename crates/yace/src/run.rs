@@ -198,6 +198,8 @@ pub struct Runtime {
     /// Started on the first background parse.
     syntax: Option<Sender<crate::syntax::ParseJob>>,
     git: Option<Sender<crate::git::GitTask>>,
+    /// Writes backups of unsaved documents, in order; joined before exit.
+    backups: Option<(Sender<crate::app::recovery::BackupJob>, thread::JoinHandle<()>)>,
 }
 
 impl Runtime {
@@ -261,6 +263,7 @@ impl Runtime {
             term_find: None,
             find,
             syntax: None,
+            backups: None,
             git: None,
         }
     }
@@ -373,6 +376,21 @@ impl Runtime {
                         })
                         .ok();
                 }
+                Effect::Backups(job) => {
+                    let (tx, _) = self.backups.get_or_insert_with(|| {
+                        let (tx, rx) = unbounded::<crate::app::recovery::BackupJob>();
+                        let h = thread::Builder::new()
+                            .name("yace-backups".into())
+                            .spawn(move || {
+                                for job in rx {
+                                    job.run();
+                                }
+                            })
+                            .expect("spawn the backup thread");
+                        (tx, h)
+                    });
+                    let _ = tx.send(job);
+                }
                 Effect::DiscoverPlugins(dir) => {
                     let tx = self.tx.clone();
                     thread::Builder::new()
@@ -411,6 +429,11 @@ impl Runtime {
                 // `shutdown`/`exit` to every server; closing their stdin
                 // when we exit stops any that ignore it.
                 app.lsp.shutdown_all();
+                // Finish writing backups (a closed terminal's unsaved work).
+                if let Some((tx, h)) = self.backups.take() {
+                    drop(tx);
+                    let _ = h.join();
+                }
                 return Ok(());
             }
             let ev = match app.next_deadline() {

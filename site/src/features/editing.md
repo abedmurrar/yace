@@ -53,6 +53,15 @@ cursor; replace all is one undo step. The search follows your edits: in a
 - Auto-save, trimming trailing whitespace and a final newline are
   settings (`files.autoSave`, `files.trimTrailingWhitespace`,
   `files.insertFinalNewline`).
+- **Unsaved work survives a crash or a closed terminal.** A second after
+  you edit, YACE backs up every unsaved file and untitled tab. If it ends
+  without a clean quit (it crashes, is killed, or its terminal is closed),
+  the next start in that folder reopens them with the unsaved text, still
+  unsaved, and says so. The files on disk are never changed: Undo shows a
+  file as it is on disk, and a file changed elsewhere in the meantime is
+  named. Backups live in YACE's state folder
+  (`~/.local/state/yace/backups/`, readable only by you) and are deleted
+  when you save, close without saving, or quit.
 
 ## Tabs and splits
 

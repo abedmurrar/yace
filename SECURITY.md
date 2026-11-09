@@ -29,6 +29,9 @@ follows once the report is triaged.
   executable configuration in `.code-workspace` files are ignored.
   Opening a file does start the language servers for its language (next
   point).
+- **Unsaved text is backed up locally.** For crash recovery, unsaved
+  documents are copied to `~/.local/state/yace/backups/` (folder `0700`,
+  files `0600`) and deleted once saved, closed or after a clean quit.
 - **Language servers are programs on your computer.** YACE starts the ones
   it finds on `PATH`, TypeScript 7's from the project's `node_modules`, and
   the ones plugins declare (ESLint and Biome, from the project's

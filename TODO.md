@@ -410,7 +410,7 @@ Legend:
 - [x] [M3] Close tab, close group, close workspace, quit → per-file Save / Don't Save / Cancel; "Save All" option
 - [x] [M3] Quit (`Ctrl+Q`, `workbench.action.quit`)
 - [x] [M3] SIGTERM / SIGHUP: persist the session; never discard silently
-- [ ] [M10] Hot-exit backups of dirty buffers for crash recovery (§26.1)
+- [x] [M10] Hot-exit backups of dirty buffers for crash recovery (§26.1) — v0.14.0
 
 ### Session persistence, part 2 (§4.9, Workflow G)
 - [x] [M3] Open tabs per group, tab order, active group and tab, preview state
@@ -648,7 +648,7 @@ Legend:
 ## M10 — Public release preparation (§25, §26)
 
 ### Reliability (§26)
-- [ ] [M10] Hot-exit backups of dirty buffers; recovery on next start; never overwrite newer disk content (§26.1)
+- [x] [M10] Hot-exit backups of dirty buffers (1 s after an edit, one writer thread, written on SIGHUP/SIGTERM); recovery on next start as undoable unsaved edits, untitled tabs included; never writes the disk, names files changed since; live windows' backups left alone (§26.1) — v0.14.0
 - [ ] [M10] Fault isolation audit for every optional subsystem (§26.4)
 - [ ] [M10] Diagnostics report command (§26.5)
 
@@ -746,7 +746,7 @@ Buffer benchmarks (`cargo bench -p yace-buffer`, 2026-11-03, i5-1135G7): type 1 
 - [x] Automated tests for mouse handling, auto-save, Save All within the close flow, Save As during quit, Reopen Closed Editor (`tests/flows.rs`)
 - [ ] Manual check in GNOME Terminal, Kitty, Alacritty, WezTerm, foot, Konsole, tmux (§22.5) — only a PTY test so far
 - [x] Measure typing→render latency and idle CPU end-to-end (`scripts/bench_interactive.py`)
-- [ ] Hot-exit backups (M10) — a crash currently loses unsaved edits
+- [x] Hot-exit backups (M10) — v0.14.0 (a panic loses at most the last second of typing)
 - [x] Initial commit and `v0.1.0` tag; licence decided (MIT OR Apache-2.0)
 - [ ] Create the GitHub repository, push, and run the workflows once (`docs/releasing.md` → Before the first public push)
 

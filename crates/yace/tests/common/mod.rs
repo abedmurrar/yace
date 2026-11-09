@@ -228,6 +228,7 @@ impl Harness {
                         yace_plugin_host::registry::plan_download(&entry, &plugins_dir, App::yace_version())
                             .map(Box::new),
                     )),
+                    Effect::Backups(job) => job.run(),
                     Effect::DiscoverPlugins(dir) => {
                         events.push(AppEvent::PluginsDiscovered(yace_plugin_host::store::discover(&dir)))
                     }

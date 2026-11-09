@@ -24,6 +24,8 @@ impl App {
             self.plugin_event("workspaceClosed", serde_json::json!({ "name": self.workspace.name() }));
         }
         self.kill_all_terminals();
+        // Unsaved changes were settled before switching.
+        self.backups_close();
         self.workspace = ws;
         self.docs = DocumentStore::default();
         self.layout = Layout::default();
@@ -41,6 +43,7 @@ impl App {
         if restore && self.restore_sessions {
             self.restore_session();
         }
+        self.recover_backups();
         self.touch_recent();
         self.emit_title();
         self.plugins_workspace_changed(true);

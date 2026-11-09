@@ -19,6 +19,7 @@ mod mouse;
 mod plugin_manager;
 mod plugins;
 mod quick_open;
+pub mod recovery;
 mod search_view;
 mod session;
 mod terminal;
@@ -191,6 +192,9 @@ pub enum Effect {
     Parse(Box<crate::syntax::ParseJob>),
     /// Read plugin manifests in this folder (no code is loaded).
     DiscoverPlugins(PathBuf),
+    /// Write and delete backups of unsaved documents (on one worker, in
+    /// order).
+    Backups(recovery::BackupJob),
     /// Download the plugin index from this URL (only on request).
     FetchPluginIndex(String),
     /// Download a plugin from the index and plan installing it into the
@@ -314,6 +318,12 @@ pub struct App {
     pub needs_render: bool,
     pub mouse: MouseState,
     autosave_deadline: Option<Instant>,
+    /// When unsaved documents are backed up next (crash recovery).
+    pub(crate) backup_deadline: Option<Instant>,
+    /// This process's backup folder for the open workspace.
+    pub(crate) backup_dir: Option<PathBuf>,
+    /// Document version last backed up, per backed-up document.
+    pub(crate) backed_up: HashMap<DocId, u64>,
     pending_fs: HashSet<PathBuf>,
     fs_deadline: Option<Instant>,
     /// Scroll the active view to its cursor after this event.
@@ -455,6 +465,9 @@ impl App {
             needs_render: true,
             mouse: MouseState::default(),
             autosave_deadline: None,
+            backup_deadline: None,
+            backup_dir: None,
+            backed_up: HashMap::new(),
             pending_fs: HashSet::new(),
             fs_deadline: None,
             reveal_cursor: false,
@@ -557,6 +570,7 @@ impl App {
             self.resolver.deadline(),
             self.fs_deadline,
             self.autosave_deadline,
+            self.backup_deadline,
             self.search.debounce,
             self.search.update_due,
             self.trim_due,
@@ -590,6 +604,9 @@ impl App {
         if self.search.update_due.is_some_and(|d| now >= d) {
             self.search.update_due = None;
             self.run_search_update();
+        }
+        if self.backup_deadline.is_some_and(|d| now >= d) {
+            self.sync_backups();
         }
         if self.autosave_deadline.is_some_and(|d| now >= d) {
             self.autosave_deadline = None;
@@ -872,6 +889,10 @@ impl App {
                 return;
             }
             AppEvent::Terminate => {
+                // Closing the terminal keeps unsaved work: it is backed up
+                // (written before the process exits) and reopened next time.
+                self.sync_documents();
+                self.sync_backups();
                 self.save_session();
                 self.quit = true;
             }
@@ -1446,6 +1467,7 @@ impl App {
     }
 
     pub(crate) fn on_document_edited(&mut self) {
+        self.backup_soon();
         if self.settings.files.auto_save == yace_config::AutoSave::AfterDelay {
             self.autosave_deadline =
                 Some(Instant::now() + Duration::from_millis(self.settings.files.auto_save_delay.max(100)));

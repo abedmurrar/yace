@@ -4,6 +4,7 @@
 
 pub mod actions;
 pub mod app;
+pub mod backup;
 pub mod cli;
 pub mod clipboard;
 pub mod commands;

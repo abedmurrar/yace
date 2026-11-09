@@ -31,7 +31,7 @@ pub enum SaveOutcome {
 }
 
 impl App {
-    fn default_eol(&self, path: Option<&Path>) -> LineEnding {
+    pub(crate) fn default_eol(&self, path: Option<&Path>) -> LineEnding {
         match self.settings_for(path).files.eol {
             Eol::Crlf => LineEnding::CrLf,
             _ => LineEnding::Lf,
@@ -177,7 +177,7 @@ impl App {
         self.needs_render = true;
     }
 
-    fn add_view(&mut self, gid: GroupId, view: View) {
+    pub(crate) fn add_view(&mut self, gid: GroupId, view: View) {
         if let Some(group) = self.layout.group_mut(gid) {
             let at = if group.views.is_empty() { 0 } else { group.active + 1 };
             group.views.insert(at, view);
@@ -198,6 +198,9 @@ impl App {
         if self.layout.views_of(doc).is_empty() {
             let big = self.docs.doc(doc).is_some_and(|d| d.len_chars() > 1 << 20);
             self.docs.remove(doc);
+            if self.backed_up.contains_key(&doc) {
+                self.backup_soon();
+            }
             self.conflict_prompted.remove(&doc);
             if big {
                 self.request_trim();
@@ -252,6 +255,7 @@ impl App {
         match result {
             Some(Ok(())) => {
                 self.after_save(doc, &path);
+                self.backup_soon();
                 SaveOutcome::Saved
             }
             Some(Err(yace_buffer::io::SaveError::Conflict { .. })) => {
@@ -455,6 +459,7 @@ impl App {
         let res = self.docs.doc_mut(doc).map(|d| d.reload(&sel));
         match res {
             Some(Ok(_)) => {
+                self.backup_soon();
                 // Keep every view's cursor where it was (clamped) rather than
                 // mapping it through the whole-document replacement.
                 let len = self.docs.doc(doc).map(|d| d.len_chars()).unwrap_or(0);
@@ -575,6 +580,7 @@ impl App {
         match after {
             AfterClose::Quit => {
                 self.save_session();
+                self.backups_close();
                 self.kill_all_terminals();
                 self.quit = true;
             }

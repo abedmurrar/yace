@@ -200,6 +200,17 @@ fn spawn_yace(file: &std::path::Path, config: &str, env: &[(&str, &str)]) -> (Ru
 /// a new temporary folder).
 fn spawn_yace_in(file: &std::path::Path, cfg: &std::path::Path, env: &[(&str, &str)]) -> (Running, tempfile::TempDir) {
     let state = tempfile::tempdir().unwrap();
+    let r = spawn_yace_with_state(file, cfg, env, state.path());
+    (r, state)
+}
+
+/// Start the real binary with its state, cache and config folders given.
+fn spawn_yace_with_state(
+    file: &std::path::Path,
+    cfg: &std::path::Path,
+    env: &[(&str, &str)],
+    state: &std::path::Path,
+) -> Running {
     let pty = native_pty_system();
     let pair = pty.openpty(PtySize { rows: 20, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_yace"));
@@ -215,8 +226,8 @@ fn spawn_yace_in(file: &std::path::Path, cfg: &std::path::Path, env: &[(&str, &s
         cmd.env(k, v);
     }
     cmd.env("YACE_CONFIG_DIR", cfg);
-    cmd.env("YACE_STATE_DIR", state.path().join("state"));
-    cmd.env("YACE_CACHE_DIR", state.path().join("cache"));
+    cmd.env("YACE_STATE_DIR", state.join("state"));
+    cmd.env("YACE_CACHE_DIR", state.join("cache"));
     cmd.env_remove("DISPLAY");
     cmd.env_remove("WAYLAND_DISPLAY");
     let child = pair.slave.spawn_command(cmd).unwrap();
@@ -240,7 +251,7 @@ fn spawn_yace_in(file: &std::path::Path, cfg: &std::path::Path, env: &[(&str, &s
         writer.write_all(b"\x1b[?62c").unwrap();
         writer.flush().unwrap();
     }
-    (Running { _state: None, child, parser, writer }, state)
+    Running { _state: None, child, parser, writer }
 }
 
 fn cell_at(parser: &Mutex<vt100::Parser>, needle: &str) -> Option<vt100::Cell> {
@@ -421,4 +432,47 @@ fn real_binary_draws_file_type_icons() {
         r.parser.lock().unwrap().screen().contents()
     );
     quit(r);
+}
+
+/// Closing the terminal (SIGHUP) keeps unsaved work: the next start reopens
+/// the file with the unsaved text, and the file on disk is unchanged.
+#[test]
+fn unsaved_text_survives_a_closed_terminal() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("notes.txt");
+    std::fs::write(&file, "on disk\n").unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let cfg = state.path().join("config");
+    std::fs::create_dir_all(&cfg).unwrap();
+    std::fs::write(cfg.join("config.toml"), "").unwrap();
+    let mut r = spawn_yace_with_state(&file, &cfg, &[], state.path());
+    assert!(wait_for(Duration::from_secs(10), || cell_at(&r.parser, "on disk").is_some()));
+    r.writer.write_all(b"unsaved ").unwrap();
+    r.writer.flush().unwrap();
+    assert!(wait_for(Duration::from_secs(5), || cell_at(&r.parser, "unsaved on disk").is_some()));
+    let pid = r.child.process_id().unwrap();
+    let st = std::process::Command::new("kill").args(["-HUP", &pid.to_string()]).status().unwrap();
+    assert!(st.success());
+    assert!(wait_for(Duration::from_secs(5), || r.child.try_wait().ok().flatten().is_some()), "exits on SIGHUP");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "on disk\n", "nothing was saved");
+
+    let r = spawn_yace_with_state(&file, &cfg, &[], state.path());
+    assert!(
+        wait_for(Duration::from_secs(10), || cell_at(&r.parser, "unsaved on disk").is_some()),
+        "{}",
+        r.parser.lock().unwrap().screen().contents()
+    );
+    assert!(wait_for(Duration::from_secs(5), || cell_at(&r.parser, "Restored 1 unsaved file").is_some()));
+    let mut r = r;
+    r.writer.write_all(b"\x11").unwrap(); // Ctrl+Q
+    r.writer.flush().unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    r.writer.write_all(b"d").unwrap(); // Don't Save
+    r.writer.flush().unwrap();
+    assert!(wait_for(Duration::from_secs(5), || r.child.try_wait().ok().flatten().is_some()));
+    assert!(
+        !state.path().join("state/backups").read_dir().is_ok_and(|mut d| d
+            .any(|w| w.ok().and_then(|w| std::fs::read_dir(w.path()).ok()).is_some_and(|mut x| x.next().is_some()))),
+        "a clean quit leaves no backups"
+    );
 }
