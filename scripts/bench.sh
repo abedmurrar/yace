@@ -10,12 +10,16 @@
 # probe adds one query/response round trip.
 #
 # Usage: scripts/bench.sh [RUNS] [PATH_TO_OPEN]
+# YACE_BENCH_BIN overrides the binary (e.g. to compare with an older release).
 set -euo pipefail
 RUNS="${1:-20}"
 TARGET="${2:-$(pwd)}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cargo build --release --manifest-path "$ROOT/Cargo.toml" -p yace >/dev/null
-BIN="$ROOT/target/release/yace"
+BIN="${YACE_BENCH_BIN:-}"
+if [ -z "$BIN" ]; then
+  cargo build --release --manifest-path "$ROOT/Cargo.toml" -p yace >/dev/null
+  BIN="$ROOT/target/release/yace"
+fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/config"

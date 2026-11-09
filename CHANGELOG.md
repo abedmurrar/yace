@@ -13,6 +13,38 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- Replace in files shows what will change. With the replace field open,
+  each result row shows the old text struck through, then the new text.
+  Enter on a result opens a read-only "Replace Preview" diff of the whole
+  file, exactly what Replace All will write. Excluded matches are left
+  out.
+- Search results stay current. Editing an open file, or creating,
+  changing or deleting a file on disk, updates that file's results without
+  a new search. Exclusions of matches that are still there are kept.
+- The Quick Open file list stays live. After the first Quick Open, YACE
+  watches every folder it indexed, honouring `.gitignore`. New folders,
+  files and deletions show up immediately, with no 30-second re-walk.
+  Indexing still starts only when Quick Open is first used, so idle
+  memory is unchanged until then. In a 44,000-file repository, the live
+  list costs about 1 MiB once Quick Open has been used. A root with more
+  folders than half the system's watch limit falls back to the re-walk,
+  with one notice.
+
+### Performance
+
+- Typing a longer search query searches only the files that matched the
+  shorter one. In a 44,000-file repository, the next keystroke takes
+  25 ms instead of 183 ms.
+- Find in a file follows edits by searching only the edited lines. In a
+  100,000-line file with 10,000 matches, a keystroke takes 0.3 ms instead
+  of 2.2 ms. Whole-file searches no longer copy the file.
+- Folder watches are added on their own thread. Watching 4,000 folders
+  takes about 40–70 ms, and the UI never waits for it.
+- The heap is trimmed after a burst of work even when the burst comes
+  within 2 s of the last trim; the trim used to be skipped.
+
 ## [0.8.2] - 2026-11-03
 
 ### Fixed

@@ -34,6 +34,15 @@ pub struct Harness {
     pub pending_loads: Vec<AppEvent>,
     /// Folders "opened in the file manager".
     pub opened: Vec<PathBuf>,
+    /// Files re-searched by live search updates so far.
+    pub search_update_files: usize,
+    /// How many files the last search was limited to (narrowing), or
+    /// `None` for a full walk.
+    pub last_search_only: Option<Option<usize>>,
+    /// Find-in-file jobs run on the worker so far.
+    pub find_jobs: usize,
+    /// Index walks run so far.
+    pub walks_run: usize,
 }
 
 impl Harness {
@@ -95,6 +104,10 @@ impl Harness {
             defer_loads: false,
             pending_loads: Vec::new(),
             opened: Vec::new(),
+            search_update_files: 0,
+            last_search_only: None,
+            find_jobs: 0,
+            walks_run: 0,
         }
     }
 
@@ -148,12 +161,13 @@ impl Harness {
                         let result = read_dir_entries(&d);
                         events.push(AppEvent::DirLoaded { dir: d, result });
                     }
-                    Effect::Index(IndexCmd::Sync { roots, walk, cache_dir, max_age }) => {
-                        for job in self.engine.sync(&roots, &walk, cache_dir, max_age) {
+                    Effect::Index(IndexCmd::Sync { roots, walk, cache_dir, max_age, live }) => {
+                        for job in self.engine.sync(&roots, &walk, cache_dir, max_age, &live) {
                             if self.defer_walks {
                                 self.pending_walks.push(job);
                             } else {
-                                self.run_walk(&job);
+                                self.walks_run += 1;
+                                events.extend(self.run_walk(&job));
                             }
                         }
                         events.push(AppEvent::IndexProgress {
@@ -165,17 +179,34 @@ impl Harness {
                         events.push(self.engine.query(seq, &query, &ctx, limit))
                     }
                     Effect::Index(IndexCmd::FsChange { root, rel, exists, is_dir }) => {
-                        self.engine.fs_change(root, &rel, exists, is_dir)
+                        let (evs, jobs) = self.engine.fs_change(root, &rel, exists, is_dir);
+                        events.extend(evs);
+                        for job in jobs {
+                            self.walks_run += 1;
+                            events.extend(self.run_walk(&job));
+                        }
                     }
                     Effect::Index(_) => {}
                     Effect::Search(job) => {
+                        self.last_search_only = Some(job.only.as_ref().map(|p| p.len()));
                         let out = std::sync::Mutex::new(Vec::new());
                         workers::run_search(&job, &std::sync::atomic::AtomicBool::new(false), &|e| {
                             out.lock().unwrap().push(e)
                         });
                         events.extend(out.into_inner().unwrap());
                     }
-                    Effect::Find(job) => events.push(workers::run_find(&job)),
+                    Effect::SearchUpdate(job) => {
+                        let out = std::sync::Mutex::new(Vec::new());
+                        workers::run_search(&job, &std::sync::atomic::AtomicBool::new(false), &|e| {
+                            out.lock().unwrap().push(e)
+                        });
+                        self.search_update_files += job.only.as_ref().map_or(0, |p| p.len());
+                        events.extend(out.into_inner().unwrap());
+                    }
+                    Effect::Find(job) => {
+                        self.find_jobs += 1;
+                        events.push(workers::run_find(&job))
+                    }
                     Effect::Parse(job) => events.push(yace_app::syntax::run_parse(&job)),
                     Effect::LoadFile { doc, path, eol } => {
                         let ev = workers::load_file(doc, path, eol);
@@ -207,10 +238,10 @@ impl Harness {
     }
 
     /// Run a walk to completion, feeding the engine.
-    pub fn run_walk(&mut self, job: &yace_app::workers::WalkJob) {
+    pub fn run_walk(&mut self, job: &yace_app::workers::WalkJob) -> Option<AppEvent> {
         let (files, summary) = yace_search::walk::collect(&job.path, &job.walk);
         self.engine.batch(job.root, files);
-        self.engine.walk_done(job.root, summary.truncated);
+        self.engine.walk_done(job.root, summary.truncated)
     }
 
     /// Complete deferred walks one batch at a time (simulates streaming).

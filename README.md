@@ -80,8 +80,10 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
   bar can sit left or right; small terminals degrade gracefully down to
   1×1.
 - **Command palette** (Ctrl+Shift+P / F1) for every command.
-- **Quick Open and search.** Fuzzy file search across every root (Ctrl+P),
-  workspace search and replace (Ctrl+Shift+F), find/replace in the editor.
+- **Quick Open and search.** Fuzzy file search across every root (Ctrl+P)
+  that stays live as files come and go; workspace search and replace
+  (Ctrl+Shift+F) with results that follow your edits and a before/after
+  preview of every replacement; find/replace in the editor.
 - **Integrated terminal.** Real shells per root (Ctrl+`), several tabs.
 - **Syntax.** Tree-sitter highlighting for Rust, TypeScript/TSX,
   JavaScript/JSX, JSON, YAML, TOML, HTML, CSS, Markdown, Python and Bash

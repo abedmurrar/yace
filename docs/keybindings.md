@@ -147,7 +147,7 @@ starts one in the selected folder.
 | type | search (runs as you type); `Tab` / `Down` moves through query, replace, include, exclude, results |
 | `Alt+C` / `Alt+W` / `Alt+R` | match case / whole word / regex |
 | `./Root Name/…` in "files to include" | limit the search to one workspace folder (Explorer → `Shift+Alt+F` "Find in Folder…") |
-| results: `Enter` / `Space` | open / preview the match |
+| results: `Enter` / `Space` | open / preview the match; with the replace field shown, open the **Replace Preview** diff of that file (each result row also shows the old text struck through, then the new text) |
 | results: `Left` / `Right` | collapse / expand a file |
 | results: `Delete` | exclude a match or file from replacement |
 | `Ctrl+Alt+Enter` | replace all (with confirmation; open files are edited but not saved) |

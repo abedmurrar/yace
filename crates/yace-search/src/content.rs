@@ -278,6 +278,225 @@ pub fn search(
     })
 }
 
+/// Search just `paths` (files that changed, were created or deleted, or
+/// the files of a previous search when narrowing), with the same scope
+/// rules as [`search`]. A folder in `paths` is walked. `on_file` gets each
+/// file's matches, or `None` when it no longer matches, is out of scope
+/// or is gone. `in_scope`: the paths are known to pass the scope rules
+/// (the files of a previous search with the same scope), so they are not
+/// checked again.
+pub fn search_paths(
+    roots: &[SearchRoot],
+    q: &ContentQuery,
+    paths: &[PathBuf],
+    overlays: &HashMap<PathBuf, Arc<str>>,
+    cancel: &AtomicBool,
+    on_file: &(dyn Fn(PathBuf, Option<FileMatches>) + Sync),
+) -> Result<SearchSummary, String> {
+    search_paths_with(roots, q, paths, overlays, false, cancel, on_file)
+}
+
+/// [`search_paths`], optionally trusting that `paths` are in scope.
+pub fn search_paths_with(
+    roots: &[SearchRoot],
+    q: &ContentQuery,
+    paths: &[PathBuf],
+    overlays: &HashMap<PathBuf, Arc<str>>,
+    in_scope: bool,
+    cancel: &AtomicBool,
+    on_file: &(dyn Fn(PathBuf, Option<FileMatches>) + Sync),
+) -> Result<SearchSummary, String> {
+    let matcher = build_matcher(q)?;
+    let sc = scope(roots, &q.include);
+    let mut walk = q.walk.clone();
+    walk.exclude.extend(q.exclude.iter().cloned());
+    let selected: Vec<&SearchRoot> = roots.iter().filter(|r| sc.roots.contains(&r.key)).collect();
+    let includes: HashMap<RootKey, GlobSet> = sc
+        .include
+        .iter()
+        .filter(|(k, v)| !v.is_empty() && selected.iter().any(|r| r.key == **k))
+        .map(|(k, v)| (*k, build_globset(v)))
+        .collect();
+    let total = AtomicUsize::new(0);
+    let files = AtomicUsize::new(0);
+    let truncated = AtomicBool::new(false);
+    let search_one = |filters: &mut HashMap<RootKey, crate::walk::PathFilter>, path: &PathBuf| {
+        // The deepest root containing the path (nested roots).
+        let Some(root) = selected.iter().filter(|r| path.starts_with(&r.path)).max_by_key(|r| r.path.as_os_str().len())
+        else {
+            on_file(path.clone(), None);
+            return;
+        };
+        let filter = |filters: &mut HashMap<RootKey, crate::walk::PathFilter>, path: &PathBuf, is_dir: bool| {
+            filters
+                .entry(root.key)
+                .or_insert_with(|| crate::walk::PathFilter::new(&root.path, &walk))
+                .allows(path, is_dir)
+        };
+        let rel_path = path.strip_prefix(&root.path).unwrap_or(path);
+        let overlay = overlays.get(path);
+        let meta = std::fs::metadata(path).ok();
+        if overlay.is_none() && meta.as_ref().is_some_and(|m| m.is_dir()) {
+            if !filter(filters, path, true) {
+                return;
+            }
+            for e in crate::walk::builder_from(&root.path, path, &walk).build().flatten() {
+                if e.file_type().is_some_and(|t| t.is_file()) && e.path() != path.as_path() {
+                    let p = e.path().to_path_buf();
+                    let rel = p.strip_prefix(&root.path).unwrap_or(&p);
+                    if includes.get(&root.key).is_none_or(|g| g.is_match(rel)) {
+                        search_file(root, &p, None, &matcher, q, &total, &files, &truncated, on_file);
+                    }
+                }
+            }
+            return;
+        }
+        let ok = (overlay.is_some() || meta.as_ref().is_some_and(|m| m.is_file()))
+            && (in_scope
+                || includes.get(&root.key).is_none_or(|g| g.is_match(rel_path)) && filter(filters, path, false));
+        if !ok {
+            on_file(path.clone(), None);
+            return;
+        }
+        search_file(root, path, overlay, &matcher, q, &total, &files, &truncated, on_file);
+    };
+    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(2);
+    if paths.len() < 64 || threads < 2 {
+        let mut filters = HashMap::new();
+        for p in paths {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
+            search_one(&mut filters, p);
+        }
+    } else {
+        let chunk = paths.len().div_ceil(threads);
+        std::thread::scope(|s| {
+            for part in paths.chunks(chunk) {
+                let search_one = &search_one;
+                s.spawn(move || {
+                    let mut filters = HashMap::new();
+                    for p in part {
+                        if cancel.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        search_one(&mut filters, p);
+                    }
+                });
+            }
+        });
+    }
+    Ok(SearchSummary {
+        files: files.load(Ordering::Relaxed),
+        matches: total.load(Ordering::Relaxed).min(q.max_results),
+        truncated: truncated.load(Ordering::Relaxed),
+        cancelled: cancel.load(Ordering::Relaxed),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_file(
+    root: &SearchRoot,
+    path: &std::path::Path,
+    overlay: Option<&Arc<str>>,
+    matcher: &grep_regex::RegexMatcher,
+    q: &ContentQuery,
+    total: &AtomicUsize,
+    files: &AtomicUsize,
+    truncated: &AtomicBool,
+    on_file: &(dyn Fn(PathBuf, Option<FileMatches>) + Sync),
+) {
+    let read;
+    let (bytes, from_buffer): (&[u8], bool) = match overlay {
+        Some(t) => (t.as_bytes(), true),
+        None => {
+            if std::fs::metadata(path).map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+                return on_file(path.to_path_buf(), None);
+            }
+            match std::fs::read(path) {
+                Ok(b) => {
+                    read = b;
+                    (&read, false)
+                }
+                Err(_) => return on_file(path.to_path_buf(), None),
+            }
+        }
+    };
+    let (matches, file_trunc) = search_bytes(matcher, bytes, q.max_per_file);
+    if matches.is_empty() {
+        return on_file(path.to_path_buf(), None);
+    }
+    let n: usize = matches.iter().map(|m| m.ranges.len().max(1)).sum();
+    if total.fetch_add(n, Ordering::Relaxed) >= q.max_results {
+        truncated.store(true, Ordering::Relaxed);
+    }
+    files.fetch_add(1, Ordering::Relaxed);
+    let rel = path.strip_prefix(&root.path).unwrap_or(path);
+    on_file(
+        path.to_path_buf(),
+        Some(FileMatches {
+            root: root.key,
+            rel: rel.to_string_lossy().replace('\\', "/"),
+            path: path.to_path_buf(),
+            hash: yace_buffer::io::hash_bytes(bytes),
+            matches,
+            from_buffer,
+            truncated: file_trunc,
+        }),
+    );
+}
+
+/// The replacements Replace All makes in `text`: char ranges with their
+/// new text, minus the matches the user excluded (`skip` holds the
+/// `(line, char_col)` where each excluded match starts). Replace All and
+/// both previews use this one function, so what is previewed is exactly
+/// what gets written.
+pub fn plan_replacements(
+    text: &str,
+    re: &regex::Regex,
+    replacement: &str,
+    regex_mode: bool,
+    skip: &std::collections::HashSet<(usize, usize)>,
+) -> Vec<(usize, usize, String)> {
+    let mut reps = crate::find::replacements(text, re, replacement, regex_mode);
+    if skip.is_empty() {
+        return reps;
+    }
+    // Char offset → (line, col), walking forward alongside the matches.
+    let mut line = 0usize;
+    let mut line_start = 0usize;
+    let mut chars = text.chars();
+    let mut pos = 0usize;
+    reps.retain(|(from, _, _)| {
+        for c in chars.by_ref().take(from - pos) {
+            pos += 1;
+            if c == '\n' {
+                line += 1;
+                line_start = pos;
+            }
+        }
+        !skip.contains(&(line, from - line_start))
+    });
+    reps
+}
+
+/// `text` with `reps` (sorted, non-overlapping char ranges) applied.
+pub fn apply_replacements(text: &str, reps: &[(usize, usize, String)]) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    let mut pos = 0usize;
+    for (from, to, rep) in reps {
+        out.extend(chars.by_ref().take(from - pos));
+        for _ in *from..*to {
+            chars.next();
+        }
+        out.push_str(rep);
+        pos = *to;
+    }
+    out.extend(chars);
+    out
+}
+
 /// Replace matches in a file on disk. Refuses if the file changed since
 /// it was searched (`expected_hash`). `skip` holds `(line, char_col)` of
 /// matches the user excluded. Returns the number of replacements.
@@ -294,44 +513,12 @@ pub fn replace_in_file(
         return Err("changed since the search; search again".into());
     }
     let text = std::str::from_utf8(&bytes).map_err(|_| "not valid UTF-8".to_string())?;
-    let reps = crate::find::replacements(text, re, replacement, regex_mode);
-    let line_starts: Vec<usize> =
-        std::iter::once(0).chain(text.char_indices().filter(|(_, c)| *c == '\n').map(|(i, _)| i + 1)).collect();
-    // Char offset → (line, col): walk alongside.
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    let mut pos = 0usize;
-    let mut count = 0;
-    let char_line_starts: Vec<usize> = {
-        let mut v = Vec::with_capacity(line_starts.len());
-        let mut c = 0;
-        let mut b = 0;
-        for &ls in &line_starts {
-            c += text[b..ls].chars().count();
-            b = ls;
-            v.push(c);
-        }
-        v
-    };
-    for (from, to, rep) in reps {
-        let line = char_line_starts.partition_point(|s| *s <= from) - 1;
-        let col = from - char_line_starts[line];
-        if skip.contains(&(line, col)) {
-            continue;
-        }
-        out.extend(chars.by_ref().take(from - pos));
-        for _ in from..to {
-            chars.next();
-        }
-        out.push_str(&rep);
-        pos = to;
-        count += 1;
-    }
-    out.extend(chars);
-    if count > 0 {
+    let reps = plan_replacements(text, re, replacement, regex_mode, skip);
+    if !reps.is_empty() {
+        let out = apply_replacements(text, &reps);
         yace_buffer::io::write_safely(path, out.as_bytes()).map_err(|e| e.to_string())?;
     }
-    Ok(count)
+    Ok(reps.len())
 }
 
 #[cfg(test)]
@@ -448,5 +635,62 @@ mod tests {
         assert_eq!(replace_in_file(&p, &re, "b$1", true, h, &skip).unwrap(), 2);
         assert_eq!(fs::read_to_string(&p).unwrap(), "b1 a2\nb3\n");
         assert!(replace_in_file(&p, &re, "x", true, h, &HashSet::new()).is_err(), "stale hash refused");
+    }
+
+    #[test]
+    fn planned_replacements_skip_and_apply() {
+        let re = crate::find::build_regex(r"a(\d)", FindOptions { regex: true, ..Default::default() }).unwrap();
+        let text = "a1 é a2\na3 a4\n";
+        let skip: HashSet<(usize, usize)> = [(0, 5), (1, 3)].into_iter().collect();
+        let reps = plan_replacements(text, &re, "b$1", true, &skip);
+        assert_eq!(reps, vec![(0, 2, "b1".into()), (8, 10, "b3".into())]);
+        assert_eq!(apply_replacements(text, &reps), "b1 é a2\nb3 a4\n");
+        assert_eq!(plan_replacements(text, &re, "x", false, &HashSet::new()).len(), 4);
+    }
+
+    #[test]
+    fn search_just_some_paths() {
+        let (a, b, roots) = setup();
+        let q = ContentQuery { pattern: "todo".into(), ..Default::default() };
+        let paths = vec![
+            a.path().join("README.md"),
+            a.path().join("ignored.txt"),
+            a.path().join("gone.txt"),
+            b.path().join("app.ts"),
+            a.path().join("src"),
+        ];
+        let out = Mutex::new(Vec::new());
+        let s = search_paths(&roots, &q, &paths, &HashMap::new(), &AtomicBool::new(false), &|p, f| {
+            out.lock().unwrap().push((p.strip_prefix(a.path().parent().unwrap()).unwrap().to_path_buf(), f.is_some()))
+        })
+        .unwrap();
+        let mut got: Vec<(String, bool)> = out
+            .into_inner()
+            .unwrap()
+            .into_iter()
+            .map(|(p, f)| (p.components().skip(1).collect::<PathBuf>().to_string_lossy().into_owned(), f))
+            .collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                ("README.md".into(), true),
+                ("app.ts".into(), true),
+                ("gone.txt".into(), false),
+                ("ignored.txt".into(), false),
+                ("src/main.rs".into(), true),
+            ]
+        );
+        assert_eq!(s.files, 3);
+        // Include globs and overlays apply too.
+        let inc = ContentQuery { pattern: "todo".into(), include: vec!["*.rs".into()], ..Default::default() };
+        let mut ov = HashMap::new();
+        ov.insert(a.path().join("README.md"), Arc::<str>::from("nothing\n"));
+        let hits = Mutex::new(0);
+        search_paths(&roots, &inc, &paths[..1], &ov, &AtomicBool::new(false), &|_, f| {
+            *hits.lock().unwrap() += usize::from(f.is_some())
+        })
+        .unwrap();
+        assert_eq!(*hits.lock().unwrap(), 0);
     }
 }

@@ -115,37 +115,70 @@ impl FsPool {
     }
 }
 
+/// File watching on its own thread: adding thousands of watches (one per
+/// indexed folder) never blocks the UI. Failures come back as
+/// `AppEvent::WatchFailed`.
 pub struct FsWatcher {
-    inner: Option<notify::RecommendedWatcher>,
+    tx: Option<Sender<WatchCmd>>,
+}
+
+enum WatchCmd {
+    Watch(PathBuf),
+    Unwatch(PathBuf),
 }
 
 impl FsWatcher {
     pub fn new(events: Sender<AppEvent>) -> (Self, Option<String>) {
+        let sink = events.clone();
         let handler = move |res: notify::Result<notify::Event>| {
             if let Ok(ev) = res {
                 use notify::EventKind::*;
+                if ev.need_rescan() {
+                    let _ = sink.send(AppEvent::FsRescan);
+                }
                 if matches!(ev.kind, Access(_)) {
                     return;
                 }
-                let _ = events.send(AppEvent::FsChanged(ev.paths));
+                let _ = sink.send(AppEvent::FsChanged(ev.paths));
             }
         };
-        match notify::recommended_watcher(handler) {
-            Ok(w) => (Self { inner: Some(w) }, None),
+        let mut watcher = match notify::recommended_watcher(handler) {
+            Ok(w) => w,
             Err(e) => {
-                (Self { inner: None }, Some(format!("File watching is unavailable ({e}); use \"Refresh Explorer\"")))
+                return (
+                    Self { tx: None },
+                    Some(format!("File watching is unavailable ({e}); use \"Refresh Explorer\"")),
+                );
             }
-        }
+        };
+        let (tx, rx) = unbounded::<WatchCmd>();
+        thread::Builder::new()
+            .name("yace-watch".into())
+            .spawn(move || {
+                for cmd in rx {
+                    match cmd {
+                        WatchCmd::Watch(p) => {
+                            if let Err(e) = watcher.watch(&p, RecursiveMode::NonRecursive) {
+                                let _ = events.send(AppEvent::WatchFailed { path: p, error: e.to_string() });
+                            }
+                        }
+                        WatchCmd::Unwatch(p) => {
+                            let _ = watcher.unwatch(&p);
+                        }
+                    }
+                }
+            })
+            .ok();
+        (Self { tx: Some(tx) }, None)
     }
-    pub fn watch(&mut self, dir: &std::path::Path) -> Result<(), String> {
-        match &mut self.inner {
-            Some(w) => w.watch(dir, RecursiveMode::NonRecursive).map_err(|e| e.to_string()),
-            None => Ok(()),
+    pub fn watch(&mut self, dir: &std::path::Path) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(WatchCmd::Watch(dir.to_path_buf()));
         }
     }
     pub fn unwatch(&mut self, dir: &std::path::Path) {
-        if let Some(w) = &mut self.inner {
-            let _ = w.unwatch(dir);
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(WatchCmd::Unwatch(dir.to_path_buf()));
         }
     }
 }
@@ -155,9 +188,10 @@ pub struct Runtime {
     rx: Receiver<AppEvent>,
     pool: FsPool,
     watcher: FsWatcher,
-    watch_errors_reported: bool,
     index: Sender<crate::workers::IndexCmd>,
     search: crate::workers::SearchRunner,
+    /// Started on the first live search update.
+    search_updates: Option<crate::workers::SearchUpdater>,
     find: Sender<crate::workers::FindJob>,
     /// Started on the first background parse.
     syntax: Option<Sender<crate::syntax::ParseJob>>,
@@ -219,9 +253,9 @@ impl Runtime {
             rx,
             pool,
             watcher,
-            watch_errors_reported: false,
             index,
             search: Default::default(),
+            search_updates: None,
             find,
             syntax: None,
             git: None,
@@ -261,17 +295,7 @@ impl Runtime {
         for e in app.take_effects() {
             match e {
                 Effect::ReadDir(d) => self.pool.read_dir(d),
-                Effect::Watch(d) => {
-                    if let Err(err) = self.watcher.watch(&d)
-                        && !self.watch_errors_reported
-                    {
-                        self.watch_errors_reported = true;
-                        app.notify(
-                            Severity::Warning,
-                            format!("Could not watch {} ({err}); use \"Refresh Explorer\"", d.display()),
-                        );
-                    }
-                }
+                Effect::Watch(d) => self.watcher.watch(&d),
                 Effect::Unwatch(d) => self.watcher.unwatch(&d),
                 Effect::Write(bytes) => write_raw(&bytes),
                 Effect::Index(cmd) => {
@@ -279,6 +303,10 @@ impl Runtime {
                 }
                 Effect::Search(job) => self.search.start(*job, self.tx.clone()),
                 Effect::SearchCancel => self.search.cancel(),
+                Effect::SearchUpdate(job) => {
+                    let tx = self.tx.clone();
+                    self.search_updates.get_or_insert_with(|| crate::workers::SearchUpdater::spawn(tx)).run(*job);
+                }
                 Effect::Find(job) => {
                     let _ = self.find.send(*job);
                 }

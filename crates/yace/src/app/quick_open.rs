@@ -4,6 +4,7 @@
 //! `@`/`#` symbols (M7).
 
 use std::{
+    collections::{BTreeSet, HashMap},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -11,11 +12,11 @@ use std::{
 use yace_search::{Hit, QueryContext, RootKey, WalkOptions};
 use yace_workspace::{RootId, RootStatus};
 
-use super::{App, Effect};
+use super::{App, Effect, Severity};
 use crate::{
     actions::PickerAction,
     overlay::{Overlay, Picker, PickerItem, PickerKind},
-    workers::IndexCmd,
+    workers::{DirChange, IndexCmd, IndexRoots},
 };
 
 const RESULT_LIMIT: usize = 200;
@@ -100,21 +101,102 @@ impl App {
             include_hidden: true,
             exclude,
             max_files: s.search.max_indexed_files.max(1),
+            report_dirs: false,
         }
     }
 
     /// Ask the index actor to mirror the roots and refresh stale ones.
+    /// True when every root's folders are watched, so file-system events
+    /// report every change (no folder relies on a periodic re-walk).
+    pub(crate) fn all_roots_live(&self) -> bool {
+        let roots = self.workspace.roots();
+        !roots.is_empty()
+            && roots.iter().filter(|r| r.status == RootStatus::Available).all(|r| self.index_watch.is_live(r.id.0))
+    }
+
     pub(crate) fn index_sync(&mut self) {
-        let roots = self
+        self.index_sync_with(REWALK_AFTER);
+    }
+
+    fn index_sync_with(&mut self, max_age: Duration) {
+        self.index_watch.started = true;
+        let roots: IndexRoots = self
             .workspace
             .roots()
             .iter()
             .filter(|r| r.status == RootStatus::Available)
             .map(|r| (r.id.0, r.display_name(), r.path.clone()))
             .collect();
+        // Folders of roots that left the workspace are no longer watched.
+        let keys: Vec<RootKey> = roots.iter().map(|r| r.0).collect();
+        for dir in self.index_watch.retain_roots(&keys) {
+            self.index_unwatched(dir);
+        }
         let cache_dir = self.settings.search.cache_index.then(|| self.paths.index_cache_dir());
         let walk = self.walk_options();
-        self.emit(Effect::Index(IndexCmd::Sync { roots, walk, cache_dir, max_age: REWALK_AFTER }));
+        let live = if max_age.is_zero() { vec![] } else { self.index_watch.live_roots() };
+        self.emit(Effect::Index(IndexCmd::Sync { roots, walk, cache_dir, max_age, live }));
+    }
+
+    pub fn all_roots_live_for_tests(&self) -> bool {
+        self.all_roots_live()
+    }
+
+    pub fn set_watch_budget_for_tests(&mut self, budget: usize) {
+        self.index_watch.budget = budget;
+    }
+
+    /// The index's folders changed: watch them, within the budget.
+    pub(crate) fn on_index_dirs(&mut self, root: RootKey, change: DirChange) {
+        let Some(shown) = self.workspace.root(RootId(root)).map(|r| r.path.clone()) else { return };
+        let canon = std::fs::canonicalize(&shown).unwrap_or_else(|_| shown.clone());
+        let budget = self.index_watch.budget.saturating_sub(self.ui_watched_len());
+        let out = self.index_watch.apply(root, &canon, &shown, change, budget);
+        for d in out.unwatch {
+            self.index_unwatched(d);
+        }
+        for d in out.watch {
+            self.index_watched(d);
+        }
+        if let Some(n) = out.over_budget
+            && !self.index_watch.warned
+        {
+            self.index_watch.warned = true;
+            let name = self.workspace.root(RootId(root)).map(|r| r.display_name()).unwrap_or_default();
+            let msg = format!(
+                "{name} has {n} folders, more than YACE can watch (half of fs.inotify.max_user_watches, {}); \
+                 Quick Open refreshes it when opened instead. Raise the limit with \
+                 `sudo sysctl fs.inotify.max_user_watches=524288`.",
+                self.index_watch.limit
+            );
+            tracing::warn!("{msg}");
+            self.notify(Severity::Warning, msg);
+        }
+    }
+
+    /// A watch could not be added (for example the system limit was
+    /// reached): roots that needed it are no longer fully watched.
+    pub(crate) fn watch_failed(&mut self, dir: &Path, error: &str) {
+        self.index_watch.watch_failed(dir);
+        if !self.index_watch.failure_reported {
+            self.index_watch.failure_reported = true;
+            self.notify(
+                Severity::Warning,
+                format!("Could not watch {} ({error}); use \"Refresh Explorer\"", dir.display()),
+            );
+        }
+    }
+
+    /// The watcher lost events: walk every root again, re-read the
+    /// Explorer, re-run the search and check open files.
+    pub(crate) fn fs_rescan(&mut self) {
+        tracing::warn!("file watcher overflowed; rescanning");
+        self.index_sync_with(Duration::ZERO);
+        self.explorer.refresh_all();
+        if !self.search.query.text.is_empty() {
+            self.run_search();
+        }
+        self.check_open_docs_on_disk();
     }
 
     fn query_context(&self) -> QueryContext {
@@ -579,6 +661,201 @@ impl App {
             let root = root.id.0;
             self.emit(Effect::Index(IndexCmd::FsChange { root, rel, exists, is_dir }));
         }
+    }
+}
+
+/// The folders the Quick Open index asked to watch, per root, kept once,
+/// as short names relative to the root. A folder shared by nested roots
+/// is watched while any of them needs it.
+#[derive(Debug)]
+pub struct IndexWatch {
+    roots: HashMap<RootKey, RootWatch>,
+    /// Most folders the index may watch: half the system limit.
+    pub budget: usize,
+    /// The system limit (`fs.inotify.max_user_watches`), for messages.
+    pub limit: usize,
+    pub warned: bool,
+    /// A failed watch was reported (once per session).
+    pub failure_reported: bool,
+    /// Quick Open has been used: the index exists and is kept live.
+    pub started: bool,
+}
+
+#[derive(Debug)]
+struct RootWatch {
+    canon: PathBuf,
+    shown: PathBuf,
+    /// Relative folder names; `""` is the root itself.
+    dirs: BTreeSet<Box<str>>,
+    /// Every folder of the root is watched.
+    live: bool,
+}
+
+impl RootWatch {
+    fn path(&self, rel: &str) -> PathBuf {
+        if rel.is_empty() { self.canon.clone() } else { self.canon.join(rel) }
+    }
+
+    fn has(&self, p: &Path) -> bool {
+        p.strip_prefix(&self.canon).is_ok_and(|rel| rel.to_str().is_some_and(|r| self.dirs.contains(r)))
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct WatchChanges {
+    pub watch: Vec<PathBuf>,
+    pub unwatch: Vec<PathBuf>,
+    /// The root needs this many folders, over the budget.
+    pub over_budget: Option<usize>,
+}
+
+impl IndexWatch {
+    pub fn new() -> Self {
+        // Linux limits inotify watches per user; elsewhere use a generous cap.
+        let limit = std::fs::read_to_string("/proc/sys/fs/inotify/max_user_watches")
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .unwrap_or(131_072);
+        Self { roots: HashMap::new(), budget: limit / 2, limit, warned: false, failure_reported: false, started: false }
+    }
+
+    /// Some root needs `p` watched (`except` that one).
+    fn held(&self, p: &Path, except: Option<RootKey>) -> bool {
+        self.roots.iter().any(|(k, r)| Some(*k) != except && r.has(p))
+    }
+
+    pub fn contains(&self, p: &Path) -> bool {
+        self.held(p, None)
+    }
+
+    pub fn is_live(&self, root: RootKey) -> bool {
+        self.roots.get(&root).is_some_and(|r| r.live)
+    }
+
+    pub fn live_roots(&self) -> Vec<RootKey> {
+        self.roots.iter().filter(|(_, r)| r.live).map(|(k, _)| *k).collect()
+    }
+
+    /// Number of folders watched for the index.
+    pub fn len(&self) -> usize {
+        self.roots.values().map(|r| r.dirs.len()).sum()
+    }
+
+    pub fn paths(&self) -> Vec<PathBuf> {
+        self.roots.values().flat_map(|r| r.dirs.iter().map(|d| r.path(d))).collect()
+    }
+
+    pub fn root_aliases(&self) -> impl Iterator<Item = (&PathBuf, &PathBuf)> {
+        self.roots.values().filter(|r| r.canon != r.shown).map(|r| (&r.canon, &r.shown))
+    }
+
+    /// Remove a root; its folders no other root needs go to `out`.
+    fn drop_root(&mut self, root: RootKey, out: &mut WatchChanges) {
+        if let Some(r) = self.roots.remove(&root) {
+            out.unwatch.extend(r.dirs.iter().map(|d| r.path(d)).filter(|p| !self.held(p, None)));
+        }
+    }
+
+    /// Forget roots not in `keys`; returns folders no longer needed.
+    pub fn retain_roots(&mut self, keys: &[RootKey]) -> Vec<PathBuf> {
+        let gone: Vec<RootKey> = self.roots.keys().filter(|k| !keys.contains(k)).copied().collect();
+        let mut out = WatchChanges::default();
+        for k in gone {
+            self.drop_root(k, &mut out);
+        }
+        out.unwatch
+    }
+
+    pub fn watch_failed(&mut self, dir: &Path) {
+        for r in self.roots.values_mut() {
+            if r.has(dir) {
+                r.live = false;
+            }
+        }
+    }
+
+    /// Apply a change from the index; `budget` is how many folders the
+    /// index may watch in all.
+    pub(crate) fn apply(
+        &mut self,
+        root: RootKey,
+        canon: &Path,
+        shown: &Path,
+        change: DirChange,
+        budget: usize,
+    ) -> WatchChanges {
+        let mut out = WatchChanges::default();
+        match change {
+            DirChange::Replace { dirs, truncated } => {
+                let new: BTreeSet<Box<str>> = std::iter::once(Box::<str>::from("")).chain(dirs).collect();
+                let others = self.len() - self.roots.get(&root).map_or(0, |r| r.dirs.len());
+                if others + new.len() > budget {
+                    self.drop_root(root, &mut out);
+                    out.over_budget = Some(new.len());
+                    return out;
+                }
+                let r =
+                    RootWatch { canon: canon.to_path_buf(), shown: shown.to_path_buf(), dirs: new, live: !truncated };
+                let prev = self.roots.remove(&root);
+                for d in &r.dirs {
+                    let p = r.path(d);
+                    if !prev.as_ref().is_some_and(|x| x.has(&p)) && !self.held(&p, None) {
+                        out.watch.push(p);
+                    }
+                }
+                if let Some(prev) = prev {
+                    for d in &prev.dirs {
+                        let p = prev.path(d);
+                        if !r.has(&p) && !self.held(&p, None) {
+                            out.unwatch.push(p);
+                        }
+                    }
+                }
+                self.roots.insert(root, r);
+            }
+            DirChange::Add(dirs) => {
+                if !self.roots.contains_key(&root) {
+                    return out; // not watched (over budget): re-walked instead
+                }
+                if self.len() + dirs.len() > budget {
+                    let n = self.roots.get(&root).map_or(0, |r| r.dirs.len()) + dirs.len();
+                    self.drop_root(root, &mut out);
+                    out.over_budget = Some(n);
+                    return out;
+                }
+                for d in dirs {
+                    let Some(r) = self.roots.get(&root) else { break };
+                    let p = r.path(&d);
+                    if r.dirs.contains(&d) {
+                        continue;
+                    }
+                    let held = self.held(&p, None);
+                    if let Some(r) = self.roots.get_mut(&root) {
+                        r.dirs.insert(d);
+                    }
+                    if !held {
+                        out.watch.push(p);
+                    }
+                }
+            }
+            DirChange::RemoveUnder(rel) => {
+                let Some(r) = self.roots.get_mut(&root) else { return out };
+                let prefix = format!("{rel}/");
+                let gone: Vec<Box<str>> = r
+                    .dirs
+                    .range::<str, _>((std::ops::Bound::Included(&*rel), std::ops::Bound::Unbounded))
+                    .take_while(|d| d.starts_with(&*rel))
+                    .filter(|d| **d == rel || d.starts_with(&prefix))
+                    .cloned()
+                    .collect();
+                let paths: Vec<PathBuf> = gone.iter().map(|d| r.path(d)).collect();
+                for d in &gone {
+                    r.dirs.remove(d);
+                }
+                out.unwatch.extend(paths.into_iter().filter(|p| !self.held(p, None)));
+            }
+        }
+        out
     }
 }
 

@@ -17,5 +17,5 @@ pub use regex;
 
 pub use content::{ContentQuery, FileMatches, LineMatch, SearchRoot, SearchSummary};
 pub use find::{FindOptions, FindResult};
-pub use index::{FileIndex, Hit, QueryContext, RootKey};
+pub use index::{FileIndex, Hit, QueryContext, RootIndex, RootKey};
 pub use walk::{WalkOptions, WalkSummary};

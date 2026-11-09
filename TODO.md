@@ -450,7 +450,7 @@ Legend:
 - [x] [M4] Mode prefixes: `>` commands, `@` symbols in file, `#` workspace symbols, `:N` go to line, `file:L`, `file:L:C`, `?` help, plus plugin prefixes (§6.4)
 - [x] [M4] Cancellation of outdated queries (§21.3, §32.4)
 - [x] [M4] Lightweight cached index metadata for faster warm start; never treated as authoritative (§23.4)
-- [~] [M4] Index freshness via fs events / bounded refresh — re-walk when Quick Open opens and the index is >30 s old; fs events patch it in between (only for watched dirs)
+- [x] [M4] Index freshness via fs events — every indexed folder is watched (within half of `fs.inotify.max_user_watches`; a root over budget keeps the 30 s re-walk on Quick Open, with one notice); new folders are walked in place, new files checked against every ancestor ignore rule, deletions dropped, ignore-file changes and watcher overflow re-walk; still lazy (starts on the first Quick Open) — v0.9.0
 
 ### Command palette (full) (§7)
 - [x] [M4] Shares the Picker component with Quick Open
@@ -469,7 +469,7 @@ Legend:
 - [x] [M4] Replace one, replace all (one undo step)
 - [x] [M4] Search within selection
 - [x] [M4] Search history
-- [~] [M4] No full-document reprocessing per keystroke (incremental / viewport-first) — matching runs on a worker against an O(1) rope snapshot, so typing never blocks; it is not yet incremental
+- [x] [M4] No full-document reprocessing per keystroke — Find follows edits: matches move through the `ChangeSet` and only the edited lines (±1) are searched again, on the UI thread up to 2,000 lines, for queries that can't span lines; whole-file searches read the rope in 64 KiB pieces (no copy) — v0.9.0
 
 ### Workspace search (`Ctrl+Shift+F`) (§4.6, §14)
 - [x] [M4] Plain, case, whole word, regex
@@ -477,7 +477,7 @@ Legend:
 - [x] [M4] Results grouped by root then file; preview lines; navigate to match
 - [x] [M4] Respect ignore rules; skip binaries; streamed; cancellable; bounded memory (§14.2)
 - [x] [M4] No full-text index by default (§14.2)
-- [~] [M4] Replace in files with preview; per-file and per-match include / exclude (§14.3) — matches listed with per-match/per-file exclusion and a confirmation; an inline before/after diff preview is not yet shown
+- [x] [M4] Replace in files with preview; per-file and per-match include / exclude (§14.3) — inline old→new on each result row while the replace field is shown; Enter opens a read-only Replace Preview diff of the file (imara-diff unified); preview and Replace All share `content::plan_replacements` — v0.9.0
 - [x] [M4] Replace applies to open buffers as edits, never overwriting unsaved buffers silently (§14.3)
 - [x] [M4] Search results view in the bottom panel or sidebar
 
@@ -686,6 +686,23 @@ Terminal (`scripts/bench_terminal.py`, 2026-11-03): editor RSS 6.4 MiB idle, 7.9
 Memory after Quick Open + a workspace search on a real 9-folder workspace (`scripts/bench_memory.py`, 2026-11-03): v0.2.1 defaults 20.0 MiB (peak 21.5 MiB) with search-as-you-type; with `.claude/worktrees` included 23.9 MiB; without heap trimming (`YACE_MALLOC_TRIM=0`, ≈ v0.2.0) 33.2 MiB. A 108 MiB report from an interactive v0.2.0 session was not reproduced.
 
 Search benchmarks (`cargo bench -p yace-search`, 2026-11-03, i5-1135G7): Quick Open query over 200k paths 9–19 ms (parallel, top-200); walk of this repo 1.5 ms; content search of this repo 3.5 ms. After M4, startup 5.4 ms median and 6.4 MiB at first frame (indexing is lazy).
+
+Leftovers batch 2, search (v0.9.0, 2026-11-09, i5-1135G7, on `~/Dev/node`: 44,100 files, 3,300–4,000 folders). `cargo run --release --example bench_batch2 -- ~/Dev/node`:
+- **Narrowing a search** ("process.nextTic" → "process.nextTick"): a whole walk 183–259 ms → only the 368 files that matched 25–28 ms. Those files are 22 MB, one of them 10.5 MB.
+- **Live update** of one changed file: 2.7–3.3 ms on the updater thread.
+- **Find after a keystroke** (100k lines, 10k matches): copy and search the whole file 1.7–2.2 ms → edited lines only 0.23–0.31 ms. A whole-file search without the copy (64 KiB pieces) costs 2.5 ms, against 2.2 ms with the copy.
+- **Index walk** with folders: 41–78 ms.
+- **Watching 4,001 folders:** 41–72 ms on the watch thread. The kernel count matches; a created file's event arrives in < 2 ms.
+
+Real binary against v0.8.2 on node (`scripts/bench.sh` and a PTY idle script):
+- **First frame:** median 3.90–4.06 ms, against 3.93–4.00 ms.
+- **Idle RSS without Quick Open:** 8.4 MiB, against 8.3.
+- **Idle RSS after the first Quick Open:** 15.2–15.6 MiB, against 14.2–14.4. It now watches 3,328 folders; most of the +1 MiB is `notify`'s path tables.
+  - An eager index at startup (tried first) cost 17 MiB at idle, so it stays lazy.
+  - Keeping one YACE copy of the folder list instead of three saved about 0.8 MiB.
+- **Idle CPU:** 0.
+- **Typing** (`bench_interactive.py`, 300 keys): input p95 0.32 ms against 0.24–0.30; render p95 0.39–0.46 ms against 0.43–0.44. Within run-to-run noise.
+- **Binary:** 18.05 → 18.30 MB.
 
 Buffer benchmarks (`cargo bench -p yace-buffer`, 2026-11-03, i5-1135G7): type 1 char in a 10 MB file 0.76 µs (start) / 1.01 µs (middle) / 1.15 µs (end); type with 1,000 cursors 2.0 ms; undo+redo of a 100k-change transaction 55.6 ms.
 | Metric | Target | Measured | Date / hardware |

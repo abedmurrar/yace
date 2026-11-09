@@ -36,6 +36,8 @@ pub struct FindState {
     pub version: u64,
     pub searching: bool,
     jump_on_result: bool,
+    /// The compiled query, for updating matches after edits.
+    regex: Option<(String, FindOptions, yace_search::regex::Regex)>,
     history: Vec<String>,
     hist_pos: Option<usize>,
 }
@@ -139,6 +141,53 @@ impl App {
             within: self.find.within,
         };
         self.emit(Effect::Find(Box::new(job)));
+    }
+
+    /// Lines re-searched on the UI thread after an edit, at most; a bigger
+    /// edit re-runs the whole search on the worker.
+    const UPDATE_MAX_LINES: usize = 2_000;
+
+    /// Follow edits of the document under the bar without searching it
+    /// all again: matches move with the text and only edited lines are
+    /// searched (line-local queries). Anything else falls back to the
+    /// worker through `refresh_find_if_stale`.
+    pub(crate) fn find_follow_edits(&mut self, edits: &[(DocId, Vec<yace_buffer::DocEdit>)]) {
+        let f = &self.find;
+        if !f.visible || f.searching || f.truncated || f.within.is_some() || f.error.is_some() {
+            return;
+        }
+        let Some(d) = f.doc else { return };
+        let Some((_, list)) = edits.iter().find(|(id, _)| *id == d) else { return };
+        if list.first().is_none_or(|e| e.version != f.version + 1) || !find::is_line_local(&f.query.text, f.opts) {
+            return;
+        }
+        let stale = self.find.regex.as_ref().is_none_or(|(q, o, _)| *q != self.find.query.text || *o != self.find.opts);
+        if stale {
+            match find::build_regex(&self.find.query.text, self.find.opts) {
+                Ok(re) => self.find.regex = Some((self.find.query.text.clone(), self.find.opts, re)),
+                Err(_) => return,
+            }
+        }
+        let Some(rope) = self.docs.doc(d).map(|x| x.rope().clone()) else { return };
+        let Some((_, _, re)) = &self.find.regex else { return };
+        let mut matches = std::mem::take(&mut self.find.matches);
+        for (i, e) in list.iter().enumerate() {
+            let after = list.get(i + 1).map_or(&rope, |n| &n.before);
+            match find::update_matches(&matches, &e.changes, after, re, Self::UPDATE_MAX_LINES) {
+                Some(m) => matches = m,
+                None => return, // too big: the worker searches again
+            }
+        }
+        if matches.len() > find::MAX_FIND_MATCHES {
+            return;
+        }
+        self.find.matches = matches;
+        self.find.version = list.last().map_or(self.find.version, |e| e.version);
+        let head = self.active_head();
+        self.find.current = match self.find.matches.is_empty() {
+            true => None,
+            false => Some(self.find.matches.partition_point(|(a, _)| *a < head).min(self.find.matches.len() - 1)),
+        };
     }
 
     /// Re-run find when the document under the bar changed.

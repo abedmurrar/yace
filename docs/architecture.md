@@ -48,9 +48,11 @@ isolation.
 
 | Worker | Owns | Fed by | Emits |
 |---|---|---|---|
-| index actor (`workers::spawn_index_actor`) | the `FileIndex`; spawns walker threads | `Effect::Index(Sync/Query/FsChange)` | `IndexProgress` (throttled), `QuickOpenResults` |
+| index actor (`workers::spawn_index_actor`) | the `FileIndex` (files and folders per root), ignore rules per root (`PathFilter`); spawns walker threads | `Effect::Index(Sync/Query/FsChange)` | `IndexProgress` (throttled), `QuickOpenResults`, `IndexDirs` (folders to watch) |
 | search runner | one cancel flag per search | `Effect::Search` / `SearchCancel` | `SearchFile` per file, `SearchDone` |
-| find worker | — | `Effect::Find` (rope snapshot, O(1) clone) | `FindDone` |
+| search updater (started on first use) | — | `Effect::SearchUpdate` (changed files only, run in order) | `SearchFileUpdate` per file |
+| find worker | — | `Effect::Find` (rope snapshot, O(1) clone; searched in 64 KiB pieces, no full copy) | `FindDone` |
+| watcher thread (`run::FsWatcher`) | the `notify` watcher | `Effect::Watch` / `Unwatch` | `FsChanged`, `FsRescan` (queue overflow), `WatchFailed` |
 | file loader | — | `Effect::LoadFile` (files > 1 MiB) | `FileLoaded` |
 | syntax worker (started on first use) | — | `Effect::Parse` (rope snapshot + old tree); jobs for the same document collapse to the newest | `Parsed { cost }` |
 | language servers (`yace-lsp`) | per server: writer, reader (decodes into `Reply`), stderr ring | `Client::request` / `notify` | `AppEvent::Lsp` (`Response`, `Diagnostics`, `Progress`, server requests, `Exited`) |
@@ -86,11 +88,56 @@ isolation.
 
 Every request carries a sequence number, and the app ignores results whose
 number is out of date. The index actor coalesces bursts of queries and
-only answers the latest one. Indexing is **lazy**: it starts on the first
-Quick Open, never at startup. Roots are re-walked when Quick Open opens and
-their index is more than 30 s old. In between, filesystem events patch the
-index. Cached name lists (`search.cacheIndex`) make the first Quick Open
-instant and are always refreshed in the background.
+only answers the latest one.
+
+**Live index.** Indexing is lazy: it starts on the first Quick Open, never
+at startup, so someone who never uses Quick Open pays nothing. From then
+on the index stays live. The walk reports folders as well as files, and
+the app watches every indexed folder non-recursively.
+
+`App::index_watch` keeps the only YACE copy of the folder list (relative
+names per root; the engine hands its list over). A folder that nested
+roots share stays watched while any of them needs it. The list is kept
+apart from the small set the Explorer, settings, Git and open files need,
+so a 20,000-folder set is never rebuilt per event. Watch calls run on the
+watcher thread.
+
+On a 44,000-file repository (about 3,300 folders), this costs about
+1 MiB of RSS over 0.8.2 after the first Quick Open, most of it `notify`'s
+own path tables. Before Quick Open the cost is nothing.
+
+The watch budget is half of `fs.inotify.max_user_watches`. A root that
+doesn't fit isn't watched folder by folder; it keeps the old behaviour,
+a re-walk when Quick Open opens and its index is more than 30 s old, and
+one notice names the sysctl to raise.
+
+Events patch the index (`IndexEngine::fs_change`):
+- **New files** are checked against the ignore rules of every ancestor
+  folder (`walk::PathFilter`; a walk started inside a folder would miss
+  rules that ignore the folder itself) and inserted in sorted order.
+- **New folders** are walked in place (up to 20,000 entries; bigger trees
+  re-walk the root) and watched.
+- **Deletions** drop files and folders.
+- **A changed `.gitignore` or `.ignore`** re-walks the root.
+- **A watcher queue overflow** (`FsRescan`) re-walks every root.
+
+Cached name lists (`search.cacheIndex`) make the first Quick Open instant
+and are always refreshed in the background.
+
+**Live search results.** While results are shown, edits to open files
+(`search_track_edits`) and file-system events queue their paths. After
+300 ms, the search updater re-searches only those files with the query
+that produced the results (`content::search_paths`), using the same scope
+and ignore rules. When all roots are live, a longer literal query that
+contains the previous one (same options and scope, previous search
+complete) searches only the files that matched before.
+
+**Find in a file** follows edits incrementally (`find::update_matches`,
+called from `sync_documents` with the drained `DocEdit`s). Matches move
+through each `ChangeSet`, and only the edited lines plus one either side
+are searched again, on the UI thread, up to 2,000 lines. This applies to
+queries that can't span lines (`find::is_line_local`); others, and larger
+edits, go to the worker.
 
 `IndexEngine` contains all the index logic and is used both by the actor
 and, synchronously, by the test harness.

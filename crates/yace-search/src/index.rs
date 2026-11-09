@@ -27,6 +27,10 @@ pub struct RootIndex {
     pub name: String,
     pub path: PathBuf,
     pub files: Vec<Box<str>>,
+    /// Folders found by the last walk (relative, no trailing `/`, the root
+    /// itself not listed, sorted), until [`FileIndex::take_dirs`] hands
+    /// them to whoever watches them.
+    pub dirs: Vec<Box<str>>,
     /// The last walk finished.
     pub complete: bool,
     /// Loaded from cache or pending refresh.
@@ -35,6 +39,7 @@ pub struct RootIndex {
     pub updated: Option<Instant>,
     /// Paths received by an in-progress re-walk (swapped in when done).
     pending: Option<Vec<Box<str>>>,
+    pending_dirs: Vec<Box<str>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +64,27 @@ pub struct QueryContext {
 #[derive(Debug, Default)]
 pub struct FileIndex {
     roots: Vec<RootIndex>,
+}
+
+/// Insert or remove `rel` in `list` (binary search when it is sorted).
+fn patch(list: &mut Vec<Box<str>>, rel: &str, exists: bool, sorted: bool) {
+    if sorted {
+        match (list.binary_search_by(|f| (**f).cmp(rel)), exists) {
+            (Err(i), true) => list.insert(i, rel.into()),
+            (Ok(i), false) => {
+                list.remove(i);
+            }
+            _ => {}
+        }
+        return;
+    }
+    match (list.iter().position(|f| &**f == rel), exists) {
+        (None, true) => list.push(rel.into()),
+        (Some(i), false) => {
+            list.swap_remove(i);
+        }
+        _ => {}
+    }
 }
 
 /// Heap entry ordered so the *worst* hit is on top (min-heap of the best K).
@@ -110,6 +136,7 @@ impl FileIndex {
             if r.path != path {
                 r.path = path.to_path_buf();
                 r.files.clear();
+                r.dirs.clear();
                 r.complete = false;
             }
             return;
@@ -119,11 +146,13 @@ impl FileIndex {
             name: name.to_string(),
             path: path.to_path_buf(),
             files: Vec::new(),
+            dirs: Vec::new(),
             complete: false,
             stale: false,
             truncated: false,
             updated: None,
             pending: None,
+            pending_dirs: Vec::new(),
         });
     }
 
@@ -142,15 +171,23 @@ impl FileIndex {
             } else {
                 r.pending = Some(Vec::new());
             }
+            r.pending_dirs.clear();
             r.complete = false;
         }
     }
 
+    /// Add walked paths; folders end with `/` ([`crate::WalkOptions::report_dirs`]).
     pub fn add_batch(&mut self, key: RootKey, batch: Vec<Box<str>>) {
         if let Some(r) = self.root_mut(key) {
-            match &mut r.pending {
-                Some(p) => p.extend(batch),
-                None => r.files.extend(batch),
+            for p in batch {
+                if let Some(dir) = p.strip_suffix('/') {
+                    r.pending_dirs.push(dir.into());
+                } else {
+                    match &mut r.pending {
+                        Some(list) => list.push(p),
+                        None => r.files.push(p),
+                    }
+                }
             }
         }
     }
@@ -162,6 +199,9 @@ impl FileIndex {
             }
             r.files.sort_unstable();
             r.files.dedup();
+            r.dirs = std::mem::take(&mut r.pending_dirs);
+            r.dirs.sort_unstable();
+            r.dirs.dedup();
             r.complete = true;
             r.stale = false;
             r.truncated = truncated;
@@ -170,24 +210,29 @@ impl FileIndex {
     }
 
     /// Patch from filesystem events: add created files, drop removed ones.
+    /// The lists stay sorted once a walk has finished.
     pub fn apply_change(&mut self, key: RootKey, rel: &str, exists: bool) {
         if let Some(r) = self.root_mut(key) {
+            let sorted = r.complete && r.pending.is_none();
             let list = r.pending.as_mut().unwrap_or(&mut r.files);
-            match (list.iter().position(|f| &**f == rel), exists) {
-                (None, true) => list.push(rel.into()),
-                (Some(i), false) => {
-                    list.swap_remove(i);
-                }
-                _ => {}
-            }
+            patch(list, rel, exists, sorted);
         }
+    }
+
+    /// Hand over the folders found by the last walk.
+    pub fn take_dirs(&mut self, key: RootKey) -> Vec<Box<str>> {
+        self.root_mut(key).map(|r| std::mem::take(&mut r.dirs)).unwrap_or_default()
     }
 
     /// Remove every path under `rel_dir` (a deleted directory).
     pub fn remove_prefix(&mut self, key: RootKey, rel_dir: &str) {
-        if let Some(r) = self.root_mut(key) {
-            let prefix = format!("{}/", rel_dir.trim_end_matches('/'));
-            r.files.retain(|f| !f.starts_with(&prefix) && &**f != rel_dir);
+        let Some(r) = self.root_mut(key) else { return };
+        let rel_dir = rel_dir.trim_end_matches('/');
+        let prefix = format!("{rel_dir}/");
+        let keep = |f: &str| !f.starts_with(&prefix) && f != rel_dir;
+        r.files.retain(|f| keep(f));
+        if let Some(p) = &mut r.pending {
+            p.retain(|f| keep(f));
         }
     }
 

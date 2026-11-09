@@ -4,7 +4,7 @@
 //! buffers (§14.3).
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -14,11 +14,13 @@ use yace_buffer::{Change, ChangeSet};
 use yace_keymap::{KeyCode, KeyPress, Mods};
 use yace_search::{
     ContentQuery, FileMatches, FindOptions, LineMatch, RootKey, SearchRoot, SearchSummary, WalkOptions,
-    content::replace_in_file, find,
+    content::{apply_replacements, plan_replacements, replace_in_file},
+    find,
+    regex::Regex,
 };
 use yace_workspace::{RootId, RootStatus};
 
-use super::{App, Effect, Focus, Severity, SidebarView};
+use super::{App, DocId, Effect, Focus, Severity, SidebarView};
 use crate::{
     actions::ConfirmAction,
     overlay::{Confirm, LineInput, Overlay},
@@ -26,6 +28,8 @@ use crate::{
 };
 
 const DEBOUNCE: Duration = Duration::from_millis(150);
+/// Delay before re-searching files that changed while results are shown.
+const UPDATE_DELAY: Duration = Duration::from_millis(300);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchField {
@@ -49,6 +53,22 @@ pub struct FileResult {
     /// Line matches excluded from replacement (indices into `matches`).
     pub excluded: HashSet<usize>,
     pub file_excluded: bool,
+}
+
+impl FileResult {
+    fn new(f: FileMatches) -> Self {
+        Self {
+            root: f.root,
+            rel: f.rel,
+            path: f.path,
+            hash: f.hash,
+            from_buffer: f.from_buffer,
+            matches: f.matches,
+            expanded: true,
+            excluded: HashSet::new(),
+            file_excluded: false,
+        }
+    }
 }
 
 /// A visible row of the results tree.
@@ -79,11 +99,74 @@ pub struct SearchState {
     pub scroll: usize,
     /// Root order for sorting results.
     pub root_order: Vec<RootKey>,
+    /// The regex of the search that produced `files` (for replace
+    /// previews); `None` for an invalid pattern.
+    pub regex: Option<Regex>,
+    /// The query that produced `files` (live updates re-run it on
+    /// changed files).
+    pub last_query: Option<ContentQuery>,
+    /// What the last search depended on, and whether it finished without
+    /// hitting a limit: a longer literal query can then search only the
+    /// files that matched before.
+    last_key: Option<(SearchKey, bool)>,
+    /// Files changed since the results were produced, re-searched at
+    /// `update_due`.
+    pub pending_paths: BTreeSet<PathBuf>,
+    pub update_due: Option<Instant>,
+    /// Files of the last finished search (the candidates when narrowing).
+    last_files: Vec<PathBuf>,
+    /// Version, path and dirty flag of each open file, to notice edits.
+    seen_docs: HashMap<DocId, (u64, PathBuf, bool)>,
+}
+
+/// Everything besides the pattern that a search's results depend on.
+#[derive(Debug, Clone, PartialEq)]
+struct SearchKey {
+    pattern: String,
+    opts: FindOptions,
+    include: Vec<String>,
+    exclude: Vec<String>,
+    walk_exclude: Vec<String>,
+    use_ignore_files: bool,
+    max_results: usize,
+    roots: Vec<(RootKey, PathBuf)>,
+}
+
+impl SearchKey {
+    /// True when every match of `self` is also a match of `prev`, so only
+    /// files that matched `prev` can match `self`.
+    fn narrows(&self, prev: &SearchKey) -> bool {
+        let same = SearchKey { pattern: prev.pattern.clone(), ..self.clone() };
+        if same != *prev || self.opts.regex || self.opts.whole_word || prev.pattern.is_empty() {
+            return false;
+        }
+        if self.opts.case_sensitive {
+            self.pattern.contains(&prev.pattern)
+        } else {
+            self.pattern.to_lowercase().contains(&prev.pattern.to_lowercase())
+        }
+    }
 }
 
 impl SearchState {
     pub fn input_focused(&self) -> bool {
         self.field != SearchField::Results
+    }
+
+    /// Replace previews are shown while the replace field is visible, as
+    /// in VS Code (an empty replacement previews deleting the matches).
+    pub fn replace_preview_active(&self) -> bool {
+        self.show_replace && self.regex.is_some()
+    }
+
+    /// `line_text` with each match's replacement, as
+    /// `(char_from, char_to, replacement)` within the line, using the same
+    /// function Replace All uses.
+    pub fn line_replacements(&self, line_text: &str) -> Vec<(usize, usize, String)> {
+        match &self.regex {
+            Some(re) => find::replacements(line_text, re, &self.replace.text, self.opts.regex),
+            None => vec![],
+        }
     }
 
     pub fn rows(&self) -> Vec<Row> {
@@ -151,6 +234,16 @@ impl SearchState {
     }
 }
 
+/// `(line, char_col)` of every match the user excluded in `f`.
+fn skip_set(f: &FileResult) -> HashSet<(usize, usize)> {
+    let mut skip = HashSet::new();
+    for mi in &f.excluded {
+        let lm = &f.matches[*mi];
+        skip.extend(lm.ranges.iter().map(|r| (lm.line, r.0)));
+    }
+    skip
+}
+
 fn split_list(s: &str) -> Vec<String> {
     s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
 }
@@ -216,8 +309,13 @@ impl App {
         self.search.selected = 0;
         self.search.scroll = 0;
         let pattern = self.search.query.text.clone();
+        self.search.regex = if pattern.is_empty() { None } else { find::build_regex(&pattern, self.search.opts).ok() };
         if pattern.is_empty() {
             self.search.running = false;
+            self.search.last_query = None;
+            self.search.last_key = None;
+            self.search.pending_paths.clear();
+            self.search.update_due = None;
             self.emit(Effect::SearchCancel);
             return;
         }
@@ -234,44 +332,185 @@ impl App {
                 include_hidden: true,
                 exclude,
                 max_files: usize::MAX,
+                report_dirs: false,
             },
             max_results: s.search.max_results.max(1),
             max_per_file: 1_000,
         };
         // Dirty open documents are searched as the user sees them.
-        let mut overlays: HashMap<PathBuf, Arc<str>> = HashMap::new();
+        let overlays = self.dirty_overlays(None);
+        self.search.root_order = self.workspace.roots().iter().map(|r| r.id.0).collect();
+        self.search.running = true;
+        let roots = self.search_roots();
+        let key = SearchKey {
+            pattern: query.pattern.clone(),
+            opts: query.opts,
+            include: query.include.clone(),
+            exclude: query.exclude.clone(),
+            walk_exclude: query.walk.exclude.clone(),
+            use_ignore_files: query.walk.use_ignore_files,
+            max_results: query.max_results,
+            roots: roots.iter().map(|r| (r.key, r.path.clone())).collect(),
+        };
+        // A longer literal query only needs the files that matched the
+        // shorter one, provided those results were complete and kept up to
+        // date by live updates.
+        let only = match &self.search.last_key {
+            Some((prev, true)) if key.narrows(prev) && self.all_roots_live() => {
+                let mut paths: BTreeSet<PathBuf> = std::mem::take(&mut self.search.pending_paths);
+                paths.extend(self.search.last_files.drain(..));
+                Some(paths.into_iter().collect())
+            }
+            _ => None,
+        };
+        self.search.last_files.clear();
+        self.search.pending_paths.clear();
+        self.search.update_due = None;
+        self.search.last_key = Some((key, false));
+        self.search.last_query = Some(query.clone());
+        let job = SearchJob { seq: self.search.seq, roots, query, overlays, only, update: false };
+        self.emit(Effect::Search(Box::new(job)));
+    }
+
+    /// Text of dirty open documents (all, or just those in `paths`).
+    fn dirty_overlays(&self, paths: Option<&BTreeSet<PathBuf>>) -> HashMap<PathBuf, Arc<str>> {
+        let mut overlays = HashMap::new();
         for (_, e) in self.docs.iter() {
             if e.doc.is_dirty()
                 && let Some(p) = e.doc.path()
+                && paths.is_none_or(|set| set.contains(p))
             {
                 overlays.insert(p.to_path_buf(), Arc::from(e.doc.text()));
             }
         }
-        self.search.root_order = self.workspace.roots().iter().map(|r| r.id.0).collect();
-        self.search.running = true;
-        let job = SearchJob { seq: self.search.seq, roots: self.search_roots(), query, overlays };
-        self.emit(Effect::Search(Box::new(job)));
+        overlays
+    }
+
+    /// Queue files for a live update of the shown results.
+    pub(crate) fn search_queue_paths(&mut self, paths: impl IntoIterator<Item = PathBuf>) {
+        if self.search.last_query.is_none() {
+            return;
+        }
+        let roots: Vec<PathBuf> = self.workspace.roots().iter().map(|r| r.path.clone()).collect();
+        let before = self.search.pending_paths.len();
+        self.search.pending_paths.extend(paths.into_iter().filter(|p| roots.iter().any(|r| p.starts_with(r))));
+        if self.search.pending_paths.len() != before && self.search.update_due.is_none() {
+            self.search.update_due = Some(Instant::now() + UPDATE_DELAY);
+        }
+    }
+
+    /// Notice edits to open files (and dirty files being closed) while
+    /// results are shown.
+    pub(crate) fn search_track_edits(&mut self) {
+        if self.search.last_query.is_none() {
+            self.search.seen_docs.clear();
+            return;
+        }
+        let mut seen = HashMap::with_capacity(self.search.seen_docs.len());
+        let mut changed = Vec::new();
+        for (id, e) in self.docs.iter() {
+            let Some(p) = e.doc.path() else { continue };
+            let now = (e.doc.version(), p.to_path_buf(), e.doc.is_dirty());
+            if let Some(old) = self.search.seen_docs.get(&id)
+                && (old.0 != now.0 || old.1 != now.1)
+            {
+                changed.push(now.1.clone());
+            }
+            seen.insert(id, now);
+        }
+        for (id, (_, p, dirty)) in &self.search.seen_docs {
+            if *dirty && !seen.contains_key(id) {
+                changed.push(p.clone());
+            }
+        }
+        self.search.seen_docs = seen;
+        if !changed.is_empty() {
+            self.search_queue_paths(changed);
+        }
+    }
+
+    /// Re-search the queued files with the query of the shown results.
+    pub(crate) fn run_search_update(&mut self) {
+        if self.search.running {
+            // The running search may already have read them; update after.
+            self.search.update_due = Some(Instant::now() + UPDATE_DELAY);
+            return;
+        }
+        let Some(query) = self.search.last_query.clone() else { return };
+        if self.search.pending_paths.is_empty() {
+            return;
+        }
+        let paths = std::mem::take(&mut self.search.pending_paths);
+        let overlays = self.dirty_overlays(Some(&paths));
+        let job = SearchJob {
+            seq: self.search.seq,
+            roots: self.search_roots(),
+            query,
+            overlays,
+            only: Some(paths.into_iter().collect()),
+            update: true,
+        };
+        self.emit(Effect::SearchUpdate(Box::new(job)));
+    }
+
+    fn insert_result_sorted(&mut self, result: FileResult) {
+        let order = |r: RootKey| self.search.root_order.iter().position(|x| *x == r).unwrap_or(usize::MAX);
+        let key = (order(result.root), result.rel.as_str());
+        let at = self.search.files.partition_point(|x| (order(x.root), x.rel.as_str()) < key);
+        self.search.files.insert(at, result);
+    }
+
+    pub(crate) fn on_search_file_update(&mut self, seq: u64, path: PathBuf, file: Option<FileMatches>) {
+        if seq != self.search.seq {
+            return;
+        }
+        let pos = self.search.files.iter().position(|f| f.path == path);
+        match (pos, file) {
+            (Some(i), None) => {
+                self.search.files.remove(i);
+            }
+            (Some(i), Some(f)) => {
+                let old = &self.search.files[i];
+                // Keep exclusions of matches that are still there.
+                let gone: HashSet<(&str, usize)> = old
+                    .excluded
+                    .iter()
+                    .filter_map(|mi| old.matches.get(*mi))
+                    .map(|m| (m.text.as_str(), m.ranges.first().map_or(0, |r| r.0)))
+                    .collect();
+                let excluded = f
+                    .matches
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, m)| gone.contains(&(m.text.as_str(), m.ranges.first().map_or(0, |r| r.0))))
+                    .map(|(i, _)| i)
+                    .collect();
+                let result = FileResult {
+                    root: f.root,
+                    rel: f.rel,
+                    path: f.path,
+                    hash: f.hash,
+                    from_buffer: f.from_buffer,
+                    matches: f.matches,
+                    expanded: old.expanded,
+                    excluded,
+                    file_excluded: old.file_excluded,
+                };
+                self.search.files[i] = result;
+            }
+            (None, Some(f)) => self.insert_result_sorted(FileResult::new(f)),
+            (None, None) => return,
+        }
+        let rows = self.search.rows().len();
+        self.search.selected = self.search.selected.min(rows.saturating_sub(1));
+        self.needs_render = true;
     }
 
     pub(crate) fn on_search_file(&mut self, seq: u64, f: FileMatches) {
         if seq != self.search.seq {
             return;
         }
-        let order = |r: RootKey| self.search.root_order.iter().position(|x| *x == r).unwrap_or(usize::MAX);
-        let key = (order(f.root), f.rel.clone());
-        let at = self.search.files.partition_point(|x| (order(x.root), x.rel.clone()) < key);
-        let result = FileResult {
-            root: f.root,
-            rel: f.rel,
-            path: f.path,
-            hash: f.hash,
-            from_buffer: f.from_buffer,
-            matches: f.matches,
-            expanded: true,
-            excluded: HashSet::new(),
-            file_excluded: false,
-        };
-        self.search.files.insert(at, result);
+        self.insert_result_sorted(FileResult::new(f));
     }
 
     pub(crate) fn on_search_done(&mut self, seq: u64, summary: SearchSummary, error: Option<String>) {
@@ -279,8 +518,19 @@ impl App {
             return;
         }
         self.search.running = false;
+        let complete = !summary.truncated && !summary.cancelled && error.is_none();
+        if let Some((_, done)) = &mut self.search.last_key {
+            *done = complete;
+        }
+        self.search.last_files = self.search.files.iter().map(|f| f.path.clone()).collect();
         self.search.summary = Some(summary);
+        if error.is_some() {
+            self.search.last_query = None;
+        }
         self.search.error = error;
+        if !self.search.pending_paths.is_empty() {
+            self.search.update_due = Some(Instant::now());
+        }
     }
 
     /// One-line status for the view.
@@ -326,6 +576,12 @@ impl App {
                     f.expanded = !f.expanded;
                 }
             }
+            Row::Match(fi, mi) if self.search.replace_preview_active() => {
+                self.search_preview_replace(fi, mi);
+                if preview {
+                    self.focus = Focus::Explorer;
+                }
+            }
             Row::Match(fi, mi) => {
                 let Some(f) = self.search.files.get(fi) else { return };
                 let path = f.path.clone();
@@ -339,6 +595,37 @@ impl App {
                     self.focus = Focus::Explorer;
                 }
             }
+        }
+    }
+
+    /// Open a read-only unified diff of the file before and after Replace
+    /// All (excluded matches left alone), with the cursor on the match.
+    pub(crate) fn search_preview_replace(&mut self, fi: usize, mi: usize) {
+        let Some(f) = self.search.files.get(fi) else { return };
+        let Some(re) = self.search.regex.clone() else { return };
+        let (path, rel, line) = (f.path.clone(), f.rel.clone(), f.matches.get(mi).map_or(0, |m| m.line));
+        let skip = skip_set(f);
+        let text = match self.docs.find_by_path(&path).and_then(|d| self.docs.doc(d)) {
+            Some(doc) => doc.text(),
+            None => match std::fs::read_to_string(&path) {
+                Ok(t) => t,
+                Err(e) => {
+                    self.notify(Severity::Error, format!("{rel}: {e}"));
+                    return;
+                }
+            },
+        };
+        let reps = plan_replacements(&text, &re, &self.search.replace.text, self.search.opts.regex, &skip);
+        let diff = yace_git::diff::unified(&text, &apply_replacements(&text, &reps), &rel);
+        if diff.is_empty() {
+            self.notify(Severity::Info, format!("Nothing to replace in {rel}"));
+            return;
+        }
+        let name = rel.rsplit('/').next().unwrap_or(&rel).to_string();
+        self.open_virtual_doc(&format!("{name} ↔ {name} (Replace Preview)"), &diff, Some(path));
+        if let Some(row) = diff_row_for_new_line(&diff, line) {
+            self.set_cursor_line_col(row, 0);
+            self.center_active_cursor();
         }
     }
 
@@ -413,11 +700,7 @@ impl App {
         let mut files_done = 0;
         let mut problems = Vec::new();
         for f in self.search.files.clone().into_iter().filter(|f| !f.file_excluded) {
-            let mut skip: HashSet<(usize, usize)> = HashSet::new();
-            for mi in &f.excluded {
-                let lm = &f.matches[*mi];
-                skip.extend(lm.ranges.iter().map(|r| (lm.line, r.0)));
-            }
+            let skip = skip_set(&f);
             if skip.len() >= f.matches.iter().map(|m| m.ranges.len()).sum::<usize>() && !f.matches.is_empty() {
                 continue;
             }
@@ -426,12 +709,8 @@ impl App {
                 let Some(d) = self.docs.doc(doc) else { continue };
                 let text = d.text();
                 let rope = d.rope().clone();
-                let changes: Vec<Change> = find::replacements(&text, &re, &replacement, regex_mode)
+                let changes: Vec<Change> = plan_replacements(&text, &re, &replacement, regex_mode, &skip)
                     .into_iter()
-                    .filter(|(a, _, _)| {
-                        let line = rope.char_to_line(*a);
-                        !skip.contains(&(line, a - rope.line_to_char(line)))
-                    })
                     .map(|(a, b, r)| Change::replace(a, b, r))
                     .collect();
                 let n = changes.len();
@@ -600,5 +879,48 @@ impl App {
         self.search.field = SearchField::Results;
         self.search.selected = row;
         self.search_open_selected(!double);
+    }
+}
+
+/// The row of a unified diff that shows new-file line `line` (0-based):
+/// its `+` line, or the context line, or the hunk header above it.
+fn diff_row_for_new_line(diff: &str, line: usize) -> Option<usize> {
+    let mut new_line = None::<usize>;
+    let mut best = None;
+    for (row, l) in diff.lines().enumerate() {
+        if let Some(rest) = l.strip_prefix("@@ ") {
+            let start = rest
+                .split_whitespace()
+                .find_map(|p| p.strip_prefix('+'))
+                .and_then(|p| p.split(',').next())
+                .and_then(|n| n.parse::<usize>().ok())
+                .unwrap_or(1);
+            new_line = Some(start.saturating_sub(1));
+            if start.saturating_sub(1) <= line {
+                best = Some(row);
+            }
+            continue;
+        }
+        let Some(n) = new_line.as_mut() else { continue };
+        if l.starts_with('-') {
+            continue;
+        }
+        if *n == line {
+            return Some(row);
+        }
+        *n += 1;
+    }
+    best
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn diff_rows() {
+        let d = "--- a/f\n+++ b/f\n@@ -2,3 +2,3 @@\n a\n-b\n+B\n c\n";
+        assert_eq!(super::diff_row_for_new_line(d, 2), Some(5));
+        assert_eq!(super::diff_row_for_new_line(d, 1), Some(3));
+        assert_eq!(super::diff_row_for_new_line(d, 9), Some(2));
+        assert_eq!(super::diff_row_for_new_line(d, 0), None);
     }
 }

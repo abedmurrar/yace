@@ -3,7 +3,8 @@
 //! `.ignore`, global git excludes and YACE's exclude globs.
 
 use std::{
-    path::Path,
+    collections::HashMap,
+    path::{Path, PathBuf},
     sync::{
         Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -11,7 +12,10 @@ use std::{
 };
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use ignore::{WalkBuilder, WalkState};
+use ignore::{
+    WalkBuilder, WalkState,
+    gitignore::{Gitignore, GitignoreBuilder},
+};
 
 /// How to walk a root.
 #[derive(Clone, Debug)]
@@ -24,11 +28,20 @@ pub struct WalkOptions {
     pub exclude: Vec<String>,
     /// Stop after this many files.
     pub max_files: usize,
+    /// Also deliver each folder (not the root), as its relative path with
+    /// a trailing `/`, so a caller can watch every folder it indexed.
+    pub report_dirs: bool,
 }
 
 impl Default for WalkOptions {
     fn default() -> Self {
-        Self { use_ignore_files: true, include_hidden: true, exclude: vec!["**/.git".into()], max_files: 500_000 }
+        Self {
+            use_ignore_files: true,
+            include_hidden: true,
+            exclude: vec!["**/.git".into()],
+            max_files: 500_000,
+            report_dirs: false,
+        }
     }
 }
 
@@ -67,7 +80,14 @@ pub fn build_globset(patterns: &[String]) -> GlobSet {
 }
 
 pub(crate) fn builder(root: &Path, opts: &WalkOptions) -> WalkBuilder {
-    let mut b = WalkBuilder::new(root);
+    builder_from(root, root, opts)
+}
+
+/// A walk of `start` (a folder inside `root`) with exclude globs matched
+/// relative to `root`. Check `start` itself with a [`PathFilter`] first:
+/// rules that ignore an ancestor of `start` are not applied here.
+pub fn builder_from(root: &Path, start: &Path, opts: &WalkOptions) -> WalkBuilder {
+    let mut b = WalkBuilder::new(start);
     b.hidden(!opts.include_hidden)
         .ignore(opts.use_ignore_files)
         .git_ignore(opts.use_ignore_files)
@@ -84,6 +104,93 @@ pub(crate) fn builder(root: &Path, opts: &WalkOptions) -> WalkBuilder {
         rel.as_os_str().is_empty() || !excludes.is_match(rel)
     });
     b
+}
+
+/// Decides whether one path would be visited by a walk with `opts`,
+/// without walking: exclude globs, plus the `.gitignore` / `.ignore` files
+/// of every ancestor, `.git/info/exclude` and the global git excludes.
+/// Used for paths reported by file-system events. Unlike a walk started
+/// inside a folder, it also honours rules that ignore an *ancestor*
+/// folder (a file under `node_modules/` stays ignored).
+pub struct PathFilter {
+    root: PathBuf,
+    excludes: GlobSet,
+    use_ignore: bool,
+    global: Option<Gitignore>,
+    dirs: HashMap<PathBuf, Option<Gitignore>>,
+}
+
+impl PathFilter {
+    pub fn new(root: &Path, opts: &WalkOptions) -> Self {
+        let global = opts.use_ignore_files.then(|| Gitignore::global().0).filter(|g| !g.is_empty());
+        Self {
+            root: root.to_path_buf(),
+            excludes: build_globset(&opts.exclude),
+            use_ignore: opts.use_ignore_files,
+            global,
+            dirs: HashMap::new(),
+        }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Forget cached ignore files (after one of them changed).
+    pub fn clear_cache(&mut self) {
+        self.dirs.clear();
+    }
+
+    fn dir_rules(&mut self, dir: &Path) -> Option<&Gitignore> {
+        let root = &self.root;
+        self.dirs
+            .entry(dir.to_path_buf())
+            .or_insert_with(|| {
+                let mut b = GitignoreBuilder::new(dir);
+                let mut any = false;
+                let mut files = vec![dir.join(".gitignore"), dir.join(".ignore")];
+                if dir == root.as_path() || dir.join(".git").is_dir() {
+                    files.push(dir.join(".git/info/exclude"));
+                }
+                for f in files {
+                    if f.is_file() {
+                        any |= b.add(f).is_none();
+                    }
+                }
+                if !any {
+                    return None;
+                }
+                b.build().ok().filter(|g| !g.is_empty())
+            })
+            .as_ref()
+    }
+
+    /// True when a walk of the root would visit `path`.
+    pub fn allows(&mut self, path: &Path, is_dir: bool) -> bool {
+        let Ok(rel) = path.strip_prefix(&self.root) else { return false };
+        if rel.as_os_str().is_empty() {
+            return true;
+        }
+        if self.excludes.is_match(rel) {
+            return false;
+        }
+        if !self.use_ignore {
+            return true;
+        }
+        // Deepest rules first: a deeper ignore file overrides a shallower one.
+        let mut dir = path.parent();
+        while let Some(d) = dir {
+            if let Some(g) = self.dir_rules(d) {
+                match g.matched_path_or_any_parents(path, is_dir) {
+                    ignore::Match::Ignore(_) => return false,
+                    ignore::Match::Whitelist(_) => return true,
+                    ignore::Match::None => {}
+                }
+            }
+            dir = d.parent();
+        }
+        !self.global.as_ref().is_some_and(|g| g.matched_path_or_any_parents(rel, is_dir).is_ignore())
+    }
 }
 
 const BATCH: usize = 512;
@@ -122,6 +229,16 @@ pub fn walk_root(
                 return WalkState::Quit;
             }
             let Ok(e) = entry else { return WalkState::Continue };
+            if opts.report_dirs && e.depth() > 0 && e.file_type().is_some_and(|t| t.is_dir()) {
+                let rel = e.path().strip_prefix(&root).unwrap_or(e.path());
+                let mut s = rel.to_string_lossy().replace('\\', "/");
+                s.push('/');
+                flusher.buf.push(s.into_boxed_str());
+                if flusher.buf.len() >= BATCH {
+                    (flusher.sink)(std::mem::take(&mut flusher.buf));
+                }
+                return WalkState::Continue;
+            }
             if !e.file_type().is_some_and(|t| t.is_file() || t.is_symlink()) {
                 return WalkState::Continue;
             }
@@ -217,5 +334,42 @@ mod tests {
         assert!(g.is_match("src/gen/a.rs"));
         assert!(g.is_match("lib/a.min.js"));
         assert!(!g.is_match("src/main.rs"));
+    }
+
+    #[test]
+    fn path_filter_matches_a_walk() {
+        let d = tempfile::tempdir().unwrap();
+        let r = d.path();
+        std::fs::write(r.join(".gitignore"), "node_modules\n*.log\n!keep.log\n").unwrap();
+        std::fs::create_dir_all(r.join("node_modules/x")).unwrap();
+        std::fs::create_dir_all(r.join("src/a")).unwrap();
+        std::fs::create_dir_all(r.join("target/debug")).unwrap();
+        std::fs::write(r.join("src/a/.gitignore"), "gen.rs\n").unwrap();
+        let files = [
+            "node_modules/x/f.js",
+            "src/a/ok.rs",
+            "src/a/gen.rs",
+            "src/a/b.log",
+            "src/a/keep.log",
+            "target/debug/out",
+            "README.md",
+        ];
+        for f in files {
+            std::fs::write(r.join(f), "x").unwrap();
+        }
+        let opts = WalkOptions { exclude: vec!["**/.git".into(), "target".into()], ..Default::default() };
+        let walked: std::collections::BTreeSet<String> = builder(r, &opts)
+            .build()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+            .map(|e| e.path().strip_prefix(r).unwrap().to_string_lossy().into_owned())
+            .collect();
+        let mut f = PathFilter::new(r, &opts);
+        for rel in files.iter().chain([".gitignore", "src/a/.gitignore"].iter()) {
+            assert_eq!(f.allows(&r.join(rel), false), walked.contains(*rel), "{rel}");
+        }
+        assert!(!f.allows(&r.join("node_modules"), true));
+        assert!(f.allows(&r.join("src/a"), true));
+        assert!(!f.allows(std::path::Path::new("/elsewhere/x"), false));
     }
 }

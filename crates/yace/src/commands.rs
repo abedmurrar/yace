@@ -466,7 +466,7 @@ fn performance(app: &mut App, _: Option<&Value>) {
     let mut lines = app.metrics.report();
     lines.push(format!("Workspace folders: {}", app.workspace.roots().len()));
     lines.push(format!("Open documents: {}", app.docs.len()));
-    lines.push(format!("Watched directories: {}", app.watched_dirs().len()));
+    lines.push(format!("Watched directories: {} ({} for Quick Open)", app.watched_dirs().len(), app.index_watch.len()));
     lines.push(format!("Keyboard protocol: {}", if app.keyboard_enhanced { "enhanced (Kitty)" } else { "legacy" }));
     show_info(app, "Performance Metrics", lines);
 }

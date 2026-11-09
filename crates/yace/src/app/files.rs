@@ -685,6 +685,7 @@ impl App {
             self.explorer.refresh_dir(d);
         }
         self.index_fs_changes(&paths);
+        self.search_queue_paths(paths.iter().cloned());
         self.check_open_docs_on_disk();
         self.needs_render = true;
     }

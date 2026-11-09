@@ -2064,7 +2064,28 @@ fn draw_search_view(app: &App, buf: &mut Buffer, list: Rect, focused: bool) {
                     ts = ts.add_modifier(Modifier::CROSSED_OUT).fg(t.muted);
                     hs = ts;
                 }
-                put_highlighted(buf, x, y, &shown, right.saturating_sub(x), ts, hs, &hl);
+                let reps = if !excluded && s.replace_preview_active() { s.line_replacements(&m.text) } else { vec![] };
+                if reps.is_empty() {
+                    put_highlighted(buf, x, y, &shown, right.saturating_sub(x), ts, hs, &hl);
+                } else {
+                    // Replace preview: each match struck through, then its
+                    // replacement (VS Code style).
+                    let removed = base.fg(t.git_deleted).add_modifier(Modifier::CROSSED_OUT);
+                    let added = base.fg(t.git_added).add_modifier(Modifier::BOLD);
+                    let chars: Vec<char> = m.text.chars().collect();
+                    let mut pos = lead;
+                    for (a, b, rep) in &reps {
+                        let (a, b) = ((*a).max(pos), (*b).max(pos));
+                        let before: String = chars[pos..a].iter().collect();
+                        x += put(buf, x, y, &before, right.saturating_sub(x), ts);
+                        let old: String = chars[a..b].iter().collect();
+                        x += put(buf, x, y, &old, right.saturating_sub(x), removed);
+                        x += put(buf, x, y, &rep.replace(['\n', '\r'], "↵"), right.saturating_sub(x), added);
+                        pos = b;
+                    }
+                    let rest: String = chars[pos.min(chars.len())..].iter().collect();
+                    put(buf, x, y, &rest, right.saturating_sub(x), ts);
+                }
             }
         }
     }

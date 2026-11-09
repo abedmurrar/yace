@@ -59,6 +59,9 @@ pub use search_view::{Row as SearchRow, SearchField};
 pub use terminal::{DEFAULT_PANEL_HEIGHT, PanelState, TermTab, snapshot as terminal_snapshot};
 
 /// Inputs to the application.
+/// Least time between two heap trims.
+const TRIM_EVERY: Duration = Duration::from_secs(2);
+
 #[derive(Debug)]
 pub enum AppEvent {
     Terminal(Event),
@@ -93,6 +96,24 @@ pub enum AppEvent {
         seq: u64,
         summary: yace_search::SearchSummary,
         error: Option<String>,
+    },
+    /// The folders the Quick Open index covers changed (watch them).
+    IndexDirs {
+        root: yace_search::RootKey,
+        change: crate::workers::DirChange,
+    },
+    /// The watcher lost events (queue overflow): rescan everything.
+    FsRescan,
+    /// A folder could not be watched.
+    WatchFailed {
+        path: PathBuf,
+        error: String,
+    },
+    /// A live update of one file's results (`None`: no longer matches).
+    SearchFileUpdate {
+        seq: u64,
+        path: PathBuf,
+        file: Option<Box<yace_search::FileMatches>>,
     },
     FindDone {
         seq: u64,
@@ -139,6 +160,9 @@ pub enum Effect {
     /// Start a workspace search (cancels the previous one).
     Search(Box<crate::workers::SearchJob>),
     SearchCancel,
+    /// Re-search some files of the shown results (runs in order, never
+    /// cancels the main search).
+    SearchUpdate(Box<crate::workers::SearchJob>),
     /// Find matches in a document snapshot.
     Find(Box<crate::workers::FindJob>),
     /// Load a (large) file in the background.
@@ -250,7 +274,12 @@ pub struct App {
     pub quit: bool,
     pub keyboard_enhanced: bool,
     effects: Vec<Effect>,
-    watched: BTreeSet<PathBuf>,
+    /// Watched (canonical) directories for the Explorer, settings, Git and
+    /// open files; `index_watch` has the Quick Open index's folders.
+    ui_watched: BTreeSet<PathBuf>,
+    /// The folders of the Quick Open index (watch counts: nested roots
+    /// can share folders), per root, and the roots fully covered.
+    pub(crate) index_watch: quick_open::IndexWatch,
     /// Terminal size.
     pub area: Rect,
     pub needs_render: bool,
@@ -276,6 +305,7 @@ pub struct App {
     /// Back/forward navigation history.
     pub nav: history::NavHistory,
     last_trim: Option<Instant>,
+    trim_due: Option<Instant>,
     /// The bottom panel and its terminals.
     pub panel: terminal::PanelState,
     /// Per-document syntax trees and highlighting.
@@ -377,7 +407,8 @@ impl App {
             quit: false,
             keyboard_enhanced: opts.keyboard_enhanced,
             effects: Vec::new(),
-            watched: BTreeSet::new(),
+            ui_watched: BTreeSet::new(),
+            index_watch: quick_open::IndexWatch::new(),
             area: Rect::new(0, 0, 120, 40),
             needs_render: true,
             mouse: MouseState::default(),
@@ -394,6 +425,7 @@ impl App {
             search: Default::default(),
             nav: Default::default(),
             last_trim: None,
+            trim_due: None,
             panel: Default::default(),
             syntax: Default::default(),
             word_wrap_override: None,
@@ -455,12 +487,19 @@ impl App {
         self.effects.push(e);
     }
 
-    /// Ask the runtime to trim the heap, at most every 2 s.
+    /// Ask the runtime to trim the heap, at most every 2 s; a request
+    /// that comes too soon is kept and done when the 2 s are up.
     pub(crate) fn request_trim(&mut self) {
         let now = Instant::now();
-        if self.last_trim.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(2)) {
-            self.last_trim = Some(now);
-            self.effects.push(Effect::TrimMemory);
+        match self.last_trim {
+            Some(t) if now.duration_since(t) < TRIM_EVERY => {
+                self.trim_due.get_or_insert(t + TRIM_EVERY);
+            }
+            _ => {
+                self.last_trim = Some(now);
+                self.trim_due = None;
+                self.effects.push(Effect::TrimMemory);
+            }
         }
     }
 
@@ -471,6 +510,8 @@ impl App {
             self.fs_deadline,
             self.autosave_deadline,
             self.search.debounce,
+            self.search.update_due,
+            self.trim_due,
             self.notifications.iter().filter_map(|n| n.expires).min(),
             self.lsp_deadline(),
             self.git_deadline(),
@@ -493,6 +534,14 @@ impl App {
         if self.search.debounce.is_some_and(|d| now >= d) {
             self.search.debounce = None;
             self.run_search();
+        }
+        if self.trim_due.is_some_and(|d| now >= d) {
+            self.request_trim();
+        }
+        self.search_track_edits();
+        if self.search.update_due.is_some_and(|d| now >= d) {
+            self.search.update_due = None;
+            self.run_search_update();
         }
         if self.autosave_deadline.is_some_and(|d| now >= d) {
             self.autosave_deadline = None;
@@ -679,6 +728,11 @@ impl App {
         }
         self.config_errors.clear();
         self.report_config_errors(errors);
+        // Once Quick Open has been used, keep its index (and the folder
+        // watches) current with the roots and settings.
+        if self.index_watch.started {
+            self.index_sync();
+        }
         self.needs_render = true;
     }
 
@@ -769,6 +823,13 @@ impl App {
                 self.save_session();
                 self.quit = true;
             }
+            AppEvent::IndexDirs { root, change } => {
+                self.on_index_dirs(root, change);
+                // Adding thousands of watches leaves freed buffers behind.
+                self.request_trim();
+            }
+            AppEvent::FsRescan => self.fs_rescan(),
+            AppEvent::WatchFailed { path, error } => self.watch_failed(&path, &error),
             AppEvent::IndexProgress { files, complete } => {
                 self.on_index_progress(files, complete);
                 if complete {
@@ -779,6 +840,7 @@ impl App {
                 self.on_quick_open_results(seq, hits, indexed, complete, truncated)
             }
             AppEvent::SearchFile { seq, file } => self.on_search_file(seq, *file),
+            AppEvent::SearchFileUpdate { seq, path, file } => self.on_search_file_update(seq, path, file.map(|f| *f)),
             AppEvent::SearchDone { seq, summary, error } => {
                 self.on_search_done(seq, summary, error);
                 self.request_trim();
@@ -803,6 +865,7 @@ impl App {
         self.deliver_plugin_events(Instant::now());
         self.git_pump(Instant::now());
         self.refresh_find_if_stale();
+        self.search_track_edits();
         self.ensure_active_started();
         self.sync_terminal_size();
         if self.reveal_cursor {
@@ -1250,21 +1313,48 @@ impl App {
             alias.entry(c.clone()).or_default().insert(p);
             want.insert(c);
         }
+        // Index folders under a symlinked root are watched under its real
+        // path; report their events under the root's path too.
+        for (canon, shown) in self.index_watch.root_aliases() {
+            alias.entry(canon.clone()).or_default().insert(shown.clone());
+        }
         self.watch_alias = alias;
-        let remove: Vec<PathBuf> = self.watched.difference(&want).cloned().collect();
-        let add: Vec<PathBuf> = want.difference(&self.watched).cloned().collect();
+        let remove: Vec<PathBuf> = self.ui_watched.difference(&want).cloned().collect();
+        let add: Vec<PathBuf> = want.difference(&self.ui_watched).cloned().collect();
+        self.ui_watched = want;
         for p in remove {
-            self.watched.remove(&p);
-            self.effects.push(Effect::Unwatch(p));
+            if !self.index_watch.contains(&p) {
+                self.effects.push(Effect::Unwatch(p));
+            }
         }
         for p in add {
-            self.watched.insert(p.clone());
+            if !self.index_watch.contains(&p) {
+                self.effects.push(Effect::Watch(p));
+            }
+        }
+    }
+
+    /// The index started needing `p` (already counted in `index_watch`).
+    pub(crate) fn index_watched(&mut self, p: PathBuf) {
+        if !self.ui_watched.contains(&p) {
             self.effects.push(Effect::Watch(p));
         }
     }
 
-    pub fn watched_dirs(&self) -> &BTreeSet<PathBuf> {
-        &self.watched
+    /// The index no longer needs `p`.
+    pub(crate) fn index_unwatched(&mut self, p: PathBuf) {
+        if !self.ui_watched.contains(&p) {
+            self.effects.push(Effect::Unwatch(p));
+        }
+    }
+
+    pub(crate) fn ui_watched_len(&self) -> usize {
+        self.ui_watched.len()
+    }
+
+    /// Every watched directory (diagnostics and tests).
+    pub fn watched_dirs(&self) -> BTreeSet<PathBuf> {
+        self.ui_watched.iter().cloned().chain(self.index_watch.paths()).collect()
     }
 
     fn clamp_explorer_scroll(&mut self) {
@@ -1287,6 +1377,9 @@ impl App {
         let out = self.syntax.sync(&mut self.docs, &self.settings.files.associations);
         for job in out.jobs {
             self.effects.push(Effect::Parse(Box::new(job)));
+        }
+        if !out.edits.is_empty() {
+            self.find_follow_edits(&out.edits);
         }
         if !(out.attached.is_empty() && out.removed.is_empty() && out.edits.is_empty()) {
             self.lsp_sync(&out.attached, &out.removed, &out.edits);

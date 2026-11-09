@@ -25,7 +25,8 @@ impl Change {
     pub fn replace(from: usize, to: usize, text: impl Into<String>) -> Self {
         Self { from, to, insert: text.into() }
     }
-    fn insert_chars(&self) -> usize {
+    /// Number of chars inserted.
+    pub fn insert_chars(&self) -> usize {
         self.insert.chars().count()
     }
 }

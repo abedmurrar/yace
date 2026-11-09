@@ -8,7 +8,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-imara-diff = { version = "0.1", default-features = false }
+imara-diff = { version = "0.1", default-features = false, features = ["unified_diff"] }
 
 [dev-dependencies]
 tempfile.workspace = true
