@@ -491,6 +491,7 @@ impl App {
                 count(m.themes.len(), "themes"),
                 count(m.grammars.len(), "grammars"),
                 count(m.languages.len(), "languages"),
+                count(m.lsp_servers.len(), "language servers"),
                 count(m.settings.len(), "settings"),
             ]
             .into_iter()
@@ -498,6 +499,17 @@ impl App {
             .collect();
             if !contrib.is_empty() {
                 lines.push(format!("Contributes: {}", contrib.join(", ")));
+            }
+            for s in &m.lsp_servers {
+                let running = self
+                    .lsp
+                    .servers
+                    .iter()
+                    .filter(|x| x.def.origin.as_deref() == Some(m.id.as_str()) && x.def.name == s.name)
+                    .map(|x| format!("{} in {}", x.status_text(), x.root_name))
+                    .collect::<Vec<_>>();
+                let state = if running.is_empty() { "not running".to_string() } else { running.join(", ") };
+                lines.push(format!("Language server {}: {} ({state})", s.name, s.command_line()));
             }
             if !m.activation.is_empty() {
                 lines.push(format!("Activates on: {}", m.activation.join(", ")));

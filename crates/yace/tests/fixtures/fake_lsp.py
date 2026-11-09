@@ -20,6 +20,10 @@ LOG = os.environ.get("FAKE_LSP_LOG")
 DEF = os.environ.get("FAKE_LSP_DEF")
 # FAKE_LSP_PULL=1: pull diagnostics only (textDocument/diagnostic), like TypeScript 7.
 PULL = os.environ.get("FAKE_LSP_PULL") == "1"
+# Two copies can serve one file: FAKE_LSP_NAME is the diagnostics' source
+# and FAKE_LSP_MATCH the words it reports.
+NAME = os.environ.get("FAKE_LSP_NAME", "fake")
+MATCH = os.environ.get("FAKE_LSP_MATCH", "TODO|ERROR")
 docs = {}
 root = None
 
@@ -92,10 +96,11 @@ def word_at(text, off):
 def diagnostics_for(uri):
     text = docs.get(uri, "")
     diags = []
-    for m in re.finditer(r"TODO|ERROR", text):
-        sev = 2 if m.group() == "TODO" else 1
-        diags.append({"range": rng(text, m.start(), m.end()), "severity": sev, "source": "fake",
-                      "code": "T1" if sev == 2 else 7, "message": f"{m.group()} found"})
+    for m in re.finditer(MATCH, text):
+        sev = 1 if m.group() == "ERROR" else 2
+        diags.append({"range": rng(text, m.start(), m.end()), "severity": sev, "source": NAME,
+                      "code": "T1" if sev == 2 else 7, "message": f"{m.group()} found",
+                      "data": {"by": NAME, "word": m.group()}})
     return diags
 
 
@@ -161,7 +166,7 @@ def handle(msg):
             **({"diagnosticProvider": {"identifier": "fake", "interFileDependencies": True, "workspaceDiagnostics": False}} if PULL else {})},
             "serverInfo": {"name": "fake-lsp"}}})
     elif method == "initialized":
-        send({"id": "cfg-1", "method": "workspace/configuration", "params": {"items": [{"section": "fake"}]}})
+        send({"id": "cfg-1", "method": "workspace/configuration", "params": {"items": [{"section": NAME}]}})
         send({"method": "$/progress", "params": {"token": "t", "value": {"kind": "begin", "title": "indexing", "percentage": 0}}})
         send({"method": "$/progress", "params": {"token": "t", "value": {"kind": "end"}}})
     elif method == "textDocument/didOpen":
@@ -248,11 +253,18 @@ def handle(msg):
     elif method == "textDocument/codeAction":
         uri = p["textDocument"]["uri"]
         acts = []
+        # Only diagnostics whose `data` came back unchanged get a fix.
         for d in p.get("context", {}).get("diagnostics", []):
-            if d["message"] == "TODO found":
-                acts.append({"title": "Replace TODO with DONE", "kind": "quickfix", "isPreferred": True,
-                             "edit": {"changes": {uri: [{"range": d["range"], "newText": "DONE"}]}}})
+            data = d.get("data") or {}
+            if data.get("by") != NAME:
+                continue
+            title = f"Replace {data['word']} with DONE" if NAME == "fake" else f"{NAME}: replace {data['word']}"
+            acts.append({"title": title, "kind": "quickfix", "isPreferred": True,
+                         "edit": {"changes": {uri: [{"range": d["range"], "newText": "DONE"}]}}})
         send({"id": mid, "result": acts})
+    elif method == "textDocument/formatting" and NAME != "fake":
+        start = {"line": 0, "character": 0}
+        send({"id": mid, "result": [{"range": {"start": start, "end": start}, "newText": f"// {NAME}\n"}]})
     elif method == "textDocument/formatting":
         text = docs.get(p["textDocument"]["uri"], "")
         edits = []

@@ -107,8 +107,9 @@ pub struct Manifest {
     pub grammars: Vec<GrammarDecl>,
     #[serde(default)]
     pub languages: Vec<LanguageDecl>,
+    /// Language servers that run alongside a language's main server.
     #[serde(default)]
-    pub lsp_servers: Vec<toml::Table>,
+    pub lsp_servers: Vec<LspServerDecl>,
     /// Plugin settings schema, by key.
     #[serde(default)]
     pub settings: BTreeMap<String, SettingDecl>,
@@ -233,6 +234,45 @@ impl GrammarDecl {
         } else {
             self.symbol.clone()
         }
+    }
+}
+
+/// A language server a plugin starts for some languages, next to their
+/// main server (ESLint, Biome…). The program is not part of the plugin.
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct LspServerDecl {
+    pub name: String,
+    /// A program name (found on `PATH`, or in `node_modules/.bin` first
+    /// with `local_bin`).
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub languages: Vec<String>,
+    /// Start only where one of these files is in the file's folder or a
+    /// folder above it, up to the workspace folder.
+    #[serde(default)]
+    pub root_files: Vec<String>,
+    /// Prefer the project's `node_modules/.bin/<command>`.
+    #[serde(default)]
+    pub local_bin: bool,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    /// Answers `workspace/configuration`; `${workspaceFolder}`,
+    /// `${workspaceFolderUri}` and `${workspaceFolderName}` are filled in.
+    #[serde(default)]
+    pub settings: Option<toml::Value>,
+    #[serde(default)]
+    pub initialization_options: Option<toml::Value>,
+    /// Shown when the program isn't found.
+    #[serde(default)]
+    pub install_hint: String,
+}
+
+impl LspServerDecl {
+    /// How the install prompt names it: `biome lsp-proxy`.
+    pub fn command_line(&self) -> String {
+        std::iter::once(self.command.as_str()).chain(self.args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
     }
 }
 
@@ -492,6 +532,22 @@ pub fn parse(text: &str, dir: Option<&Path>) -> Result<Manifest, Vec<String>> {
             errs.push(format!("language `{}`: each bracket pair is [open, close]", l.id));
         }
     }
+    let mut server_names = std::collections::HashSet::new();
+    for l in &m.lsp_servers {
+        let what = format!("language server `{}`", l.name);
+        if l.name.is_empty() || !server_names.insert(l.name.as_str()) {
+            errs.push("each language server needs a unique `name`".into());
+        }
+        if l.command.is_empty() || l.command.contains('/') || l.command.contains(char::is_whitespace) {
+            errs.push(format!("{what}: `command` must be a program name (arguments go in `args`)"));
+        }
+        if l.languages.is_empty() || l.languages.iter().any(|x| x.is_empty()) {
+            errs.push(format!("{what}: `languages` lists at least one language id"));
+        }
+        if l.root_files.iter().any(|f| f.is_empty() || f.contains('/')) {
+            errs.push(format!("{what}: `root_files` are file names"));
+        }
+    }
     for (key, s) in &m.settings {
         if !matches!(s.kind.as_str(), "string" | "boolean" | "integer" | "number" | "array" | "object") {
             errs.push(format!("setting `{key}`: unknown type `{}`", s.kind));
@@ -552,6 +608,32 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn language_servers() {
+        let base = "id = \"dev.example.lint\"\nname = \"Lint\"\nversion = \"1.0.0\"\n";
+        let good = format!(
+            "{base}[[lsp_servers]]\nname = \"biome\"\ncommand = \"biome\"\nargs = [\"lsp-proxy\"]\n\
+             languages = [\"typescript\"]\nroot_files = [\"biome.json\"]\nlocal_bin = true\n\
+             settings = {{ workspaceFolder = {{ uri = \"${{workspaceFolderUri}}\" }} }}\n"
+        );
+        let m = parse(&good, None).unwrap();
+        assert_eq!(m.lsp_servers[0].command_line(), "biome lsp-proxy");
+        assert!(m.lsp_servers[0].local_bin && m.library.is_none());
+        for (decl, want) in [
+            ("name = \"x\"\ncommand = \"./x\"\nlanguages = [\"rust\"]", "program name"),
+            ("name = \"x\"\ncommand = \"x --stdio\"\nlanguages = [\"rust\"]", "program name"),
+            ("name = \"x\"\ncommand = \"x\"\nlanguages = []", "at least one language"),
+            ("name = \"x\"\ncommand = \"x\"\nlanguages = [\"rust\"]\nroot_files = [\"a/b\"]", "file names"),
+            ("name = \"x\"\ncommand = \"x\"\nlanguages = [\"rust\"]\nport = 1", "port"),
+        ] {
+            let errs = parse(&format!("{base}[[lsp_servers]]\n{decl}\n"), None).unwrap_err().join("; ");
+            assert!(errs.contains(want), "{decl}: {errs}");
+        }
+        let twice = format!("{base}[[lsp_servers]]\nname = \"x\"\ncommand = \"x\"\nlanguages = [\"rust\"]\n");
+        let twice = format!("{twice}{}", twice.trim_start_matches(base));
+        assert!(parse(&twice, None).unwrap_err().join("; ").contains("unique"));
+    }
 
     const GOOD: &str = r#"
 id = "dev.example.hello"

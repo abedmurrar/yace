@@ -281,6 +281,13 @@ pub fn from_vscode_settings(json: &serde_json::Value) -> Table {
             }
             ("editor.folding", J::Bool(b)) => put("editor", "folding", Value::Boolean(*b)),
             ("editor.formatOnSave", J::Bool(b)) => put("editor", "formatOnSave", Value::Boolean(*b)),
+            // VS Code names the extension; YACE names the language server.
+            ("editor.defaultFormatter", J::String(s)) if s == "biomejs.biome" => {
+                put("editor", "defaultFormatter", Value::String("biome".into()))
+            }
+            ("editor.defaultFormatter", J::String(s)) if s == "dbaeumer.vscode-eslint" => {
+                put("editor", "defaultFormatter", Value::String("eslint".into()))
+            }
             ("editor.quickSuggestions", J::Bool(b)) => put("editor", "quickSuggestions", Value::Boolean(*b)),
             // The object form ({other, comments, strings}): "other" decides.
             ("editor.quickSuggestions", J::Object(o)) => {
@@ -642,6 +649,7 @@ mod tests {
             r#"{
               // comment
               "editor.tabSize": 2,
+              "editor.defaultFormatter": "biomejs.biome",
               "files.exclude": { "**/dist": true, "**/.git": false },
               "files.eol": "\r\n",
               "editor.fontFamily": "ignored",
@@ -655,6 +663,7 @@ mod tests {
         assert_eq!(errors[0].key.as_deref(), Some("workbench.glyphs"));
         assert_eq!(s.editor.tab_size, 2);
         assert_eq!(s.files.eol, Eol::Crlf);
+        assert_eq!(s.editor.default_formatter.as_deref(), Some("biome"));
         assert!(s.files.exclude.contains(&"**/dist".to_string()));
         assert!(!s.files.exclude.contains(&"**/.git".to_string()));
         // glyphs is application-scoped, so the workspace cannot set it

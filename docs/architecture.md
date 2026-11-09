@@ -78,7 +78,10 @@ isolation.
   (folds + soft wrap) on demand for the rows asked for; rendering, cursor
   placement, scrolling, vertical movement and mouse hit-testing share it.
 - **Language servers** start when the first file of their language opens,
-  one per (server, workspace root). Requests carry the document version;
+  one per (server, workspace root). A file has one main server (hover,
+  completion, navigation) and may have more from plugins (ESLint, Biome):
+  every server gets the changes, each server's diagnostics replace only
+  its own, and code actions are asked of all of them. Requests carry the document version;
   answers for an older version are dropped. Pending edits are flushed
   before every request, so the server always answers about what is on
   screen. A server that exits during startup is reported once with its

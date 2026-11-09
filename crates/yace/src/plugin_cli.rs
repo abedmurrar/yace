@@ -43,8 +43,20 @@ pub fn trust_summary(plan: &InstallPlan) -> Vec<String> {
                 out.push(format!("  - {d} ({c})"));
             }
         }
-    } else {
+    } else if m.lsp_servers.is_empty() {
         out.push("Data only (themes, grammars without code, settings): no code runs.".into());
+    } else {
+        out.push("No plugin code, but it starts the language servers below: programs".into());
+        out.push("on your computer that run with your user's permissions.".into());
+    }
+    for s in &m.lsp_servers {
+        let from = if s.local_bin { "the project's node_modules/.bin, else PATH" } else { "PATH" };
+        out.push(format!("Starts a language server: {} (from {from})", s.command_line()));
+        let mut when = format!("  for {}", s.languages.join(", "));
+        if !s.root_files.is_empty() {
+            when.push_str(&format!(", in folders with {}", s.root_files.join(" or ")));
+        }
+        out.push(when);
     }
     if !m.grammars.is_empty() {
         out.push(format!(

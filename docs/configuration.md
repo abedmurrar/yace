@@ -71,6 +71,7 @@ in "Developer: Show Configuration Errors".
 | `wordWrapColumn` | `80` | integer | `editor.wordWrapColumn` |
 | `folding` | `true` | bool | `editor.folding` |
 | `formatOnSave` | `false` | bool; formats with the language server before Ctrl+S saves (waits at most 2 s) | `editor.formatOnSave` |
+| `defaultFormatter` | none | the language server that formats a file when it serves it, e.g. `"biome"` (from the Biome plugin); otherwise the file's main server. Imported from VS Code's `biomejs.biome` and `dbaeumer.vscode-eslint` | `editor.defaultFormatter` |
 | `quickSuggestions` | `true` | bool; ask for completions while typing an identifier, not only on `.` etc. | `editor.quickSuggestions` |
 | `quickSuggestionsDelay` | `50` | ms of typing pause before asking | `editor.quickSuggestionsDelay` |
 | `suggestOnTriggerCharacters` | `true` | bool | `editor.suggestOnTriggerCharacters` |

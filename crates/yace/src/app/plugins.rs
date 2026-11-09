@@ -176,7 +176,25 @@ impl App {
         let e = self.load_theme_from_settings();
         self.report_config_errors(e);
         self.register_plugin_grammars();
+        self.register_plugin_servers();
         self.needs_render = true;
+    }
+
+    /// Language servers of enabled plugins (none in safe mode). Like
+    /// grammars, they need no approval of code: the program isn't part of
+    /// the plugin, and the install prompt names it.
+    fn register_plugin_servers(&mut self) {
+        let mut defs = Vec::new();
+        if !self.plugins.safe_mode {
+            for e in &self.plugins.entries {
+                if !matches!(e.state, PluginState::Inactive | PluginState::Active) {
+                    continue;
+                }
+                let Some(m) = &e.manifest else { continue };
+                defs.extend(m.lsp_servers.iter().map(|s| crate::lsp::plugin_def(&m.id, s)));
+            }
+        }
+        self.set_plugin_servers(defs);
     }
 
     /// Keybindings plugins contribute (applied between defaults and the

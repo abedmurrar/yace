@@ -169,6 +169,9 @@ pub struct Diagnostic {
     #[serde(default)]
     pub source: Option<String>,
     pub message: String,
+    /// Kept for code actions: servers (ESLint, Biome) read it back.
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
 }
 
 impl Diagnostic {

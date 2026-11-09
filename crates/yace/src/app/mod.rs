@@ -348,6 +348,8 @@ pub struct App {
     /// Targets of the last locations / problems picker.
     pub nav_targets: Vec<lsp::NavTarget>,
     pub code_actions: Vec<(u32, yace_lsp::CodeAction)>,
+    /// Code-action answers still expected from a document's servers.
+    pub(crate) code_action_wait: Option<crate::lsp::CodeActionWait>,
     pub completion: Option<completion::Completion>,
     /// The details panel beside the completion list is shown.
     pub suggest_details: bool,
@@ -473,6 +475,7 @@ impl App {
             lsp: Default::default(),
             nav_targets: Vec::new(),
             code_actions: Vec::new(),
+            code_action_wait: None,
             completion: None,
             suggest_details: true,
             hover: None,

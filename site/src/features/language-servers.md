@@ -41,6 +41,22 @@ while after their last file closes (`lsp.idleShutdownSecs`).
 Node.js servers are external programs like any other; "Developer: Show
 Running Language Servers" shows their memory separately from YACE's.
 
+## ESLint, Biome and other servers next to the main one
+
+A file can have more than one server. Plugins add linters and formatters
+next to the language's own server:
+
+```sh
+yace --install-plugin io.github.abedmurrar.yace-eslint
+yace --install-plugin io.github.abedmurrar.yace-biome
+```
+
+Each starts only in projects with its configuration file (`eslint.config.*`
+or `.eslintrc*`, `biome.json`). Problems lists every server's problems with
+their source, `Ctrl+.` offers all their fixes, and the status bar shows
+`typescript + eslint`. To format with Biome instead of the TypeScript
+server, set `editor.defaultFormatter = "biome"`.
+
 The server list with install commands, and every setting, is in
 [Configuration: `[lsp]`](../docs/configuration.md#lsp-user-settings-only).
 The keys are under [Language features](../docs/keybindings.md#language-features-with-a-language-server).

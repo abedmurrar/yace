@@ -67,6 +67,15 @@ impl Server {
     }
 }
 
+/// Code-action requests sent to a document's servers, collected until
+/// each has answered.
+#[derive(Debug, Clone, Default)]
+pub struct CodeActionWait {
+    pub seq: u64,
+    pub waiting: HashSet<u32>,
+    pub actions: Vec<(u32, yace_lsp::CodeAction)>,
+}
+
 /// A document synced to a server.
 #[derive(Debug, Clone)]
 pub struct LspDoc {
@@ -92,7 +101,7 @@ pub enum ReqKind {
     Rename,
     DocSymbols,
     WorkspaceSymbols { seq: u64 },
-    CodeActions,
+    CodeActions { seq: u64 },
     CodeActionResolve,
     Format { then_save: bool },
     ExecuteCommand,
@@ -106,7 +115,7 @@ impl ReqKind {
             ReqKind::Goto { what } => Some(what),
             ReqKind::References => Some("Find references"),
             ReqKind::Rename => Some("Rename"),
-            ReqKind::CodeActions => Some("Code actions"),
+            ReqKind::CodeActions { .. } => Some("Code actions"),
             ReqKind::Format { .. } => Some("Formatting"),
             _ => None,
         }
@@ -133,6 +142,8 @@ pub struct Diag {
     pub range: yace_lsp::Range,
     pub chars: Option<(usize, usize)>,
     pub server: u32,
+    /// The server's `data`, sent back with code-action requests.
+    pub data: Option<Value>,
 }
 
 impl Diag {
@@ -163,7 +174,14 @@ pub struct LspState {
     next_server: u32,
     tx: Sender<(u32, Incoming)>,
     rx: Receiver<(u32, Incoming)>,
+    /// Each document's main server (hover, completion, navigation…).
     pub docs: HashMap<DocId, LspDoc>,
+    /// Servers that run alongside the main one (plugins: ESLint, Biome):
+    /// they get the document's changes and report diagnostics and code
+    /// actions.
+    pub extra: HashMap<DocId, Vec<LspDoc>>,
+    /// Language servers declared by enabled plugins.
+    pub plugin_defs: Vec<ServerDef>,
     pub pending: HashMap<(u32, u64), Pending>,
     /// By canonical path.
     pub diagnostics: BTreeMap<PathBuf, Vec<Diag>>,
@@ -181,6 +199,8 @@ impl Default for LspState {
             tx,
             rx,
             docs: HashMap::new(),
+            extra: HashMap::new(),
+            plugin_defs: Vec::new(),
             pending: HashMap::new(),
             diagnostics: BTreeMap::new(),
             hinted: HashSet::new(),
@@ -263,11 +283,27 @@ pub fn user_defs(s: &yace_config::LspSettings) -> Vec<ServerDef> {
             env: u.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             init_options: toml_to_json(u.initialization_options.as_ref()),
             settings: toml_to_json(u.settings.as_ref()),
-            install_hint: String::new(),
-            needs_node: false,
-            kind: Default::default(),
+            ..Default::default()
         })
         .collect()
+}
+
+/// A plugin's language server (`[[lsp_servers]]`) as a server definition.
+pub fn plugin_def(plugin: &str, d: &yace_plugin_host::manifest::LspServerDecl) -> ServerDef {
+    ServerDef {
+        name: d.name.clone(),
+        command: d.command.clone(),
+        args: d.args.clone(),
+        languages: d.languages.clone(),
+        env: d.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        init_options: toml_to_json(d.initialization_options.as_ref()),
+        settings: toml_to_json(d.settings.as_ref()),
+        install_hint: d.install_hint.clone(),
+        kind: if d.local_bin { yace_lsp::registry::DefKind::ProjectBin } else { Default::default() },
+        origin: Some(plugin.to_string()),
+        root_files: d.root_files.clone(),
+        ..Default::default()
+    }
 }
 
 /// Incremental `didChange` content changes for a batch of edits. Each
@@ -314,12 +350,41 @@ impl LspState {
         self.servers.iter_mut().find(|s| s.id == id)
     }
 
+    /// Every server `d` is synced to, its main server first.
+    pub fn attachments(&self, d: DocId) -> Vec<LspDoc> {
+        self.docs.get(&d).into_iter().chain(self.extra.get(&d).into_iter().flatten()).cloned().collect()
+    }
+
+    /// `d` as synced to `server`.
+    pub fn attachment_mut(&mut self, d: DocId, server: u32) -> Option<&mut LspDoc> {
+        if self.docs.get(&d).is_some_and(|l| l.server == server) {
+            return self.docs.get_mut(&d);
+        }
+        self.extra.get_mut(&d)?.iter_mut().find(|l| l.server == server)
+    }
+
+    /// The documents synced to `server`.
+    pub fn docs_of(&self, server: u32) -> Vec<DocId> {
+        let main = self.docs.iter().filter(|(_, l)| l.server == server).map(|(d, _)| *d);
+        let extra = self.extra.iter().filter(|(_, ls)| ls.iter().any(|l| l.server == server)).map(|(d, _)| *d);
+        main.chain(extra).collect()
+    }
+
     pub fn find(&self, name: &str, root: &Path) -> Option<u32> {
         self.servers.iter().find(|s| s.def.name == name && s.root == root).map(|s| s.id)
     }
 
-    /// Start a server process and send `initialize`.
-    pub fn spawn(&mut self, def: ServerDef, program: PathBuf, root: PathBuf, root_name: String) -> Result<u32, String> {
+    /// Start a server process and send `initialize`. `${workspaceFolder}`
+    /// and friends in its settings are filled in for `root`.
+    pub fn spawn(
+        &mut self,
+        mut def: ServerDef,
+        program: PathBuf,
+        root: PathBuf,
+        root_name: String,
+    ) -> Result<u32, String> {
+        def.settings = yace_lsp::registry::expand_placeholders(&def.settings, &root, &root_name);
+        def.init_options = yace_lsp::registry::expand_placeholders(&def.init_options, &root, &root_name);
         self.next_server += 1;
         let id = self.next_server;
         let mut server = Server {
@@ -443,14 +508,15 @@ impl LspState {
         }
     }
 
-    /// Requests older than `timeout` (dropped; returned for reporting).
-    pub fn expire(&mut self, now: Instant, timeout: Duration) -> Vec<Pending> {
+    /// Requests older than `timeout` (dropped; returned with their server
+    /// for reporting).
+    pub fn expire(&mut self, now: Instant, timeout: Duration) -> Vec<(u32, Pending)> {
         let old: Vec<(u32, u64)> =
             self.pending.iter().filter(|(_, p)| now.duration_since(p.sent) >= timeout).map(|(k, _)| *k).collect();
         let mut out = Vec::new();
         for (s, id) in old {
             if let Some(p) = self.pending.remove(&(s, id)) {
-                out.push(p);
+                out.push((s, p));
             }
             if let Some(c) = self.server(s).and_then(|s| s.client.as_ref()) {
                 c.forget(id);

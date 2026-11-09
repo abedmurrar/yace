@@ -25,8 +25,16 @@ follows once the report is triaged.
   Plugins…" or `yace --install-plugin <id>`): over HTTPS with `curl`, and
   a download is refused unless its SHA-256, id and version match the
   index.
-- **Opening a workspace never runs anything.** `tasks`, `launch` and other
+- **A workspace file never runs anything.** `tasks`, `launch` and other
   executable configuration in `.code-workspace` files are ignored.
+  Opening a file does start the language servers for its language (next
+  point).
+- **Language servers are programs on your computer.** YACE starts the ones
+  it finds on `PATH`, TypeScript 7's from the project's `node_modules`, and
+  the ones plugins declare (ESLint and Biome, from the project's
+  `node_modules/.bin` first). Some load the project's own configuration,
+  which can be code (`eslint.config.js`). The install prompt names every
+  program a plugin starts.
 - **Native plugins are not sandboxed.** A plugin loaded into the YACE
   process can do anything YACE can, so only install plugins you trust.
   Before installing, YACE shows the plugin's identity, publisher, declared

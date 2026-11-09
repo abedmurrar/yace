@@ -92,7 +92,11 @@ impl App {
     }
 
     pub(crate) fn lsp_on_tick(&mut self, now: Instant) {
-        for p in self.lsp.expire(now, self.lsp_timeout()) {
+        for (server, p) in self.lsp.expire(now, self.lsp_timeout()) {
+            if let ReqKind::CodeActions { seq } = p.kind {
+                self.code_actions_answered(seq, server, Vec::new());
+                continue;
+            }
             if let Some(what) = p.kind.user_facing() {
                 self.notify(Severity::Warning, format!("{what}: the language server did not answer in time"));
             }
@@ -168,26 +172,27 @@ impl App {
                     map_diags(ds, &e.changes);
                 }
             }
-            let crate::lsp::LspState { docs, servers, .. } = &mut self.lsp;
-            let Some(ld) = docs.get_mut(d) else { continue };
-            let Some(server) = servers.iter().find(|s| s.id == ld.server) else { continue };
-            if server.status != Status::Running || !server.docs.contains(d) {
-                // Opened with the full text once the server is ready.
-                continue;
+            for id in self.lsp.attachments(*d).iter().map(|l| l.server) {
+                let Some(server) = self.lsp.server(id) else { continue };
+                if server.status != Status::Running || !server.docs.contains(d) {
+                    // Opened with the full text once the server is ready.
+                    continue;
+                }
+                let changes = match server.caps.sync {
+                    2 => content_changes(list, server.encoding()),
+                    1 => match self.docs.doc(*d) {
+                        Some(doc) => vec![json!({ "text": doc.text() })],
+                        None => continue,
+                    },
+                    _ => continue,
+                };
+                let Some(ld) = self.lsp.attachment_mut(*d, id) else { continue };
+                ld.version += 1;
+                let params =
+                    json!({ "textDocument": { "uri": ld.uri, "version": ld.version }, "contentChanges": changes });
+                self.lsp.notify(id, "textDocument/didChange", params);
+                changed.push((*d, id));
             }
-            let changes = match server.caps.sync {
-                2 => content_changes(list, server.encoding()),
-                1 => match self.docs.doc(*d) {
-                    Some(doc) => vec![json!({ "text": doc.text() })],
-                    None => continue,
-                },
-                _ => continue,
-            };
-            ld.version += 1;
-            let params = json!({ "textDocument": { "uri": ld.uri, "version": ld.version }, "contentChanges": changes });
-            let id = ld.server;
-            self.lsp.notify(id, "textDocument/didChange", params);
-            changed.push(*d);
         }
         if !changed.is_empty() {
             self.pull_after_change(&changed);
@@ -204,56 +209,145 @@ impl App {
         }
         let Some(path) = doc.path().map(Path::to_path_buf) else { return };
         let lang = self.syntax.language(d);
-        let defs = registry::candidates(lang.id, &user_defs(&self.settings.lsp), &self.settings.lsp.disabled);
-        if defs.is_empty() {
+        let (root, root_name) = self.root_for(&path);
+        let mut ids: Vec<u32> = self.start_main_server(lang, &root, &root_name).into_iter().collect();
+        // Plugin servers (ESLint, Biome…) alongside it; the first one is the
+        // main server when the language has none.
+        let plugin_defs: Vec<yace_lsp::ServerDef> = self
+            .lsp
+            .plugin_defs
+            .iter()
+            .filter(|p| p.languages.iter().any(|l| l == lang.id) && registry::applies(p, &path, &root))
+            .cloned()
+            .collect();
+        for def in plugin_defs {
+            if let Some(id) = self.start_server(def, &root, &root_name, lang.name)
+                && !ids.contains(&id)
+            {
+                ids.push(id);
+            }
+        }
+        let Some((&main, extra)) = ids.split_first() else { return };
+        let uri = uri::from_path(&path);
+        let mk = |server: u32| LspDoc {
+            server,
+            uri: uri.clone(),
+            version: 0,
+            language: lang.id,
+            pulling: false,
+            pull_again: false,
+        };
+        self.lsp.docs.insert(d, mk(main));
+        if !extra.is_empty() {
+            self.lsp.extra.insert(d, extra.iter().map(|&s| mk(s)).collect());
+        }
+        // Diagnostics published before the file was opened.
+        self.reposition_diags(&path);
+        for id in ids {
+            self.attach(d, id);
+        }
+    }
+
+    /// Plugin servers that apply to `d` but aren't attached yet (after a
+    /// plugin is installed or enabled).
+    fn attach_plugin_servers(&mut self, d: DocId) {
+        let Some(path) = self.docs.doc(d).and_then(|x| x.path()).map(Path::to_path_buf) else { return };
+        if !self.settings.lsp.enabled || self.docs.doc(d).is_some_and(|x| x.large_file) {
             return;
         }
+        if !self.lsp.docs.contains_key(&d) {
+            self.lsp_open(d);
+            return;
+        }
+        let lang = self.syntax.language(d);
         let (root, root_name) = self.root_for(&path);
-        let id = match defs.iter().find_map(|def| self.lsp.find(&def.name, &root)) {
-            Some(id) => id,
-            None => {
-                let tried: Vec<(&yace_lsp::ServerDef, Result<PathBuf, String>)> =
-                    defs.iter().map(|d| (d, registry::resolve(d, &root))).collect();
-                let found = tried.iter().find_map(|(d, r)| r.as_ref().ok().map(|p| ((*d).clone(), p.clone())));
-                let Some((def, program)) = found else {
-                    // Suggest the server that applies here but is missing
-                    // (not one that is unsuitable, e.g. for another
-                    // TypeScript version).
-                    let missing = tried
-                        .iter()
-                        .find(|(_, r)| {
-                            r.as_ref().err().is_some_and(|e| e.contains("not found") || e.contains("no TypeScript 7"))
-                        })
-                        .map(|(d, _)| *d)
-                        .unwrap_or(&defs[0]);
-                    if self.lsp.hinted.insert(format!("{}\u{0}{}", lang.id, missing.name)) {
-                        let msg = format!(
-                            "No language server for {} files in {root_name}. For completion and navigation run: {}  (Esc to dismiss)",
-                            lang.name, missing.install_hint
-                        );
-                        self.notify_sticky(Severity::Info, msg);
-                    }
-                    return;
-                };
-                match self.lsp.spawn(def.clone(), program, root, root_name) {
-                    Ok(id) => id,
-                    Err(e) => {
-                        self.notify(Severity::Warning, format!("Could not start {}: {e}", def.name));
-                        return;
-                    }
+        let attached: Vec<u32> = self.lsp.attachments(d).iter().map(|l| l.server).collect();
+        let defs: Vec<yace_lsp::ServerDef> = self
+            .lsp
+            .plugin_defs
+            .iter()
+            .filter(|p| p.languages.iter().any(|l| l == lang.id) && registry::applies(p, &path, &root))
+            .cloned()
+            .collect();
+        for def in defs {
+            let Some(id) = self.start_server(def, &root, &root_name, lang.name) else { continue };
+            if attached.contains(&id) {
+                continue;
+            }
+            let ld = LspDoc {
+                server: id,
+                uri: uri::from_path(&path),
+                version: 0,
+                language: lang.id,
+                pulling: false,
+                pull_again: false,
+            };
+            self.lsp.extra.entry(d).or_default().push(ld);
+            self.attach(d, id);
+        }
+    }
+
+    /// Use the language servers enabled plugins declare: stop the ones whose
+    /// plugin was disabled or removed (their diagnostics go too), and start
+    /// new ones for the documents already open.
+    pub(crate) fn set_plugin_servers(&mut self, defs: Vec<yace_lsp::ServerDef>) {
+        if defs == self.lsp.plugin_defs {
+            return;
+        }
+        self.lsp.plugin_defs = defs;
+        let gone: Vec<u32> = self
+            .lsp
+            .servers
+            .iter()
+            .filter(|s| {
+                s.def.origin.is_some()
+                    && !self.lsp.plugin_defs.iter().any(|p| p.name == s.def.name && p.origin == s.def.origin)
+            })
+            .map(|s| s.id)
+            .collect();
+        for id in gone {
+            self.remove_server(id);
+        }
+        for d in self.docs.ids() {
+            self.attach_plugin_servers(d);
+        }
+    }
+
+    /// Stop a server for good: its documents and diagnostics are dropped.
+    fn remove_server(&mut self, id: u32) {
+        let docs = self.lsp.docs_of(id);
+        self.lsp.stop(id);
+        self.lsp.servers.retain(|s| s.id != id);
+        for d in docs {
+            if let Some(v) = self.lsp.extra.get_mut(&d) {
+                v.retain(|l| l.server != id);
+            }
+            if self.lsp.docs.get(&d).is_some_and(|l| l.server == id) {
+                // It was the main server: another one takes over.
+                self.lsp.docs.remove(&d);
+                if let Some(v) = self.lsp.extra.get_mut(&d)
+                    && !v.is_empty()
+                {
+                    let next = v.remove(0);
+                    self.lsp.docs.insert(d, next);
                 }
             }
-        };
-        let uri = uri::from_path(&path);
-        self.lsp
-            .docs
-            .insert(d, LspDoc { server: id, uri, version: 0, language: lang.id, pulling: false, pull_again: false });
-        // Diagnostics published before the file was opened.
-        self.reposition_diags(&path, id);
+            if self.lsp.extra.get(&d).is_some_and(Vec::is_empty) {
+                self.lsp.extra.remove(&d);
+            }
+        }
+        for ds in self.lsp.diagnostics.values_mut() {
+            ds.retain(|x| x.server != id);
+        }
+        self.lsp.diagnostics.retain(|_, v| !v.is_empty());
+    }
+
+    /// Open `d` on `server` now, or once it has started.
+    fn attach(&mut self, d: DocId, id: u32) {
         let Some(s) = self.lsp.server_mut(id) else { return };
         s.idle_since = None;
         match s.status {
-            Status::Running => self.send_did_open(d),
+            Status::Running => self.send_did_open(d, id),
             _ => {
                 if !s.waiting.contains(&d) {
                     s.waiting.push(d);
@@ -262,56 +356,124 @@ impl App {
         }
     }
 
-    fn reposition_diags(&mut self, path: &Path, server: u32) {
-        let enc = self.lsp.server(server).map(|s| s.encoding()).unwrap_or_default();
+    /// The language's main server in `root`: running already, or the first
+    /// candidate that can start. A missing one is explained once.
+    fn start_main_server(&mut self, lang: &yace_syntax::LanguageConfig, root: &Path, root_name: &str) -> Option<u32> {
+        let defs = registry::candidates(lang.id, &user_defs(&self.settings.lsp), &self.settings.lsp.disabled);
+        if defs.is_empty() {
+            return None;
+        }
+        if let Some(id) = defs.iter().find_map(|def| self.lsp.find(&def.name, root)) {
+            return Some(id);
+        }
+        let tried: Vec<(&yace_lsp::ServerDef, Result<PathBuf, String>)> =
+            defs.iter().map(|d| (d, registry::resolve(d, root))).collect();
+        let found = tried.iter().find_map(|(d, r)| r.as_ref().ok().map(|p| ((*d).clone(), p.clone())));
+        let Some((def, program)) = found else {
+            // Suggest the server that applies here but is missing (not one
+            // that is unsuitable, e.g. for another TypeScript version).
+            let missing = tried
+                .iter()
+                .find(|(_, r)| {
+                    r.as_ref().err().is_some_and(|e| e.contains("not found") || e.contains("no TypeScript 7"))
+                })
+                .map(|(d, _)| *d)
+                .unwrap_or(&defs[0]);
+            if self.lsp.hinted.insert(format!("{}\u{0}{}", lang.id, missing.name)) {
+                let msg = format!(
+                    "No language server for {} files in {root_name}. For completion and navigation run: {}  (Esc to dismiss)",
+                    lang.name, missing.install_hint
+                );
+                self.notify_sticky(Severity::Info, msg);
+            }
+            return None;
+        };
+        match self.lsp.spawn(def.clone(), program, root.to_path_buf(), root_name.to_string()) {
+            Ok(id) => Some(id),
+            Err(e) => {
+                self.notify(Severity::Warning, format!("Could not start {}: {e}", def.name));
+                None
+            }
+        }
+    }
+
+    /// A plugin's server in `root`: running already, or started now. A
+    /// missing program is explained once per server.
+    fn start_server(&mut self, def: yace_lsp::ServerDef, root: &Path, root_name: &str, lang: &str) -> Option<u32> {
+        if let Some(id) = self.lsp.find(&def.name, root) {
+            return Some(id);
+        }
+        let program = match registry::resolve(&def, root) {
+            Ok(p) => p,
+            Err(why) => {
+                if self.lsp.hinted.insert(format!("plugin\u{0}{}", def.name)) {
+                    let hint =
+                        if def.install_hint.is_empty() { String::new() } else { format!(" Run: {}", def.install_hint) };
+                    let msg = format!("{} for {lang} files: {why}.{hint}  (Esc to dismiss)", def.name);
+                    self.notify_sticky(Severity::Info, msg);
+                }
+                return None;
+            }
+        };
+        let name = def.name.clone();
+        match self.lsp.spawn(def, program, root.to_path_buf(), root_name.to_string()) {
+            Ok(id) => Some(id),
+            Err(e) => {
+                self.notify(Severity::Warning, format!("Could not start {name}: {e}"));
+                None
+            }
+        }
+    }
+
+    fn reposition_diags(&mut self, path: &Path) {
         let key = path_key(path);
         let Some(rope) = self.docs.find_by_path(path).and_then(|d| self.docs.doc(d)).map(|d| d.rope().clone()) else {
             return;
         };
-        if let Some(ds) = self.lsp.diagnostics.get_mut(&key) {
+        let crate::lsp::LspState { diagnostics, servers, .. } = &mut self.lsp;
+        if let Some(ds) = diagnostics.get_mut(&key) {
             for x in ds.iter_mut() {
+                let enc = servers.iter().find(|s| s.id == x.server).map(|s| s.encoding()).unwrap_or_default();
                 x.chars = Some((from_lsp(&rope, x.range.start, enc), from_lsp(&rope, x.range.end, enc)));
             }
         }
     }
 
-    fn send_did_open(&mut self, d: DocId) {
-        let Some(ld) = self.lsp.docs.get(&d).cloned() else { return };
+    fn send_did_open(&mut self, d: DocId, server: u32) {
+        let Some(ld) = self.lsp.attachments(d).into_iter().find(|l| l.server == server) else { return };
         let Some(doc) = self.docs.doc(d) else { return };
         let params = json!({ "textDocument": {
             "uri": ld.uri, "languageId": ld.language, "version": ld.version, "text": doc.text()
         }});
-        let Some(s) = self.lsp.server_mut(ld.server) else { return };
+        let Some(s) = self.lsp.server_mut(server) else { return };
         if !s.caps.open_close || s.docs.contains(&d) {
             s.docs.insert(d);
             return;
         }
         s.docs.insert(d);
-        self.lsp.notify(ld.server, "textDocument/didOpen", params);
-        self.pull_diagnostics(d);
+        self.lsp.notify(server, "textDocument/didOpen", params);
+        self.pull_diagnostics(d, server);
     }
 
-    /// Pull diagnostics for `d` (servers that don't push them). At most one
-    /// request per document is in flight; changes meanwhile pull again.
-    pub(crate) fn pull_diagnostics(&mut self, d: DocId) {
-        let Some(ld) = self.lsp.docs.get(&d).cloned() else { return };
-        let Some(s) = self.lsp.server(ld.server) else { return };
+    /// Pull diagnostics for `d` from `server` (servers that don't push
+    /// them). At most one request per document and server is in flight;
+    /// changes meanwhile pull again.
+    pub(crate) fn pull_diagnostics(&mut self, d: DocId, server: u32) {
+        let Some(ld) = self.lsp.attachments(d).into_iter().find(|l| l.server == server) else { return };
+        let Some(s) = self.lsp.server(server) else { return };
         if !s.caps.diagnostic_pull || s.status != Status::Running || !s.docs.contains(&d) {
             return;
         }
         if ld.pulling {
-            if let Some(x) = self.lsp.docs.get_mut(&d) {
+            if let Some(x) = self.lsp.attachment_mut(d, server) {
                 x.pull_again = true;
             }
             return;
         }
         let ver = self.docs.doc(d).map(|x| x.version()).unwrap_or(0);
         let params = json!({ "textDocument": { "uri": ld.uri } });
-        if self
-            .lsp
-            .request(ld.server, "textDocument/diagnostic", params, ReqKind::PullDiagnostics, Some(d), ver)
-            .is_some()
-            && let Some(x) = self.lsp.docs.get_mut(&d)
+        if self.lsp.request(server, "textDocument/diagnostic", params, ReqKind::PullDiagnostics, Some(d), ver).is_some()
+            && let Some(x) = self.lsp.attachment_mut(d, server)
         {
             x.pulling = true;
             x.pull_again = false;
@@ -320,47 +482,51 @@ impl App {
 
     /// After a change on a server whose diagnostics span files, every open
     /// document of that server may have new problems.
-    fn pull_after_change(&mut self, changed: &[DocId]) {
-        let mut todo: Vec<DocId> = changed.to_vec();
-        for d in changed {
-            let Some(server) = self.lsp.docs.get(d).map(|l| l.server) else { continue };
+    fn pull_after_change(&mut self, changed: &[(DocId, u32)]) {
+        let mut todo: Vec<(DocId, u32)> = changed.to_vec();
+        for &(_, server) in changed {
             if self.lsp.server(server).is_some_and(|s| s.caps.diagnostic_inter_file) {
-                todo.extend(self.lsp.docs.iter().filter(|(_, l)| l.server == server).map(|(k, _)| *k));
+                todo.extend(self.lsp.docs_of(server).into_iter().map(|k| (k, server)));
             }
         }
         todo.sort_unstable();
         todo.dedup();
-        for d in todo {
-            self.pull_diagnostics(d);
+        for (d, server) in todo {
+            self.pull_diagnostics(d, server);
         }
     }
 
     fn lsp_close(&mut self, d: DocId) {
-        let Some(ld) = self.lsp.docs.remove(&d) else { return };
-        let Some(s) = self.lsp.server_mut(ld.server) else { return };
-        s.waiting.retain(|x| *x != d);
-        let was_open = s.docs.remove(&d);
-        if s.docs.is_empty() && s.waiting.is_empty() {
-            s.idle_since = Some(Instant::now());
-        }
-        if was_open && s.caps.open_close {
-            self.lsp.notify(ld.server, "textDocument/didClose", json!({ "textDocument": { "uri": ld.uri } }));
+        let all = self.lsp.attachments(d);
+        self.lsp.docs.remove(&d);
+        self.lsp.extra.remove(&d);
+        for ld in all {
+            let Some(s) = self.lsp.server_mut(ld.server) else { continue };
+            s.waiting.retain(|x| *x != d);
+            let was_open = s.docs.remove(&d);
+            if s.docs.is_empty() && s.waiting.is_empty() {
+                s.idle_since = Some(Instant::now());
+            }
+            if was_open && s.caps.open_close {
+                self.lsp.notify(ld.server, "textDocument/didClose", json!({ "textDocument": { "uri": ld.uri } }));
+            }
         }
     }
 
     pub(crate) fn lsp_did_save(&mut self, d: DocId) {
-        let Some(ld) = self.lsp.docs.get(&d).cloned() else { return };
-        let Some(s) = self.lsp.server(ld.server) else { return };
-        if !s.caps.save {
-            return;
+        for ld in self.lsp.attachments(d) {
+            let Some(s) = self.lsp.server(ld.server) else { continue };
+            if !s.caps.save {
+                continue;
+            }
+            let mut params = json!({ "textDocument": { "uri": ld.uri } });
+            if s.caps.save_include_text
+                && let Some(doc) = self.docs.doc(d)
+            {
+                params["text"] = Value::String(doc.text());
+            }
+            self.lsp.notify(ld.server, "textDocument/didSave", params);
         }
-        let mut params = json!({ "textDocument": { "uri": ld.uri } });
-        if s.caps.save_include_text
-            && let Some(doc) = self.docs.doc(d)
-        {
-            params["text"] = Value::String(doc.text());
-        }
-        self.lsp.notify(ld.server, "textDocument/didSave", params);
     }
 
     // ------------------------------------------------------------------
@@ -423,7 +589,7 @@ impl App {
                     self.lsp.notify(server, "workspace/didChangeConfiguration", json!({ "settings": settings }));
                 }
                 for d in waiting {
-                    self.send_did_open(d);
+                    self.send_did_open(d, server);
                 }
             }
             Ok(_) | Err(_) => {
@@ -492,10 +658,8 @@ impl App {
                 )
             }
             "workspace/diagnostic/refresh" => {
-                let docs: Vec<DocId> =
-                    self.lsp.docs.iter().filter(|(_, l)| l.server == server).map(|(d, _)| *d).collect();
-                for d in docs {
-                    self.pull_diagnostics(d);
+                for d in self.lsp.docs_of(server) {
+                    self.pull_diagnostics(d, server);
                 }
                 Value::Null
             }
@@ -544,12 +708,16 @@ impl App {
                 range: x.range,
                 message: x.message,
                 server,
+                data: x.data,
             })
             .collect();
+        // Other servers' diagnostics for the file stay: each server's
+        // report replaces only its own.
+        if let Some(old) = self.lsp.diagnostics.remove(&key) {
+            diags.extend(old.into_iter().filter(|x| x.server != server));
+        }
         diags.sort_by_key(|d| (d.chars.map(|c| c.0), d.range.start.line, d.range.start.character));
-        if diags.is_empty() {
-            self.lsp.diagnostics.remove(&key);
-        } else {
+        if !diags.is_empty() {
             self.lsp.diagnostics.insert(key, diags);
         }
     }
@@ -690,13 +858,25 @@ impl App {
         }
     }
 
+    /// Code actions from every server of the document; the picker opens
+    /// once each has answered (or failed, or timed out).
     pub(crate) fn lsp_code_actions(&mut self) {
         let Some((g, v, d)) = self.active() else { return };
-        if self.lsp_position_params(|c| c.code_action, "Code actions").is_none() {
+        self.sync_documents();
+        let targets: Vec<(crate::lsp::LspDoc, yace_lsp::Encoding)> = self
+            .lsp
+            .attachments(d)
+            .into_iter()
+            .filter_map(|l| {
+                let s = self.lsp.server(l.server)?;
+                (s.status == Status::Running && s.caps.code_action && s.docs.contains(&d)).then(|| (l, s.encoding()))
+            })
+            .collect();
+        if targets.is_empty() {
+            // Explains why (no server, still starting, not supported).
+            let _ = self.lsp_position_params(|c| c.code_action, "Code actions");
             return;
         }
-        let Some(ld) = self.lsp.docs.get(&d).cloned() else { return };
-        let enc = self.lsp.server(ld.server).map(|s| s.encoding()).unwrap_or_default();
         let Some(doc) = self.docs.doc(d) else { return };
         let rope = doc.rope();
         let r = self.layout.group(g).map(|gr| gr.views[v].sel.primary()).unwrap_or(yace_buffer::Range::point(0));
@@ -704,7 +884,7 @@ impl App {
         // Diagnostics touching the selection (or the cursor's line).
         let line = rope.char_to_line(r.head.min(rope.len_chars()));
         let path = doc.path().map(path_key);
-        let diags: Vec<Value> = path
+        let touching: Vec<&crate::lsp::Diag> = path
             .and_then(|p| self.lsp.diagnostics.get(&p))
             .into_iter()
             .flatten()
@@ -712,34 +892,99 @@ impl App {
                 Some((a, b)) => (a <= to && b >= from) || rope.char_to_line(a.min(rope.len_chars())) == line,
                 None => false,
             })
-            .map(|x| {
-                let (a, b) = x.chars.unwrap_or_default();
-                json!({
-                    "range": { "start": to_lsp(rope, a, enc), "end": to_lsp(rope, b, enc) },
-                    "severity": x.severity, "message": x.message, "source": x.source, "code": x.code,
-                })
-            })
             .collect();
-        let params = json!({
-            "textDocument": { "uri": ld.uri },
-            "range": { "start": to_lsp(rope, from, enc), "end": to_lsp(rope, to, enc) },
-            "context": { "diagnostics": diags, "triggerKind": 1 },
-        });
         let ver = doc.version();
-        self.lsp.request(ld.server, "textDocument/codeAction", params, ReqKind::CodeActions, Some(d), ver);
+        self.lsp.seq += 1;
+        let seq = self.lsp.seq;
+        let mut requests = Vec::new();
+        for (ld, enc) in &targets {
+            let own: Vec<&&crate::lsp::Diag> = touching.iter().filter(|x| x.server == ld.server).collect();
+            // Nothing selected: ask about the range of this server's problems
+            // on the cursor's line, as VS Code does (servers such as Biome
+            // only offer a fix for a range that covers the problem).
+            let (from, to) = match own.iter().filter_map(|x| x.chars).reduce(|a, b| (a.0.min(b.0), a.1.max(b.1))) {
+                Some((a, b)) if from == to => (a, b),
+                _ => (from, to),
+            };
+            // Each server gets its own diagnostics back, `data` included.
+            let diags: Vec<Value> = own
+                .iter()
+                .map(|x| {
+                    let (a, b) = x.chars.unwrap_or_default();
+                    let mut v = json!({
+                        "range": { "start": to_lsp(rope, a, *enc), "end": to_lsp(rope, b, *enc) },
+                        "severity": x.severity, "message": x.message, "source": x.source, "code": x.code,
+                    });
+                    if let Some(data) = &x.data {
+                        v["data"] = data.clone();
+                    }
+                    v
+                })
+                .collect();
+            let params = json!({
+                "textDocument": { "uri": ld.uri },
+                "range": { "start": to_lsp(rope, from, *enc), "end": to_lsp(rope, to, *enc) },
+                "context": { "diagnostics": diags, "triggerKind": 1 },
+            });
+            requests.push((ld.server, params));
+        }
+        let mut waiting = std::collections::HashSet::new();
+        for (server, params) in requests {
+            if self
+                .lsp
+                .request(server, "textDocument/codeAction", params, ReqKind::CodeActions { seq }, Some(d), ver)
+                .is_some()
+            {
+                waiting.insert(server);
+            }
+        }
+        self.code_action_wait = Some(crate::lsp::CodeActionWait { seq, waiting, actions: Vec::new() });
+    }
+
+    /// One server answered a code-action request (`actions` empty when it
+    /// failed, timed out or answered for an older text).
+    pub(crate) fn code_actions_answered(&mut self, seq: u64, server: u32, actions: Vec<yace_lsp::CodeAction>) {
+        let Some(w) = self.code_action_wait.as_mut().filter(|w| w.seq == seq) else { return };
+        if !w.waiting.remove(&server) {
+            return;
+        }
+        w.actions.extend(actions.into_iter().map(|a| (server, a)));
+        if w.waiting.is_empty()
+            && let Some(w) = self.code_action_wait.take()
+        {
+            self.show_code_actions(w.actions);
+        }
     }
 
     /// Format the document (or the selection). Returns whether a request
     /// was sent.
     pub(crate) fn lsp_format(&mut self, d: DocId, selection_only: bool, then_save: bool) -> bool {
         self.sync_documents();
-        let Some(ld) = self.lsp.docs.get(&d).cloned() else {
+        let all = self.lsp.attachments(d);
+        let Some(main) = all.first().cloned() else {
             if !then_save {
                 let lang = self.syntax.language(d).name;
                 self.notify(Severity::Info, format!("Formatting: no language server is running for {lang} files"));
             }
             return false;
         };
+        // `editor.defaultFormatter` names a server; used when it serves
+        // this file and can format.
+        let path = self.docs.doc(d).and_then(|x| x.path().map(Path::to_path_buf));
+        let preferred = self.settings_for(path.as_deref()).editor.default_formatter.clone();
+        let ld = preferred
+            .and_then(|name| {
+                all.iter()
+                    .find(|l| {
+                        self.lsp.server(l.server).is_some_and(|s| {
+                            s.def.name == name
+                                && s.status == Status::Running
+                                && if selection_only { s.caps.range_formatting } else { s.caps.formatting }
+                        })
+                    })
+                    .cloned()
+            })
+            .unwrap_or(main);
         let Some(s) = self.lsp.server(ld.server).filter(|s| s.status == Status::Running) else { return false };
         let supported = if selection_only { s.caps.range_formatting } else { s.caps.formatting };
         if !supported {
@@ -793,24 +1038,31 @@ impl App {
         if p.kind == ReqKind::PullDiagnostics
             && let Some(d) = p.doc
         {
-            let again = self.lsp.docs.get_mut(&d).map(|x| {
+            let again = self.lsp.attachment_mut(d, server).map(|x| {
                 x.pulling = false;
                 std::mem::take(&mut x.pull_again)
             });
             if let (true, Ok(Reply::PulledDiagnostics(Some(items)))) = (fresh, &result)
-                && let Some(uri) = self.lsp.docs.get(&d).map(|x| x.uri.clone())
+                && let Some(uri) = self.lsp.attachment_mut(d, server).map(|x| x.uri.clone())
             {
                 let pd = yace_lsp::PublishDiagnostics { uri, version: None, diagnostics: items.clone() };
                 self.on_diagnostics(server, pd);
             }
             if again == Some(true) || !fresh {
-                self.pull_diagnostics(d);
+                self.pull_diagnostics(d, server);
             }
             return;
         }
         let reply = match result {
             Ok(r) => r,
             Err(e) => {
+                if let ReqKind::CodeActions { seq } = p.kind {
+                    // Another server may still have some.
+                    let name = self.lsp.server(server).map(|s| s.def.name.clone()).unwrap_or_default();
+                    tracing::info!("code actions from {name} failed: {e}");
+                    self.code_actions_answered(seq, server, Vec::new());
+                    return;
+                }
                 if let Some(what) = p.kind.user_facing() {
                     self.notify(Severity::Warning, format!("{what} failed: {e}"));
                 }
@@ -858,10 +1110,8 @@ impl App {
                     self.refresh_symbol_quick_open();
                 }
             }
-            (ReqKind::CodeActions, Reply::CodeActions(actions)) => {
-                if fresh {
-                    self.show_code_actions(server, actions);
-                }
+            (ReqKind::CodeActions { seq }, Reply::CodeActions(actions)) => {
+                self.code_actions_answered(seq, server, if fresh { actions } else { Vec::new() });
             }
             (ReqKind::CodeActionResolve, Reply::CodeActionResolved(a)) => self.run_code_action(server, *a),
             (ReqKind::Format { then_save }, Reply::Edits(edits)) => {
@@ -1019,25 +1269,30 @@ impl App {
         self.open_overlay(Overlay::Picker(Picker::new(format!("{what} ({n})"), items, PickerAction::Navigate)));
     }
 
-    fn show_code_actions(&mut self, server: u32, mut actions: Vec<yace_lsp::CodeAction>) {
+    fn show_code_actions(&mut self, mut actions: Vec<(u32, yace_lsp::CodeAction)>) {
         if actions.is_empty() {
             self.notify(Severity::Info, "No code actions available");
             return;
         }
-        actions.sort_by_key(|a| (a.disabled.is_some(), !a.preferred));
+        actions.sort_by_key(|(_, a)| (a.disabled.is_some(), !a.preferred));
+        // With several servers, each action says which one offers it.
+        let several = actions.iter().any(|(s, _)| *s != actions[0].0);
         let items = actions
             .iter()
             .enumerate()
-            .map(|(i, a)| {
-                let hint = match (&a.disabled, &a.kind) {
+            .map(|(i, (server, a))| {
+                let mut hint = match (&a.disabled, &a.kind) {
                     (Some(why), _) => format!("unavailable: {why}"),
                     (None, Some(k)) => k.clone(),
                     _ => String::new(),
                 };
+                if several && let Some(s) = self.lsp.server(*server) {
+                    hint = if hint.is_empty() { s.def.name.clone() } else { format!("{hint} · {}", s.def.name) };
+                }
                 PickerItem::new(a.title.clone(), "", hint, i)
             })
             .collect();
-        self.code_actions = actions.into_iter().map(|a| (server, a)).collect();
+        self.code_actions = actions;
         self.open_overlay(Overlay::Picker(Picker::new("Code Actions", items, PickerAction::CodeAction)));
     }
 
@@ -1187,25 +1442,27 @@ impl App {
             .unwrap_or(&[])
     }
 
-    /// Status bar text for the active document's server.
+    /// Status bar text for the active document's servers: the main one,
+    /// then the others (`typescript + biome`).
     pub fn lsp_status(&self) -> Option<String> {
         let (_, _, d) = self.active()?;
-        let ld = self.lsp.docs.get(&d)?;
-        Some(self.lsp.server(ld.server)?.status_text())
+        let parts: Vec<String> =
+            self.lsp.attachments(d).iter().filter_map(|l| Some(self.lsp.server(l.server)?.status_text())).collect();
+        (!parts.is_empty()).then(|| parts.join(" + "))
     }
 
     // ------------------------------------------------------------------
     // Commands
 
-    fn active_server(&self) -> Option<u32> {
-        let (_, _, d) = self.active()?;
-        self.lsp.docs.get(&d).map(|l| l.server)
+    /// The active document's servers (empty: none).
+    fn active_servers(&self) -> Vec<u32> {
+        self.active().map(|(_, _, d)| self.lsp.attachments(d).iter().map(|l| l.server).collect()).unwrap_or_default()
     }
 
     pub(crate) fn lsp_restart_cmd(&mut self) {
-        let ids: Vec<u32> = match self.active_server() {
-            Some(id) => vec![id],
-            None => self.lsp.servers.iter().map(|s| s.id).collect(),
+        let ids: Vec<u32> = match self.active_servers() {
+            ids if !ids.is_empty() => ids,
+            _ => self.lsp.servers.iter().map(|s| s.id).collect(),
         };
         if ids.is_empty() {
             self.notify(Severity::Info, "No language server to restart");
@@ -1222,9 +1479,9 @@ impl App {
     }
 
     pub(crate) fn lsp_stop_cmd(&mut self) {
-        let ids: Vec<u32> = match self.active_server() {
-            Some(id) => vec![id],
-            None => self.lsp.servers.iter().map(|s| s.id).collect(),
+        let ids: Vec<u32> = match self.active_servers() {
+            ids if !ids.is_empty() => ids,
+            _ => self.lsp.servers.iter().map(|s| s.id).collect(),
         };
         for id in ids {
             self.lsp.stop(id);
@@ -1261,26 +1518,36 @@ impl App {
         self.open_overlay(Overlay::Info { title: "Running Language Servers".into(), lines });
     }
 
-    /// "Show Language Server Output": stderr and log of the active server,
-    /// in a new untitled editor.
+    /// "Show Language Server Output": stderr and log of the active
+    /// document's servers, in a new untitled editor.
     pub(crate) fn lsp_show_output(&mut self) {
-        let Some(id) = self.active_server().or_else(|| self.lsp.servers.first().map(|s| s.id)) else {
+        let mut ids = self.active_servers();
+        if ids.is_empty() {
+            ids.extend(self.lsp.servers.first().map(|s| s.id));
+        }
+        if ids.is_empty() {
             self.notify(Severity::Info, "No language server has run yet");
             return;
-        };
-        let Some(s) = self.lsp.server(id) else { return };
-        let mut text = format!("# {} — {}\n\n## stderr\n", s.def.name, s.root.display());
-        if let Some(c) = &s.client {
-            let q = c.stderr.lock().unwrap_or_else(|e| e.into_inner());
-            for l in q.iter() {
+        }
+        let mut text = String::new();
+        for id in ids {
+            let Some(s) = self.lsp.server(id) else { continue };
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&format!("# {} — {}\n\n## stderr\n", s.def.name, s.root.display()));
+            if let Some(c) = &s.client {
+                let q = c.stderr.lock().unwrap_or_else(|e| e.into_inner());
+                for l in q.iter() {
+                    text.push_str(l);
+                    text.push('\n');
+                }
+            }
+            text.push_str("\n## log\n");
+            for l in &s.log {
                 text.push_str(l);
                 text.push('\n');
             }
-        }
-        text.push_str("\n## log\n");
-        for l in &s.log {
-            text.push_str(l);
-            text.push('\n');
         }
         self.new_untitled_with(&text);
     }

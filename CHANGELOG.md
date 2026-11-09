@@ -13,6 +13,31 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- Several language servers per file. Plugins can declare language servers
+  (`[[lsp_servers]]` in `yace-plugin.toml`) that run next to a language's
+  main server: every server gets the file's changes, Problems shows each
+  server's problems with their source, `Ctrl+.` lists the code actions of
+  all of them, and the status bar shows `typescript + eslint`. A plugin's
+  server can start only in projects with a given file (`root_files`), use
+  the project's `node_modules/.bin` first (`local_bin`), and get the
+  workspace folder in its settings (`${workspaceFolder}`). Disabling or
+  uninstalling the plugin stops it; safe mode starts none. The install
+  prompt and Show Details name every program a plugin starts.
+- `editor.defaultFormatter` names the language server that formats a file
+  when it serves it (`"biome"`); imported from VS Code's settings.
+
+### Changed
+
+- Quick fixes with nothing selected ask about the problem on the cursor's
+  line, as VS Code does: Biome only offers a fix for a range that covers
+  the problem.
+- Diagnostics keep the server's `data` and send it back with code-action
+  requests (ESLint and Biome need it).
+- "Restart/Stop Language Server" and "Show Language Server Output" act on
+  all of the active file's servers.
+
 ## [0.12.1] - 2026-11-10
 
 ### Fixed

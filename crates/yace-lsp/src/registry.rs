@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ServerDef {
     pub name: String,
     pub command: String,
@@ -22,6 +22,12 @@ pub struct ServerDef {
     pub needs_node: bool,
     /// How the program is found.
     pub kind: DefKind,
+    /// The plugin that declares it (`None`: built in or from settings).
+    /// Plugin servers run alongside a language's main server.
+    pub origin: Option<String>,
+    /// Start only for files with one of these names in their folder or a
+    /// folder above it, up to the workspace folder (`biome.json`).
+    pub root_files: Vec<String>,
 }
 
 /// How a server's program is located.
@@ -37,6 +43,9 @@ pub enum DefKind {
     /// `typescript-language-server`: needs `tsserver.js`, which TypeScript 7
     /// no longer ships, so it is skipped for projects on TypeScript ≥ 7.
     TypeScriptTsserver,
+    /// The project's own copy first (`node_modules/.bin/<command>` in the
+    /// workspace folder or a folder above it), then `PATH`.
+    ProjectBin,
 }
 
 fn def(name: &str, command: &str, args: &[&str], languages: &[&str], hint: &str, node: bool) -> ServerDef {
@@ -50,7 +59,7 @@ fn def(name: &str, command: &str, args: &[&str], languages: &[&str], hint: &str,
         settings: Value::Null,
         install_hint: hint.into(),
         needs_node: node,
-        kind: DefKind::Plain,
+        ..Default::default()
     }
 }
 
@@ -225,6 +234,41 @@ pub fn resolve(def: &ServerDef, root: &Path) -> Result<PathBuf, String> {
             Some((major, _)) if major >= 7 => Err("TypeScript 7 has no tsserver.js".into()),
             _ => which(&def.command).ok_or_else(|| format!("{} not found on PATH", def.command)),
         },
+        DefKind::ProjectBin => root
+            .ancestors()
+            .map(|d| d.join("node_modules").join(".bin").join(&def.command))
+            .find(|p| p.is_file())
+            .or_else(|| which(&def.command))
+            .ok_or_else(|| format!("{} not found in node_modules/.bin or on PATH", def.command)),
+    }
+}
+
+/// Whether a server with `root_files` applies to `file` in workspace folder
+/// `root`: one of the files exists in the file's folder or a folder above
+/// it, up to `root`. No `root_files`: always.
+pub fn applies(def: &ServerDef, file: &Path, root: &Path) -> bool {
+    def.root_files.is_empty()
+        || file
+            .ancestors()
+            .skip(1)
+            .take_while(|d| d.starts_with(root))
+            .any(|d| def.root_files.iter().any(|f| d.join(f).exists()))
+}
+
+/// `${workspaceFolder}`, `${workspaceFolderUri}` and `${workspaceFolderName}`
+/// in the strings of `v`, for a server started in `root`.
+pub fn expand_placeholders(v: &Value, root: &Path, name: &str) -> Value {
+    match v {
+        Value::String(s) if s.contains("${") => Value::String(
+            s.replace("${workspaceFolderUri}", &crate::uri::from_path(root))
+                .replace("${workspaceFolderName}", name)
+                .replace("${workspaceFolder}", &root.display().to_string()),
+        ),
+        Value::Array(a) => Value::Array(a.iter().map(|x| expand_placeholders(x, root, name)).collect()),
+        Value::Object(o) => {
+            Value::Object(o.iter().map(|(k, x)| (k.clone(), expand_placeholders(x, root, name))).collect())
+        }
+        other => other.clone(),
     }
 }
 
@@ -300,5 +344,52 @@ mod tests {
         assert!(which("sh").is_some());
         assert!(which("definitely-not-a-command-yace").is_none());
         assert!(which("/bin/sh").is_some());
+    }
+}
+
+#[cfg(test)]
+mod plugin_server_tests {
+    use super::*;
+
+    #[test]
+    fn project_bin_root_files_and_placeholders() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("repo");
+        let pkg = root.join("packages/web");
+        std::fs::create_dir_all(pkg.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("node_modules/.bin")).unwrap();
+        let bin = root.join("node_modules/.bin/demo-lsp");
+        std::fs::write(&bin, "").unwrap();
+        let def = ServerDef {
+            name: "demo".into(),
+            command: "demo-lsp".into(),
+            kind: DefKind::ProjectBin,
+            root_files: vec!["demo.json".into()],
+            ..Default::default()
+        };
+        // Found in the node_modules/.bin of a folder above the workspace folder.
+        assert_eq!(resolve(&def, &pkg).unwrap(), bin);
+        let missing = ServerDef { command: "no-such-demo-lsp".into(), ..def.clone() };
+        assert!(resolve(&missing, &pkg).unwrap_err().contains("node_modules/.bin"));
+
+        let file = pkg.join("src/a.ts");
+        assert!(!applies(&def, &file, &pkg), "no demo.json yet");
+        std::fs::write(pkg.join("demo.json"), "{}").unwrap();
+        assert!(applies(&def, &file, &pkg));
+        // Above the workspace folder doesn't count.
+        std::fs::remove_file(pkg.join("demo.json")).unwrap();
+        std::fs::write(root.join("demo.json"), "{}").unwrap();
+        assert!(!applies(&def, &file, &pkg));
+        assert!(applies(&def, &file, &root));
+        assert!(applies(&ServerDef::default(), &file, &pkg), "no root_files: always");
+
+        let v = serde_json::json!({ "workspaceFolder": { "uri": "${workspaceFolderUri}", "name": "${workspaceFolderName}" },
+                                    "cwd": "${workspaceFolder}/x", "n": 1, "list": ["${workspaceFolderName}"] });
+        let out = expand_placeholders(&v, Path::new("/w/app"), "app");
+        assert_eq!(
+            out,
+            serde_json::json!({ "workspaceFolder": { "uri": "file:///w/app", "name": "app" },
+                                "cwd": "/w/app/x", "n": 1, "list": ["app"] })
+        );
     }
 }

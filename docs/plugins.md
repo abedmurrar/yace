@@ -235,9 +235,52 @@ Validated before any code is loaded; every problem is reported.
 | `[[themes]]` | `path` | a theme file ([themes.md](themes.md)) |
 | `[[grammars]]` | `language`, `library`, `symbol`, `highlights`, `injections`, `locals` | `symbol` defaults to `tree_sitter_<language>`; query files are concatenated in order |
 | `[[languages]]` | `id`, `name`, `extensions`, `filenames`, `shebangs`, `line_comment`, `block_comment`, `brackets` | a new language |
+| `[[lsp_servers]]` | `name`, `command`, `args`, `languages`, `root_files`, `local_bin`, `env`, `settings`, `initialization_options`, `install_hint` | a language server that runs alongside each language's main server (below) |
 | `[settings.<key>]` | `type`, `default`, `description`, `enum`, `minimum`, `maximum` | `type`: `string`, `boolean`, `integer`, `number`, `array`, `object` |
 | `[dependencies]` | `"<id>" = "<version req>"` | shown in Show Details |
 | `external_programs` | [string] | programs it runs (shown before installing) |
+
+### Language servers from a plugin
+
+A plugin can start a language server for some languages, next to the
+server YACE already runs for them. That's how ESLint and Biome work in
+YACE ([yace-eslint](https://github.com/abedmurrar/yace-eslint),
+[yace-biome](https://github.com/abedmurrar/yace-biome)): no plugin code,
+only a manifest.
+
+```toml
+[[lsp_servers]]
+name = "biome"
+command = "biome"            # a program name, not a path
+args = ["lsp-proxy"]
+local_bin = true             # the project's node_modules/.bin first, then PATH
+languages = ["typescript", "javascript", "json", "css"]
+root_files = ["biome.json", "biome.jsonc"]   # only in projects with one
+install_hint = "npm install --save-dev @biomejs/biome"
+settings = { workspaceFolder = { uri = "${workspaceFolderUri}", name = "${workspaceFolderName}" } }
+```
+
+- **Several servers per file.** The language's main server (for example
+  TypeScript) keeps hover, completion, navigation and rename. Every
+  server gets the file's changes, and YACE merges what they report:
+  Problems shows each problem's source (`eslint`, `biome`), `Ctrl+.` lists
+  the code actions of all of them, and the status bar shows
+  `typescript + biome`. A language with no main server uses the plugin's
+  server for everything.
+- **Formatting** stays with the main server unless `editor.defaultFormatter`
+  names another one that serves the file (`"biome"`).
+- **`root_files`**: the server starts only for files with one of these
+  names in their folder or a folder above it, up to the workspace folder.
+  Without it, it starts for every file of its languages.
+- **`settings`** answers the server's `workspace/configuration` requests
+  and is sent once after it starts. `${workspaceFolder}`,
+  `${workspaceFolderUri}` and `${workspaceFolderName}` are filled in for
+  the folder it runs in.
+- One server runs per (name, workspace folder). Disabling or uninstalling
+  the plugin stops it and removes its problems; safe mode starts none.
+- **Not sandboxed.** The program isn't part of the plugin and runs with
+  your permissions; the install prompt names it. Tools such as ESLint load
+  the project's own configuration, which is code.
 
 ## ABI reference
 

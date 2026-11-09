@@ -148,6 +148,9 @@ pub struct EditorSettings {
     pub token_color_customizations: toml::Table,
     /// Format with the language server before saving.
     pub format_on_save: bool,
+    /// The language server that formats (`"biome"`), when it serves the
+    /// file; otherwise the file's main server.
+    pub default_formatter: Option<String>,
     /// Ask for completions while typing (not only on trigger characters).
     pub quick_suggestions: bool,
     /// Milliseconds of typing pause before quick suggestions are requested.
@@ -196,6 +199,7 @@ impl Default for EditorSettings {
             show_folding_controls: FoldingControls::Mouseover,
             token_color_customizations: toml::Table::new(),
             format_on_save: false,
+            default_formatter: None,
             quick_suggestions: true,
             quick_suggestions_delay: 50,
             suggest_on_trigger_characters: true,
