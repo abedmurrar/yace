@@ -21,6 +21,7 @@ Performance Metrics" to see which mode is active.
 | `Ctrl+\` | arrives as `Ctrl+4` | ✅ |
 | `Ctrl+/` | arrives as `Ctrl+7` | ✅ |
 | `Ctrl+Backspace` | arrives as `Ctrl+H` | ✅ |
+| `Ctrl+I`, `Ctrl+M` | arrive as `Tab` and `Enter`; YACE treats `Ctrl+K Tab` as `Ctrl+K Ctrl+I` (hover) and `Ctrl+K Enter` as `Ctrl+K Ctrl+M` | ✅ |
 
 Your terminal emulator may also capture some shortcuts before YACE sees them,
 for example `Ctrl+Shift+T` (new tab) or `Ctrl+Shift+C/V` (copy/paste).
@@ -34,6 +35,8 @@ Rebind those in the terminal, or use the fallbacks below.
 | `Ctrl+4` | Split Editor | `Ctrl+\` |
 | `Ctrl+7` | Toggle Line Comment | `Ctrl+/` |
 | `Ctrl+H` | Delete Word Left | `Ctrl+Backspace` |
+| `Ctrl+K Tab` | Show Hover | `Ctrl+K Ctrl+I` |
+| `Ctrl+K Enter` | Toggle Maximize Editor Group | `Ctrl+K Ctrl+M` |
 | `Alt+E` | Focus Explorer | `Ctrl+Shift+E` |
 | `Alt+S` | Save As | `Ctrl+Shift+S` |
 | `Alt+K` | Delete Line | `Ctrl+Shift+K` |

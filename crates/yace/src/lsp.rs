@@ -211,11 +211,11 @@ pub fn client_capabilities() -> Value {
                     "snippetSupport": true,
                     "insertReplaceSupport": true,
                     "resolveSupport": { "properties": ["additionalTextEdits", "documentation", "detail"] },
-                    "documentationFormat": ["plaintext", "markdown"]
+                    "documentationFormat": ["markdown", "plaintext"]
                 },
                 "contextSupport": true
             },
-            "hover": { "contentFormat": ["plaintext", "markdown"] },
+            "hover": { "contentFormat": ["markdown", "plaintext"] },
             "signatureHelp": {
                 "signatureInformation": {
                     "parameterInformation": { "labelOffsetSupport": true },

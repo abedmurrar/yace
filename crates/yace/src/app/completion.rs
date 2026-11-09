@@ -587,7 +587,7 @@ impl App {
 pub fn completion_details(item: &CompletionItem) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(d) = item.detail.as_deref().filter(|d| !d.trim().is_empty()) {
-        out.extend(d.lines().map(str::to_string));
+        out.extend(d.lines().map(clean));
     }
     if let Some(doc) = &item.documentation {
         let lines = markdown_to_lines(&yace_lsp::markup_text(doc));
@@ -599,33 +599,110 @@ pub fn completion_details(item: &CompletionItem) -> Vec<String> {
     out
 }
 
-/// Markdown → plain lines for the hover popup (fences and emphasis
-/// markers dropped; code is kept as is).
+/// Markdown → plain lines for the hover popup and the completion details
+/// (fences, emphasis, link targets and heading marks dropped; code kept as
+/// is). Tabs become spaces and other control characters are removed: the
+/// terminal buffer drops them silently, which glued words together.
 pub fn markdown_to_lines(md: &str) -> Vec<String> {
-    let mut out = Vec::new();
+    let md = md.replace("\r\n", "\n").replace('\r', "\n");
+    let mut out: Vec<String> = Vec::new();
     let mut in_code = false;
+    // A blank row separates a code block from the text around it.
+    let mut gap_before_next = false;
     for line in md.lines() {
         if line.trim_start().starts_with("```") {
             in_code = !in_code;
+            if in_code {
+                if out.last().is_some_and(|l| !l.is_empty()) {
+                    out.push(String::new());
+                }
+            } else {
+                gap_before_next = true;
+            }
             continue;
         }
-        if in_code {
-            out.push(line.to_string());
-            continue;
+        let t = if in_code { clean(line) } else { prose(line) };
+        if gap_before_next && !in_code && !t.is_empty() {
+            out.push(String::new());
         }
-        let t = line.replace("**", "").replace("__", "").replace('`', "");
-        let t = t.trim_end().to_string();
-        if t == "---" || t == "***" {
+        gap_before_next = false;
+        if !in_code && (t == "---" || t == "***" || t == "___") {
             out.push(String::new());
             continue;
         }
         out.push(t);
     }
+    out.dedup_by(|a, b| a.is_empty() && b.is_empty());
     while out.last().is_some_and(|l| l.is_empty()) {
         out.pop();
     }
     while out.first().is_some_and(|l| l.is_empty()) {
         out.remove(0);
+    }
+    out
+}
+
+/// Tabs to spaces (4 columns), other control characters removed.
+fn clean(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    for c in line.chars() {
+        if c == '\t' {
+            out.push_str(&" ".repeat(4 - out.chars().count() % 4));
+        } else if !c.is_control() {
+            out.push(c);
+        }
+    }
+    out.trim_end().to_string()
+}
+
+/// One line of Markdown text as plain text: `# ` heading marks, `**`,
+/// `__`, backticks, `*emphasis*` and `\` escapes dropped, `[text](url)`
+/// shown as its text.
+fn prose(line: &str) -> String {
+    let line = clean(line);
+    let trimmed = line.trim_start();
+    let hashes = trimmed.chars().take_while(|&c| c == '#').count();
+    let line = if (1..=6).contains(&hashes) && trimmed[hashes..].starts_with(' ') {
+        trimmed[hashes + 1..].to_string()
+    } else {
+        line
+    };
+    let line = line.replace("**", "").replace("__", "").replace('`', "");
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        if c == '\\' && next.is_some_and(|n| n.is_ascii_punctuation()) {
+            out.push(next.unwrap_or_default());
+            i += 2;
+            continue;
+        }
+        // [text](url) → text
+        if c == '['
+            && let Some(close) = chars[i + 1..].iter().position(|&x| x == ']').map(|k| i + 1 + k)
+            && chars.get(close + 1) == Some(&'(')
+            && let Some(end) = chars[close + 2..].iter().position(|&x| x == ')').map(|k| close + 2 + k)
+        {
+            out.extend(&chars[i + 1..close]);
+            i = end + 1;
+            continue;
+        }
+        // *emphasis*: a `*` that opens (no space after) and has a closing
+        // `*` (no space before) later on the line. List bullets (`* x`)
+        // have a space after and stay.
+        if c == '*'
+            && next.is_some_and(|n| !n.is_whitespace() && n != '*')
+            && let Some(close) = chars[i + 1..].iter().position(|&x| x == '*').map(|k| i + 1 + k)
+            && !chars[close - 1].is_whitespace()
+        {
+            out.extend(&chars[i + 1..close]);
+            i = close + 1;
+            continue;
+        }
+        out.push(c);
+        i += 1;
     }
     out
 }
@@ -647,6 +724,26 @@ mod tests {
     #[test]
     fn markdown_lines() {
         assert_eq!(markdown_to_lines("```ts\nlet x: number\n```\n\n**Doc** `x`"), vec!["let x: number", "", "Doc x"]);
+        // TypeScript 7's hover: the code block is followed directly by text.
+        assert_eq!(
+            markdown_to_lines(
+                "```typescript\nfunction add(a: number): number\n```\nAdds.\n\n- one\n\n*@param* `a` — the first"
+            ),
+            vec!["function add(a: number): number", "", "Adds.", "", "- one", "", "@param a — the first"]
+        );
+        // Lone \r, \r\n and tabs are line breaks and spaces, not glue.
+        assert_eq!(markdown_to_lines("one\rtwo\r\nthree\tfour"), vec!["one", "two", "three   four"]);
+        assert_eq!(markdown_to_lines("```\n\tindented\n```"), vec!["    indented"]);
+        // Links show their text; headings, escapes and bullets.
+        assert_eq!(
+            markdown_to_lines("# Examples\n[MDN Reference](https://x)\n* item\nsnake\\_case 2 * 3"),
+            vec!["Examples", "MDN Reference", "* item", "snake_case 2 * 3"]
+        );
+        // Text before a code block gets a gap too; no double gaps.
+        assert_eq!(markdown_to_lines("Text\n```\ncode\n```\n\nMore"), vec!["Text", "", "code", "", "More"]);
+        // MarkedString[] (joined by the decoder) renders the same way.
+        let joined = yace_lsp::markup_text(&serde_json::json!([{"language": "ts", "value": "let x"}, "Doc"]));
+        assert_eq!(markdown_to_lines(&joined), vec!["let x", "", "Doc"]);
     }
 }
 

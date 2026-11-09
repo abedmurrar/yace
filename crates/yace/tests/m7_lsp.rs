@@ -187,9 +187,21 @@ fn hover_signature_help_and_stale_answers() {
     assert!(wait_running(&mut h));
     h.key("ctrl+k ctrl+i");
     assert!(h.wait_for(T, |h| h.app.hover.is_some()));
-    assert!(h.screen().contains("hover for value"), "{}", h.screen());
+    assert_eq!(h.app.hover.as_ref().unwrap().lines, ["let value:  number", "", "hover for value", "- item"]);
+    let screen = h.screen();
+    for row in ["let value:  number", "hover for value", "- item"] {
+        assert!(screen.lines().any(|l| l.contains(row)), "{row:?} on its own row:\n{screen}");
+    }
     h.key("escape");
     assert!(h.app.hover.is_none());
+    // Without the enhanced keyboard protocol Ctrl+I arrives as Tab.
+    h.app.keyboard_enhanced = false;
+    h.key("ctrl+k");
+    h.key("tab");
+    assert!(h.wait_for(T, |h| h.app.hover.is_some()), "Ctrl+K Tab shows the hover");
+    assert_eq!(h.active_text(), "value\n", "the Tab was not typed");
+    h.key("escape");
+    h.app.keyboard_enhanced = true;
     // Signature help on '(' and ',' with the active parameter.
     h.key("ctrl+end");
     h.type_text("f(");
@@ -525,7 +537,11 @@ fn real_typescript_7_builtin() {
     let root = dir.path().join("app");
     std::fs::create_dir_all(root.join("node_modules")).unwrap();
     std::os::unix::fs::symlink(&pkg, root.join("node_modules/typescript")).unwrap();
-    std::fs::write(root.join("a.ts"), "export function greet(name: string): string {\n  return name;\n}\n").unwrap();
+    std::fs::write(
+        root.join("a.ts"),
+        "/** Says hello. */\nexport function greet(name: string): string {\n  return name;\n}\n",
+    )
+    .unwrap();
     std::fs::write(root.join("b.ts"), "import { greet } from './a';\ngreet(1);\n").unwrap();
     let mut h = Harness::new();
     open_folder(&mut h, &root);
@@ -544,6 +560,15 @@ fn real_typescript_7_builtin() {
     assert!(h.wait_for(t, |h| {
         h.app.active().and_then(|(_, _, d)| h.app.docs.doc(d)?.path().map(|p| p.ends_with("a.ts"))).unwrap_or(false)
     }));
+    // Hover: the signature and the docs on separate rows (TypeScript 7's
+    // plain text glued them together).
+    h.key("ctrl+k ctrl+i");
+    assert!(h.wait_for(t, |h| h.app.hover.is_some()), "hover");
+    let lines = h.app.hover.as_ref().unwrap().lines.clone();
+    eprintln!("hover: {lines:?}");
+    assert!(lines[0].contains("greet(name: string): string") && !lines[0].contains("Says"), "{lines:?}");
+    assert!(lines.iter().any(|l| l == "Says hello."), "{lines:?}");
+    h.key("escape");
     h.app.open_file(&root.join("b.ts"), false);
     h.settle();
     h.key("ctrl+end");

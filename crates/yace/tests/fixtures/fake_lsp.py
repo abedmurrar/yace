@@ -206,7 +206,9 @@ def handle(msg):
     elif method == "textDocument/hover":
         text = docs.get(p["textDocument"]["uri"], "")
         _, _, w = word_at(text, offset(text, p["position"]))
-        send({"id": mid, "result": {"contents": {"kind": "markdown", "value": f"**hover** for `{w}`"}}})
+        # Like TypeScript 7: a code block, then the text right after it.
+        send({"id": mid, "result": {"contents": {"kind": "markdown",
+              "value": f"```ts\nlet {w}:\tnumber\n```\n**hover** for `{w}`\r\n- item"}}})
     elif method == "textDocument/signatureHelp":
         text = docs.get(p["textDocument"]["uri"], "")
         off = offset(text, p["position"])

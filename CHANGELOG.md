@@ -13,6 +13,19 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Fixed
+
+- Hover and completion docs no longer run text together. YACE now asks
+  language servers for Markdown first; TypeScript 7's plain-text hover
+  glued the signature to the first line of its docs
+  (`…): numberAdds two numbers.`). Tabs and lone carriage returns, which
+  the terminal dropped, now become spaces and line breaks, and a code
+  block is set apart from the text around it. Links show their text,
+  `*emphasis*` and `#` heading marks are removed.
+- `Ctrl+K Ctrl+I` (Show Hover) and `Ctrl+K Ctrl+M` (Toggle Maximize Editor
+  Group) work in terminals without the enhanced keyboard protocol, where
+  Ctrl+I arrives as Tab and Ctrl+M as Enter.
+
 ## [0.12.0] - 2026-11-10
 
 ### Added

@@ -241,6 +241,10 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     // Comments (Fold Level 7 is in the palette).
     ("ctrl+k ctrl+7", "editor.foldAllBlockComments", "editorFocus && !keyboardEnhanced"),
     ("ctrl+h", "deleteWordLeft", "editorFocus && !keyboardEnhanced"),
+    // Ctrl+I arrives as Tab and Ctrl+M as Enter, so the second key of these
+    // chords is Tab or Enter there.
+    ("ctrl+k tab", "editor.action.showHover", "editorFocus && !keyboardEnhanced"),
+    ("ctrl+k enter", "workbench.action.toggleMaximizeEditorGroup", "!keyboardEnhanced"),
     ("alt+e", "workbench.view.explorer", "!keyboardEnhanced"),
     ("alt+shift+f", "workbench.action.findInFiles", "!keyboardEnhanced && !explorerFocus"),
     ("alt+shift+h", "workbench.action.replaceInFiles", "!keyboardEnhanced"),
