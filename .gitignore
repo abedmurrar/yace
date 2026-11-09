@@ -1,3 +1,5 @@
 /target
 *.swp
 /dist
+/site/book/
+/site/capture/target/

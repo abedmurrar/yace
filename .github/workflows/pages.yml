@@ -1,0 +1,64 @@
+name: Pages
+
+# Builds the documentation website (site/, an mdBook) and publishes it to
+# GitHub Pages at https://abedmurrar.github.io/yace/. The screenshots in
+# site/src/media/ are committed (regenerate them with site/capture/), so
+# this workflow doesn't build YACE.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "CREDITS.md"
+      - "THIRD_PARTY_LICENSES.md"
+      - "LICENSE-MIT"
+      - "LICENSE-APACHE"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; never cancel one that is running.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  MDBOOK_VERSION: 0.5.4
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache mdBook ${{ env.MDBOOK_VERSION }}
+        id: mdbook
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/mdbook
+          key: mdbook-${{ env.MDBOOK_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+      - name: Install mdBook ${{ env.MDBOOK_VERSION }}
+        if: steps.mdbook.outputs.cache-hit != 'true'
+        run: cargo install mdbook --locked --version "$MDBOOK_VERSION"
+      - uses: actions/configure-pages@v5
+      - run: mdbook build site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/book
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

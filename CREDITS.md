@@ -47,6 +47,15 @@ crate's version, licence and licence texts, is in
 `scripts/third_party.py`. One dependency, `option-ext`, is MPL-2.0; it is
 used unmodified, and its source is available from crates.io.
 
+## Documentation website
+
+The website in `site/` is not part of the `yace` binary.
+
+| Project | What it does for the website | Licence |
+|---|---|---|
+| [mdBook](https://github.com/rust-lang/mdBook) | Builds the website. The pages it generates include its theme's assets, each under its own licence: the Open Sans (Apache-2.0) and Source Code Pro (OFL-1.1) fonts, Font Awesome Free icons (CC BY 4.0), highlight.js (BSD-3-Clause), elasticlunr.js, mark.js and clipboard.js (MIT) | MPL-2.0 |
+| [alacritty_terminal](https://github.com/alacritty/alacritty) and [portable-pty](https://github.com/wezterm/wezterm) | The screenshot tool (`site/capture/`) runs YACE in a pseudo-terminal with portable-pty and emulates the screen with alacritty_terminal | Apache-2.0; MIT |
+
 ## Inspiration
 
 - **[Visual Studio Code](https://github.com/microsoft/vscode)** (MIT):

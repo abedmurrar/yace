@@ -1,0 +1,29 @@
+# The YACE documentation website. Preview: `mdbook serve site`.
+# Built and deployed by .github/workflows/pages.yml (mdBook 0.5.4).
+
+[book]
+title = "YACE"
+description = "YACE (Yet Another Code Editor): a fast, VS Code-style code editor for the terminal, with multi-root workspaces."
+authors = ["Abed Murrar", "YACE contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+site-url = "/yace/"
+git-repository-url = "https://github.com/abedmurrar/yace"
+git-repository-icon = "fab-github"
+default-theme = "light"
+preferred-dark-theme = "navy"
+# No MathJax (it loads from a CDN), no analytics, no external fonts.
+mathjax-support = false
+
+# Plugin code needs the YACE SDK, so the Rust Playground can't run it.
+[output.html.playground]
+runnable = false
+
+[output.html.search]
+enable = true
+
+# The licence texts are long and would only add noise to search results.
+[output.html.search.chapter]
+"THIRD_PARTY_LICENSES.md" = { enable = false }

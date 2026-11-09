@@ -107,3 +107,7 @@ pipeline in M10 (spec §25.11).
 - [ ] Enable private vulnerability reporting (see `SECURITY.md`).
 - [ ] Protect `main`: require the CI workflow to pass, disallow force-pushes.
 - [ ] Push `main` and the existing tags: `git push -u origin main --follow-tags`.
+- [ ] Publish the documentation website: Settings → Pages → Source:
+  GitHub Actions, then run the Pages workflow
+  (`.github/workflows/pages.yml`) once. It serves
+  `https://<owner>.github.io/yace/`.

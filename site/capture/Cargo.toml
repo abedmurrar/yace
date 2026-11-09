@@ -1,0 +1,17 @@
+[package]
+name = "yace-site-capture"
+description = "Regenerates the documentation site's screenshots and recordings by driving the real yace binary in a pseudo-terminal"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Not a member of the YACE workspace: it is a docs tool with its own lock
+# file and target directory (site/capture/target, git-ignored).
+[workspace]
+
+[dependencies]
+portable-pty = "0.9"
+alacritty_terminal = "0.26"
+serde_json = "1"
