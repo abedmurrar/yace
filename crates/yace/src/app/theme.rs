@@ -57,7 +57,7 @@ impl App {
             colors: Some(&self.settings.workbench.color_customizations),
             tokens: Some(&self.settings.editor.token_color_customizations),
         };
-        let depth = detect_depth(self.settings.workbench.color_depth);
+        let depth = detect_depth(self.settings.workbench.color_depth, self.terminal_depth);
         load_theme(cat, name, &ov).map(|(t, w)| (t.for_depth(depth), w))
     }
 
@@ -88,7 +88,8 @@ impl App {
                 errors.push(e);
                 if self.theme.name.is_empty() {
                     // First load: fall back to the default theme.
-                    self.theme = Theme::yace_dark().for_depth(detect_depth(self.settings.workbench.color_depth));
+                    self.theme = Theme::yace_dark()
+                        .for_depth(detect_depth(self.settings.workbench.color_depth, self.terminal_depth));
                 }
             }
         }

@@ -246,6 +246,9 @@ pub struct AppOptions {
     pub process_start: Instant,
     /// `--safe-mode` / `--no-plugins`: load no plugin code.
     pub safe_mode: bool,
+    /// The colour depth the terminal reports (`theme::terminal_depth()`),
+    /// used when `workbench.colorDepth` is `"auto"`.
+    pub terminal_depth: crate::theme::Depth,
 }
 
 pub struct App {
@@ -285,6 +288,8 @@ pub struct App {
     pub close_flow: Option<CloseFlow>,
     pub quit: bool,
     pub keyboard_enhanced: bool,
+    /// The terminal's colour depth (for `workbench.colorDepth = "auto"`).
+    pub terminal_depth: crate::theme::Depth,
     effects: Vec<Effect>,
     /// Watched (canonical) directories for the Explorer, settings, Git and
     /// open files; `index_watch` has the Quick Open index's folders.
@@ -422,6 +427,7 @@ impl App {
             close_flow: None,
             quit: false,
             keyboard_enhanced: opts.keyboard_enhanced,
+            terminal_depth: opts.terminal_depth,
             effects: Vec::new(),
             ui_watched: BTreeSet::new(),
             index_watch: quick_open::IndexWatch::new(),

@@ -366,15 +366,22 @@ pub enum Depth {
     Mono,
 }
 
-/// Detect colour depth from the environment (spec §16.5).
-pub fn detect_depth(setting: ColorDepth) -> Depth {
+/// The colour depth to draw with: the `workbench.colorDepth` setting, or
+/// for `"auto"` what the terminal reports (`terminal`, from
+/// [`terminal_depth`]).
+pub fn detect_depth(setting: ColorDepth, terminal: Depth) -> Depth {
     match setting {
-        ColorDepth::Truecolor => return Depth::TrueColor,
-        ColorDepth::Ansi256 => return Depth::Ansi256,
-        ColorDepth::Ansi16 => return Depth::Ansi16,
-        ColorDepth::Mono => return Depth::Mono,
-        ColorDepth::Auto => {}
+        ColorDepth::Truecolor => Depth::TrueColor,
+        ColorDepth::Ansi256 => Depth::Ansi256,
+        ColorDepth::Ansi16 => Depth::Ansi16,
+        ColorDepth::Mono => Depth::Mono,
+        ColorDepth::Auto => terminal,
     }
+}
+
+/// The colour depth the terminal reports through the environment
+/// (`NO_COLOR`, `COLORTERM`, `TERM`; spec §16.5). Read once at startup.
+pub fn terminal_depth() -> Depth {
     if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
         return Depth::Mono;
     }

@@ -91,6 +91,8 @@ impl Harness {
             keyboard_enhanced: true,
             process_start: Instant::now(),
             safe_mode,
+            // Tests never depend on the terminal running them.
+            terminal_depth: yace_app::theme::Depth::TrueColor,
         });
         app.resize(120, 40);
         let term = Terminal::new(TestBackend::new(120, 40)).unwrap();
@@ -119,6 +121,7 @@ impl Harness {
             keyboard_enhanced: true,
             process_start: Instant::now(),
             safe_mode: false,
+            terminal_depth: yace_app::theme::Depth::TrueColor,
         })
     }
 

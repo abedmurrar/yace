@@ -51,6 +51,7 @@ fn main() -> ExitCode {
         keyboard_enhanced: false,
         process_start,
         safe_mode: args.safe_mode,
+        terminal_depth: yace_app::theme::terminal_depth(),
     });
 
     terminal::install_panic_hook();
