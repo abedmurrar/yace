@@ -582,7 +582,8 @@ Legend:
 - [ ] [M7] Several language servers per document (core mechanism: merged diagnostics, code actions, formatting); tool-specific servers such as ESLint or Biome ship as plugins, not built in
 - [ ] [Plugins] External ESLint and Biome plugins (outside the core, optional) built on several servers per document; test both on a real repo with `biome.json` and one with an ESLint config; without the plugin nothing changes — later, after the core mechanism
 - [ ] [Plugins] Colour themes as plugins (later; replaces showing VS Code themes in the picker)
-- [ ] [M7] Mouse-hover popups; completion item documentation side panel
+- [x] [M7] Completion item documentation side panel — right of the list (left if no room, hidden under 20 columns); the selected item is resolved once (`completionItem/resolve`, newest only); `toggleSuggestionDetails` — v0.11.0
+- [ ] [M7] Mouse-hover popups
 - [ ] [M7] Code lens, inlay hints, call hierarchy, document highlights (not in the M7 scope)
 
 ---

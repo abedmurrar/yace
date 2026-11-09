@@ -689,6 +689,7 @@ fn builtin_commands() -> Vec<Command> {
         c!("workbench.action.gotoSymbol", "Go", "Go to Symbol in Editor", |a, _| a.open_quick_open("@")),
         c!("workbench.action.showAllSymbols", "Go", "Go to Symbol in Workspace", |a, _| a.open_quick_open("#")),
         c!("editor.action.triggerSuggest", "Editor", "Trigger Suggest", |a, _| a.request_completion(None, true)),
+        c!("toggleSuggestionDetails", "Editor", "Toggle Suggestion Details", |a, _| a.toggle_suggestion_details()),
         c!("editor.action.triggerParameterHints", "Editor", "Trigger Parameter Hints", |a, _| a
             .request_signature_help()),
         c!("editor.action.showHover", "Editor", "Show Hover", |a, _| a.lsp_hover()),

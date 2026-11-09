@@ -314,6 +314,8 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("enter", "acceptSelectedSuggestion", "suggestWidgetVisible && editorFocus"),
     ("tab", "acceptSelectedSuggestion", "suggestWidgetVisible && editorFocus"),
     ("escape", "hideSuggestWidget", "suggestWidgetVisible && editorFocus"),
+    // Legacy terminals can't tell Ctrl+Space from Ctrl+` (terminal toggle).
+    ("ctrl+space", "toggleSuggestionDetails", "suggestWidgetVisible && editorFocus && keyboardEnhanced"),
 ];
 
 /// Build the default keymap layer.

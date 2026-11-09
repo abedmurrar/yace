@@ -1111,24 +1111,7 @@ fn draw_lsp_popups(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout, area: Rect
     // Hover: a box above the cursor (below if there is no room).
     if let Some(h) = app.hover.as_ref().filter(|h| h.doc == d) {
         let maxw = 80.min(area.width.saturating_sub(2)) as usize;
-        let mut lines: Vec<String> = Vec::new();
-        for l in &h.lines {
-            if l.is_empty() {
-                lines.push(String::new());
-                continue;
-            }
-            let mut cur = String::new();
-            for word in l.split(' ') {
-                if !cur.is_empty() && UnicodeWidthStr::width(cur.as_str()) + UnicodeWidthStr::width(word) + 1 > maxw {
-                    lines.push(std::mem::take(&mut cur));
-                }
-                if !cur.is_empty() {
-                    cur.push(' ');
-                }
-                cur.push_str(word);
-            }
-            lines.push(cur);
-        }
+        let mut lines = wrap_words(&h.lines, maxw);
         lines.truncate(15);
         let w =
             (lines.iter().map(|l| UnicodeWidthStr::width(l.as_str())).max().unwrap_or(0) as u16 + 2).min(area.width);
@@ -1194,7 +1177,65 @@ fn draw_lsp_popups(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout, area: Rect
             }
             put(buf, kx, yy, kind, kind.len() as u16, st.fg(t.muted));
         }
+        // The selected item's details beside the list: right, else left,
+        // else hidden (a narrow terminal).
+        if app.suggest_details
+            && let Some(item) = c.current()
+        {
+            let text = crate::app::completion_details(item);
+            if !text.is_empty() {
+                let right_room = area.right().saturating_sub(x + w);
+                let left_room = x.saturating_sub(area.x);
+                let (pw, px) = if right_room >= 20 {
+                    let pw = right_room.min(60);
+                    (pw, x + w)
+                } else if left_room >= 20 {
+                    let pw = left_room.min(60);
+                    (pw, x - pw)
+                } else {
+                    (0, 0)
+                };
+                if pw > 0 {
+                    let mut lines = wrap_words(&text, pw.saturating_sub(2) as usize);
+                    lines.truncate(rows.max(4) as usize);
+                    let ph = lines.len() as u16;
+                    let py = if y + ph <= bottom { y } else { bottom.saturating_sub(ph) };
+                    let panel = Style::new().fg(t.overlay_fg).bg(t.overlay_bg);
+                    let has_detail = item.detail.as_deref().is_some_and(|d| !d.trim().is_empty());
+                    let detail_rows = item.detail.as_deref().map_or(0, |d| d.lines().count());
+                    for (k, l) in lines.iter().enumerate() {
+                        let yy = py + k as u16;
+                        fill(buf, Rect { x: px, y: yy, width: pw, height: 1 }, panel);
+                        let st = if has_detail && k < detail_rows { panel.fg(t.muted) } else { panel };
+                        put(buf, px + 1, yy, l, pw.saturating_sub(2), st);
+                    }
+                }
+            }
+        }
     }
+}
+
+/// Word-wrap `lines` to `maxw` columns (empty lines kept).
+fn wrap_words(lines: &[String], maxw: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for l in lines {
+        if l.is_empty() {
+            out.push(String::new());
+            continue;
+        }
+        let mut cur = String::new();
+        for word in l.split(' ') {
+            if !cur.is_empty() && UnicodeWidthStr::width(cur.as_str()) + UnicodeWidthStr::width(word) + 1 > maxw {
+                out.push(std::mem::take(&mut cur));
+            }
+            if !cur.is_empty() {
+                cur.push(' ');
+            }
+            cur.push_str(word);
+        }
+        out.push(cur);
+    }
+    out
 }
 
 /// Style of a unified-diff line from its first characters.

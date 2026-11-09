@@ -25,6 +25,12 @@ Security, Performance.
   - Fold Level 1–7 (`Ctrl+K Ctrl+1`…`7`); regions holding a cursor stay
     open
   - Fold All Block Comments (`Ctrl+K Ctrl+/`)
+- A details panel beside the completion list shows the selected item's
+  signature and documentation. When the list arrives without
+  documentation, YACE asks the language server for it once. The panel
+  hides when there's no room. "Toggle Suggestion Details" (`Ctrl+Space`
+  while the list is open, with the enhanced keyboard protocol) shows
+  and hides it.
 
 ### Performance
 

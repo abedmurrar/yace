@@ -50,7 +50,7 @@ use crate::{
     theme::{Glyphs, Theme},
 };
 
-pub use completion::{completion_kind, rank_completions};
+pub use completion::{completion_details, completion_kind, rank_completions};
 pub use edit::{Move, Op};
 pub use find::FindField;
 pub use git_ops::{RepoCmd, ScmGroup, ScmRow, ScmUi};
@@ -332,6 +332,8 @@ pub struct App {
     pub nav_targets: Vec<lsp::NavTarget>,
     pub code_actions: Vec<(u32, yace_lsp::CodeAction)>,
     pub completion: Option<completion::Completion>,
+    /// The details panel beside the completion list is shown.
+    pub suggest_details: bool,
     pub hover: Option<completion::HoverPopup>,
     pub signature: Option<completion::SignaturePopup>,
     /// Quick suggestions fire when this passes (typing pause).
@@ -448,6 +450,7 @@ impl App {
             nav_targets: Vec::new(),
             code_actions: Vec::new(),
             completion: None,
+            suggest_details: true,
             hover: None,
             signature: None,
             completion_deadline: None,

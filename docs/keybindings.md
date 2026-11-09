@@ -238,7 +238,8 @@ collapse/expand.
 
 | Keys | Command |
 |---|---|
-| typing, `Ctrl+Space` (enhanced terminals) | completion; `Up`/`Down`, `Enter`/`Tab` accept, `Escape` closes |
+| typing, `Ctrl+Space` (enhanced terminals) | completion; `Up`/`Down`, `Enter`/`Tab` accept, `Escape` closes. The selected item's signature and documentation show in a panel beside the list (hidden when there's no room) |
+| `Ctrl+Space` while the list is open (enhanced terminals; palette: "Toggle Suggestion Details") | show / hide the details panel |
 | `Ctrl+Shift+Space` | parameter hints (also on `(` and `,`) |
 | `Ctrl+K Ctrl+I` | hover |
 | `F12`, `Ctrl+Click` | go to definition |

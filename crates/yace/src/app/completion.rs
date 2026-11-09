@@ -60,6 +60,8 @@ pub struct Completion {
     pub seq: u64,
     /// The text the current `shown` list was filtered with.
     pub filtered_for: Option<String>,
+    /// Items asked for their documentation (`completionItem/resolve`).
+    pub resolve_asked: std::collections::HashSet<usize>,
 }
 
 pub fn completion_kind(k: u32) -> &'static str {
@@ -326,6 +328,7 @@ impl App {
             incomplete,
             seq,
             filtered_for: None,
+            resolve_asked: Default::default(),
         });
         self.refilter_completion();
     }
@@ -362,6 +365,7 @@ impl App {
         if c.shown.is_empty() {
             self.completion = None;
         }
+        self.resolve_selected_completion();
     }
 
     /// Re-filter as typing does (tests and benchmarks).
@@ -376,6 +380,38 @@ impl App {
             return;
         }
         c.selected = (c.selected as isize + delta).rem_euclid(n) as usize;
+        self.resolve_selected_completion();
+    }
+
+    /// The details panel shows the selected item's documentation: ask the
+    /// server for it once (`completionItem/resolve`) when the list didn't
+    /// include it.
+    pub(crate) fn resolve_selected_completion(&mut self) {
+        if !self.suggest_details {
+            return;
+        }
+        let Some(c) = self.completion.as_mut() else { return };
+        let Some(&i) = c.shown.get(c.selected) else { return };
+        let item = &c.items[i];
+        if item.documentation.is_some() || item.raw.is_empty() || !c.resolve_asked.insert(i) {
+            return;
+        }
+        if !self.lsp.server(c.server).is_some_and(|s| s.caps.completion_resolve) {
+            return;
+        }
+        let (server, seq, label, d) = (c.server, c.seq, item.label.clone(), c.doc);
+        let params = serde_json::from_str(&item.raw).unwrap_or(Value::Null);
+        // Only the newest selection matters.
+        self.lsp.cancel_where(|k| matches!(k, ReqKind::CompletionResolve { apply_edits: false, .. }));
+        let ver = self.docs.doc(d).map(|x| x.version()).unwrap_or(0);
+        let kind = ReqKind::CompletionResolve { seq, label, apply_edits: false };
+        self.lsp.request(server, "completionItem/resolve", params, kind, Some(d), ver);
+    }
+
+    /// `Ctrl+Space` while the list is open: show or hide the details panel.
+    pub(crate) fn toggle_suggestion_details(&mut self) {
+        self.suggest_details = !self.suggest_details;
+        self.resolve_selected_completion();
     }
 
     /// Accept the selected item: its text (snippets expanded) replaces the
@@ -446,12 +482,24 @@ impl App {
     pub(crate) fn on_completion_resolved(
         &mut self,
         server: u32,
-        _seq: u64,
-        _label: &str,
+        seq: u64,
+        label: &str,
         apply_edits: bool,
         item: CompletionItem,
     ) {
         if !apply_edits {
+            // Documentation for the details panel.
+            if let Some(c) = self.completion.as_mut().filter(|c| c.seq == seq)
+                && let Some(it) = c.items.iter_mut().find(|it| it.label == label)
+            {
+                if item.documentation.is_some() {
+                    it.documentation = item.documentation;
+                }
+                if item.detail.is_some() {
+                    it.detail = item.detail;
+                }
+                self.needs_render = true;
+            }
             return;
         }
         let Some((_, _, d)) = self.active() else { return };
@@ -532,6 +580,23 @@ impl App {
         }
         self.hover = Some(HoverPopup { doc: d, lines });
     }
+}
+
+/// What the details panel beside the completion list shows for an item:
+/// its `detail` (signature) and its documentation as plain lines.
+pub fn completion_details(item: &CompletionItem) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(d) = item.detail.as_deref().filter(|d| !d.trim().is_empty()) {
+        out.extend(d.lines().map(str::to_string));
+    }
+    if let Some(doc) = &item.documentation {
+        let lines = markdown_to_lines(&yace_lsp::markup_text(doc));
+        if !lines.is_empty() && !out.is_empty() {
+            out.push(String::new());
+        }
+        out.extend(lines);
+    }
+    out
 }
 
 /// Markdown → plain lines for the hover popup (fences and emphasis

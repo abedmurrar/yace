@@ -659,3 +659,33 @@ fn real_workspace_memory_steps() {
     yace_app::mem::trim();
     report("after malloc_trim");
 }
+
+/// The details panel beside the completion list: the selected item's
+/// documentation, asked for with `completionItem/resolve` when the list
+/// didn't include it; hidden when there's no room, toggled from the
+/// palette (or Ctrl+Space with the enhanced keyboard protocol).
+#[test]
+fn completion_details_panel() {
+    if !have_python() {
+        return;
+    }
+    let f = fixture(&[("a.ts", "first\n")]);
+    let mut h = Harness::with_config(&config(&f.log, "", ""));
+    open_folder(&mut h, &f.root);
+    h.app.open_file(&f.root.join("a.ts"), false);
+    h.settle();
+    assert!(wait_running(&mut h));
+    h.key("ctrl+end");
+    h.type_text("x.gam");
+    assert!(h.wait_for(T, |h| h.app.completion.is_some()));
+    assert!(h.wait_for(T, |h| h.screen().contains("Gamma docs")), "docs resolved and shown:\n{}", h.screen());
+    // Too narrow for a panel beside the list: hidden, list still shown.
+    let narrow = h.render_at(40, 20);
+    let text: String = (0..20).map(|y| (0..40).map(|x| narrow[(x, y)].symbol()).collect::<String>() + "\n").collect();
+    assert!(text.contains("gamma") && !text.contains("Gamma docs"), "{text}");
+    // Toggle off and on.
+    h.key("ctrl+space");
+    assert!(!h.screen().contains("Gamma docs"), "Ctrl+Space hides the details");
+    h.command("toggleSuggestionDetails");
+    assert!(h.screen().contains("Gamma docs"));
+}
