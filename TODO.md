@@ -67,7 +67,7 @@ Legend:
 
 ### Open questions (spec §34, user decisions pending)
 - [x] Licence (§34.12) — **MIT OR Apache-2.0** (`LICENSE-MIT`, `LICENSE-APACHE`), decided 2026-11-03
-- [~] Contribution guidelines, maintainers, security reporting, plugin API governance (§34.12) — `CONTRIBUTING.md` and `SECURITY.md` written; maintainers, code of conduct and plugin API governance still open
+- [~] Contribution guidelines, maintainers, security reporting, plugin API governance (§34.12) — `CONTRIBUTING.md` and `SECURITY.md` written and current (v0.11.4); private vulnerability reporting on; rulesets: no force-push or deletion of `main`, release tags `v*` can't be moved or deleted (2026-11-09); maintainers, code of conduct and plugin API governance still open
 - [x] Policy for external Node-based language servers such as the TypeScript one (§2.2, §13.4, §34.7) — allowed as external tools, never bundled or installed, memory reported separately (D23)
 - [x] Plugin execution model: in-process C ABI; out-of-process left as an option (D28) (§18.9, §34.3)
 - [x] Plugin ABI scope for v1: `docs/plugins.md` → ABI reference (§34.4)
@@ -501,7 +501,7 @@ Legend:
 - [x] [M5] Resize propagates to the PTY (§3.3)
 - [x] [M5] Lifecycle: exit, failed spawn, crash, closing with a running process (confirm), app quit policy, broken pipe; no orphaned processes (§11.8)
 - [x] [M5] Session restore: layout and metadata only; never pretends a process survived (§4.9)
-- [x] [M5] Split terminal views — groups of panes side by side (`Ctrl+Shift+5` / `Alt+\`), per-pane PTY size, `Alt+arrows` focus and `Ctrl+Shift+Left/Right` or drag to resize (keys reach the shell when not split), one tab per group, unsplit, restored with the session — v0.10.0
+- [x] [M5] Split terminal views — groups of panes side by side (`Ctrl+Shift+5` / `Alt+\`), per-pane PTY size, `Alt+arrows` focus and `Ctrl+Shift+Left/Right` or drag to resize (keys reach the shell when not split), one tab per group, unsplit, restored with the session — v0.10.0; the focused pane is marked on the divider, which lights up on its side, instead of covering a cell — v0.11.4
 - [x] [M5] Terminal scrollback search — `Ctrl+F` bar (case, whole word, regex, count to 1000+), alacritty's regex DFAs on a worker in 1,000-line chunks so the PTY never stalls; the match is selected for copying — v0.10.0
 - [x] [M5] PTY integration tests: shell startup, input, ANSI, resize, alt screen, Ctrl+C, exit, high volume, scrollback limit, concurrency (§28.3)
 - [~] [M5] Manual: Claude Code runs correctly inside the integrated terminal (Workflow D) — awaiting the user's manual check
@@ -607,7 +607,7 @@ Legend:
 - [x] [M8] Commands: Extensions: Install from Package/Directory, Uninstall, Enable, Disable, Reload, List Installed, Show Performance, Show Plugin Views, and per plugin: Show Details (dependencies), Open Plugin Settings, Show Plugin Log (§18.14)
 - [x] [M8] Trust UI: identity, publisher, source, version, capabilities, external programs, code hashes, "not sandboxed"; explicit confirmation; changed or hand-copied code not loaded until approved (§18.9, §27.2)
 - [x] [M8] Docs say plainly that in-process plugins are not sandboxed (`docs/plugins.md`) (§33.11)
-- [x] [M8] SDK: `yace-plugin` (Plugin trait, Host, `export_plugin!` catching panics, `MockHost`), examples `plugins/hello` and `plugins/tasks` (Task Runner), `scripts/build_plugin.sh`, `yace --package-plugin`, API reference, release checklist (§18.15, §18.16)
+- [x] [M8] SDK: `yace-plugin` (Plugin trait, Host, `export_plugin!` catching panics, `MockHost`), examples `plugins/hello` and `plugins/tasks` (Task Runner), `scripts/build_plugin.sh` (also for crates outside the repository, v0.11.4), `yace --package-plugin`, API reference, release checklist (§18.15, §18.16)
 - [x] [M8] CLI: `--install-plugin [--yes]`, `--list-plugins`, `--package-plugin [-o]`, `--safe-mode`
 - [x] [M8] Crash diagnosis: per-process marker of active plugins; an abnormal exit is reported at the next start
 - [x] [M8] Hybrid grammars: `all-grammars` feature, runtime grammar/language registries in `yace-syntax`, `scripts/build_grammars.py` (package + licences), lazy load with hash check, re-highlighting of open files, one-time hint when missing; release workflow publishes the package
@@ -650,8 +650,8 @@ Legend:
 - [ ] [M10] Diagnostics report command (§26.5)
 
 ### Packaging (§25)
-- [ ] [M10] Release binaries for x86_64 and aarch64 Linux (§25.8)
-- [~] [M10] GitHub Releases: archives, checksums, licence, docs, release notes (§25.1) — automated in `release.yml`; untested until the repository exists
+- [x] [M10] Release binaries for x86_64 and aarch64 Linux (§25.8) — every release since v0.11.2
+- [~] [M10] GitHub Releases: archives, checksums, licence, docs, release notes (§25.1) — automated in `release.yml`; published for every release since v0.11.2
 - [x] [M10] Debian package (`cargo-deb`, `scripts/build_deb.sh`): built on Ubuntu 22.04 (glibc 2.35: Ubuntu 22.04+, Debian 12+), amd64 + arm64; man page, compressed docs, DEP-5 copyright, Debian changelog; lintian clean apart from `initial-upload-closes-no-bugs`; install, upgrade and removal tested in clean containers; removal keeps `~/.config/yace` — v0.11.1
 - [x] [M10] Signed APT repository (scoped `signed-by` keys) — `scripts/apt_repo.sh` (`apt-ftparchive`, `InRelease` + `Release.gpg`, ed25519 key `CBADDA04…BA26`, no expiry), published by the Pages workflow at `abedmurrar.github.io/yace/apt` from the latest release's `.deb` files; the key is the `APT_SIGNING_KEY` secret (backup with the owner) — v0.11.1
 - [~] [M10] Snap with classic confinement; submit for review; never claim approval until granted (§25.5, §25.6) — `snap/snapcraft.yaml` (core22, rust plugin, desktop entry, icon) and `.github/workflows/snap.yml` (amd64 + arm64; publishes with `SNAPCRAFT_STORE_CREDENTIALS`); name `yace` registered 2026-11-09; classic confinement review not yet requested
@@ -661,10 +661,12 @@ Legend:
 - [ ] [M10] Installation tests: install, launch, workspace, edit, terminal, plugins, config persistence, upgrade, removal, snap behaviour (§25.12)
 - [ ] [M10] No self-updater (§27.6)
 - [x] [M10] Credits and third-party licence notices: `CREDITS.md`, generated `THIRD_PARTY_LICENSES.md` (`scripts/third_party.py`, regenerated by `release.sh` and per target in `release.yml`), shipped in release archives; About dialog credits
-- [x] [M10] Desktop entry, icon and AppStream metadata (`packaging/linux/`, validated with `desktop-file-validate` and `appstreamcli`) in the `.deb` and the Snap — v0.11.3
+- [x] [M10] Desktop entry, icon and AppStream metadata (`packaging/linux/`, validated with `desktop-file-validate` and `appstreamcli`) in the `.deb` and the Snap — v0.11.3; one main menu category (Development), and `release.sh` adds each stable release to the metainfo — v0.11.4
 - [~] [M10] Include `THIRD_PARTY_LICENSES.md` / copyright file in the Debian package and Snap — in the Debian package (v0.11.1); Snap not done
 - [x] [M10] CHANGELOG process — `CHANGELOG.md` (Keep a Changelog), `scripts/release.sh`, annotated `vX.Y.Z` tags
 - [x] Documentation website (mdBook, site/; deploys with .github/workflows/pages.yml once the repo is public)
+- [x] README tour (GIF from the capture tool's `tour` scene via agg) and "How YACE compares" (README + site page, a source for every cell; `scripts/bench_compare.sh` measures Helix, Micro, Neovim and YACE in one container) — v0.11.4
+- [ ] Launch: Show HN, r/rust, r/commandline, awesome-ratatui, awesome-tuis, ratatui.rs showcase; awesome-rust after 50 stars (drafts prepared 2026-11-09; the owner posts)
 - [x] Website screenshots and recordings generated from the real release binary in a PTY (`site/capture/`: SVG stills, animated SVG recordings and asciicast v2 sources, in `site/src/media/`)
 
 ### Performance (§23)
@@ -691,6 +693,8 @@ Terminal (`scripts/bench_terminal.py`, 2026-11-03): editor RSS 6.4 MiB idle, 7.9
 Memory after Quick Open + a workspace search on a real 9-folder workspace (`scripts/bench_memory.py`, 2026-11-03): v0.2.1 defaults 20.0 MiB (peak 21.5 MiB) with search-as-you-type; with `.claude/worktrees` included 23.9 MiB; without heap trimming (`YACE_MALLOC_TRIM=0`, ≈ v0.2.0) 33.2 MiB. A 108 MiB report from an interactive v0.2.0 session was not reproduced.
 
 Search benchmarks (`cargo bench -p yace-search`, 2026-11-03, i5-1135G7): Quick Open query over 200k paths 9–19 ms (parallel, top-200); walk of this repo 1.5 ms; content search of this repo 3.5 ms. After M4, startup 5.4 ms median and 6.4 MiB at first frame (indexing is lazy).
+
+Comparison (v0.11.4, 2026-11-09, i5-1135G7). `scripts/bench_compare.sh`: one Ubuntu 24.04 container, defaults, no language server, the 2,567-line `crates/yace/src/ui.rs` in a 120×34 tmux pane, median of 5 runs. First frame / idle PSS: YACE 0.11.3 12 ms / 16.8 MiB, Helix 25.07.1 286 ms / 26.3 MiB, Micro 2.0.15 49 ms / 18.8 MiB, Neovim 0.12.6 58 ms / 14.0 MiB.
 
 Leftovers batch 2, search (v0.9.0, 2026-11-09, i5-1135G7, on `~/Dev/node`: 44,100 files, 3,300–4,000 folders). `cargo run --release --example bench_batch2 -- ~/Dev/node`:
 - **Narrowing a search** ("process.nextTic" → "process.nextTick"): a whole walk 183–259 ms → only the 368 files that matched 25–28 ms. Those files are 22 MB, one of them 10.5 MB.
