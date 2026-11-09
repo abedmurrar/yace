@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.88"
 authors = ["Abed Murrar", "YACE contributors"]
 license = "MIT OR Apache-2.0"
-# repository = "https://github.com/<owner>/yace"   # set once the GitHub repository exists
+repository = "https://github.com/abedmurrar/yace"
 keywords = ["editor", "terminal", "tui", "multi-root", "ide"]
 categories = ["text-editors", "command-line-utilities"]
 
