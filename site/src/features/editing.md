@@ -1,7 +1,8 @@
 # Editing
 
 **Editing works like VS Code: no modes, the same shortcuts, multiple
-cursors, and saves that never corrupt a file.**
+cursors, and saves that never corrupt a file.** Prefer Vim's modes? See
+[Vim keys](#vim-keys).
 
 ![Multiple cursors: Ctrl+D adds the next match, then typing changes them all](../media/multi-cursor.anim.svg)
 
@@ -73,3 +74,26 @@ group (`Ctrl+K Ctrl+M`), and resizing with the mouse.
 
 See the [editor keys](../docs/keybindings.md#editor-editorfocus) for the
 full list.
+
+## Vim keys
+
+The [Vim plugin](https://github.com/abedmurrar/yace-vim) adds Normal,
+Insert, Visual and Visual Line modes to every editor:
+
+```sh
+yace --install-plugin io.github.abedmurrar.yace-vim
+```
+
+- Motions, operators and text objects (`dw`, `ci"`, `yap`, `>j`), counts,
+  registers (`"a`, `"_`), `.`, macros (`qa` … `q`, `@a`), `/` and `?`
+  search with `n`, `*`, and `:w`, `:q`, `:wq`, `:%s/old/new/g`.
+- The status bar shows the mode; the cursor is a block in Normal mode and a
+  bar in Insert mode.
+- Insert mode is YACE's own typing: completion, auto-closing brackets and
+  snippets work as usual.
+- YACE's shortcuts keep working next to it (`Ctrl+P`, `Ctrl+Shift+P`,
+  `Ctrl+S`, `Ctrl+B`, `Ctrl+F`, `` Ctrl+` ``). "Vim: Toggle Vim Keys" turns
+  it off and on.
+
+Not covered yet: Vim script and `.vimrc`, marks, the `"+` register (use
+`Ctrl+C`/`Ctrl+V`), regular expressions in search, and block Visual mode.

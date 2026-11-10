@@ -29,7 +29,9 @@ Security, Performance.
 
 ### Changed
 
-- The README lists crash recovery and the ESLint and Biome plugins.
+- The README lists crash recovery and the ESLint and Biome plugins; the
+  website's getting-started, editing and keybindings pages show how to get
+  Vim keys.
 
 ## [0.14.0] - 2026-11-10
 

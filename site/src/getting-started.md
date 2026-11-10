@@ -49,6 +49,13 @@ Workspace…" adds another folder to the current one. See
 
 The [Keybindings](docs/keybindings.md) reference lists every default.
 
+**Prefer Vim?** Install the Vim plugin for Normal, Insert and Visual modes;
+the shortcuts above keep working next to it:
+
+```sh
+yace --install-plugin io.github.abedmurrar.yace-vim
+```
+
 ## If a shortcut doesn't work
 
 Terminals don't all send the same keys. Many (GNOME Terminal, Konsole,

@@ -6,7 +6,7 @@ screenshots and short recordings made from the real editor.
 
 | Area | Highlights |
 |---|---|
-| [Editing](editing.md) | multiple cursors, word-wise undo, auto-indent and brackets, safe saving, tabs and splits |
+| [Editing](editing.md) | multiple cursors, word-wise undo, auto-indent and brackets, safe saving, tabs and splits, Vim keys (plugin) |
 | [Explorer](explorer.md) | one tree per workspace folder, file operations, Git status, file icons |
 | [Quick Open and search](search.md) | fuzzy file search, Command Palette, search and replace across folders with a preview |
 | [Integrated terminal](terminal.md) | shells per folder, tabs, split panes, find in the scrollback, profiles |
