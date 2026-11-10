@@ -54,6 +54,29 @@
           "sha256": "bb978ccaf8fdb911bde12b0b9fba3f491928be56168113837e10a96bbd123cac"
         }
       ]
+    },
+    {
+      "id": "io.github.abedmurrar.yace-vim",
+      "name": "Vim",
+      "version": "0.1.0",
+      "description": "Vim keys in YACE: Normal, Insert and Visual modes, motions, operators, text objects, counts, registers, . repeat, macros, / search and :w :q :%s",
+      "publisher": "Abed Murrar",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/abedmurrar/yace-vim",
+      "yace": ">=0.15",
+      "code": true,
+      "packages": [
+        {
+          "target": "linux-aarch64",
+          "url": "https://github.com/abedmurrar/yace-vim/releases/download/v0.1.0/yace-vim-0.1.0-linux-aarch64.tar.gz",
+          "sha256": "4c2a5209470367c778e20ab68cf862f56f5c6951410d9f1417a524499a2c5295"
+        },
+        {
+          "target": "linux-x86_64",
+          "url": "https://github.com/abedmurrar/yace-vim/releases/download/v0.1.0/yace-vim-0.1.0-linux-x86_64.tar.gz",
+          "sha256": "d09a2084bf0adbc182f0ca63a40496a95786346cdffadadfc7b37a72d43cd3d6"
+        }
+      ]
     }
   ]
 }
