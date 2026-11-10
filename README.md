@@ -111,7 +111,9 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
   Byte-exact line endings (LF, CRLF and mixed files are preserved). UTF-8
   with or without BOM. Binary and invalid-UTF-8 files are refused rather
   than corrupted. External changes are detected: clean buffers reload, dirty
-  ones ask. Large files get a reduced-feature mode.
+  ones ask. Large files get a reduced-feature mode. Unsaved work survives a
+  crash or a closed terminal: it's backed up a second after each edit and
+  reopened, still unsaved, on the next start.
 - **Tabs and splits.** Preview tabs, reopen closed, MRU switching, split
   right/down, move editors between groups, maximise, and resizing by mouse.
 - **Settings.** Layered: defaults < `~/.config/yace/config.toml` <
@@ -167,7 +169,10 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
   install (`rust-analyzer`, `typescript-language-server`, `gopls`, …); YACE
   starts them on demand, one per workspace folder, and never installs
   anything. Node-based servers are external tools: their memory is
-  reported separately ("Developer: Show Running Language Servers").
+  reported separately ("Developer: Show Running Language Servers"). A file
+  can have several servers: the [ESLint](https://github.com/abedmurrar/yace-eslint)
+  and [Biome](https://github.com/abedmurrar/yace-biome) plugins add their
+  problems and fixes next to TypeScript's.
 
 ## Documentation
 

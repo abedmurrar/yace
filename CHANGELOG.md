@@ -13,6 +13,10 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Changed
+
+- The README lists crash recovery and the ESLint and Biome plugins.
+
 ## [0.14.0] - 2026-11-10
 
 ### Added
