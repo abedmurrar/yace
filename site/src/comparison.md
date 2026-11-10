@@ -10,7 +10,7 @@ date, please [open an issue](https://github.com/abedmurrar/yace/issues).
 | | YACE | Helix | Micro | Neovim | VS Code |
 |---|---|---|---|---|---|
 | Runs in | terminal | terminal | terminal | terminal | desktop window (Electron) |
-| Keys | VS Code's | modal (Vim-like)[^hx-modal] | Ctrl+S, Ctrl+C…[^mi-keys] | modal (Vim) | VS Code's |
+| Keys | VS Code's, or Vim's with a plugin | modal (Vim-like)[^hx-modal] | Ctrl+S, Ctrl+C…[^mi-keys] | modal (Vim) | VS Code's |
 | Opens `.code-workspace` files (multi-root) | yes | no | no | no | yes[^vsc-multi] |
 | Language servers | built in | built in[^hx-readme] | plugin[^mi-plugins] | built in[^nv-lsp] | built in |
 | Syntax highlighting | tree-sitter | tree-sitter[^hx-readme] | regex (YAML files)[^mi-syntax] | tree-sitter[^nv-ts] or regex | TextMate grammars[^vsc-syntax] |
@@ -21,8 +21,10 @@ date, please [open an issue](https://github.com/abedmurrar/yace/issues).
 | Memory when idle[^bench] | 16.8 MiB | 26.3 MiB | 18.8 MiB | 14.0 MiB | — |
 
 **When another editor fits better.**
-- If you like modal editing, Helix and Neovim are built around it, and
-  YACE isn't.
+- If you like modal editing, Helix and Neovim are built around it. YACE's
+  [Vim plugin](https://github.com/abedmurrar/yace-vim) covers everyday Vim
+  (modes, motions, operators, text objects, registers, `.`, macros, `/`,
+  `:w`), not Vim script or Neovim's plugins.
 - Neovim has a far larger plugin ecosystem, and it used slightly less
   memory than YACE in this measurement.
 - VS Code runs extensions written for it, debugs programs and works on

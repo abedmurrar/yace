@@ -224,7 +224,7 @@ Validated before any code is loaded; every problem is reported.
 | `os`, `arch` | [string] | e.g. `["linux"]`, `["x86_64", "aarch64"]`; empty = any |
 | `library` | string | the plugin library, relative to the plugin folder; omit for data-only plugins (themes, grammars) |
 | `activation` | [string] | `onCommand:<id>`, `onLanguage:<language>`, `onView:<view>`, `workspaceContains:<path>`, `onEvent:<event>`, `onQuickOpen:<prefix>`, `onStartupFinished`, `*`. A plugin's own commands, views and Quick Open prefixes activate it without being listed |
-| `capabilities` | [string] | `workspace.read`, `documents.read`, `documents.write`, `terminal`, `process`, `network`, `filesystem` |
+| `capabilities` | [string] | `workspace.read`, `documents.read`, `documents.write`, `terminal`, `process`, `network`, `filesystem`, `keyboard` (see editor keys first: modal editing), `editor.selections` (move the cursor and selection) |
 | `events` | [string] | events delivered to `on_event`: `workspaceOpened`, `workspaceClosed`, `rootAdded`, `rootRemoved`, `documentOpened`, `documentClosed`, `documentSaved`, `documentChanged`, `activeDocumentChanged`, `selectionChanged`, `themeChanged`, `terminalCreated`, `terminalExited`, `configurationChanged`, `gitStatusChanged` (`{repo, roots, branch}`) |
 | `unloadable` | bool | the library may be unloaded and loaded again in one session (default false: an updated plugin's code loads after a restart) |
 | `[[commands]]` | `id`, `title`, `category`, `palette` | ids must be namespaced and must not start with `workbench.`, `editor.`, `yace.`, `explorer.`, `search.` or `terminal.` |
@@ -317,12 +317,31 @@ The contract is `crates/yace-plugin-api` (Rust) and
 - **Errors.** Every host function returns a status; `last_error` describes
   the last failure (valid until the next call). Codes: `OK`, `FAILED`,
   `ABI`, `INVALID`, `NOT_FOUND`, `STALE` (document changed), `DENIED`
-  (capability not declared), `UNSUPPORTED`, `CANCELLED`, `PANIC`.
+  (capability not declared), `UNSUPPORTED`, `CANCELLED`, `PANIC`, and
+  `PASS` (an `on_key` answer: not handled).
 - **Unwinding** across the boundary is forbidden; the SDK catches panics
   and returns `YACE_E_PANIC`.
 - **Lifetimes.** `deactivate` then `destroy` run when the plugin is
   disabled, uninstalled or the editor exits. The library stays mapped for
   the rest of the session unless the manifest says `unloadable = true`.
+
+### Modal editing (YACE 0.15)
+
+Three host functions and one callback, appended to version 1, let a plugin
+implement modal editing such as Vim
+([yace-vim](https://github.com/abedmurrar/yace-vim)). Check `host->size`
+before calling them (the SDK's `Host::has_editor_control`); an older YACE
+doesn't have them.
+
+| | |
+|---|---|
+| `capture_keys(on)` | needs `keyboard`. While on, every key typed in an editor goes to `on_key` first (not in popups such as the Command Palette, the terminal, or the middle of a chord) |
+| `on_key(key)` | `{"key": "ctrl+r", "text": "r", "popup": false}`: `key` in keybinding syntax, `text` what it would type (or `null`), `popup` whether completion, hover or parameter hints are open. Return `YACE_OK` if handled, `YACE_PASS` to let YACE handle it (typing, keybindings) |
+| `set_selections(doc, version, json)` | needs `editor.selections`. `[{"anchor": n, "head": n}, …]` in chars, the first is the primary; fails with `STALE` if the document changed |
+| `set_cursor_style(style)` | `"block"`, `"bar"`, `"underline"` or `"default"` (the user's). Reset when the plugin stops |
+
+`active_document` also reports `visibleLines` (`{"first", "last"}`, the
+lines on screen), `tabSize` and `insertSpaces`.
 
 **Compatibility policy.** The plugin ABI is versioned separately from
 YACE's version ([releasing.md](releasing.md)): adding host functions or

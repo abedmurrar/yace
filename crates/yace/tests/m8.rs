@@ -27,7 +27,17 @@ fn built_lib(name: &str) -> PathBuf {
     let dir = BUILT.get_or_init(|| {
         let root = workspace_root();
         let st = std::process::Command::new(env!("CARGO"))
-            .args(["build", "-p", "yace-plugin-hello", "-p", "yace-plugin-tasks", "-p", "yace-plugin-test-misbehave"])
+            .args([
+                "build",
+                "-p",
+                "yace-plugin-hello",
+                "-p",
+                "yace-plugin-tasks",
+                "-p",
+                "yace-plugin-test-misbehave",
+                "-p",
+                "yace-plugin-test-keys",
+            ])
             .current_dir(&root)
             .status()
             .unwrap();
@@ -583,4 +593,138 @@ fn install_plugin_by_id_from_the_command_line() {
     let out = run("dev.yace.missing");
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("not a file, a folder or a plugin in the index"));
+}
+
+/// Key capture (modal editing): the plugin sees editor keys first, moves
+/// the cursor, sets the cursor shape, and lets the keys it doesn't want
+/// through. Stopping the plugin gives everything back.
+#[test]
+fn a_plugin_can_capture_keys_move_the_cursor_and_shape_it() {
+    let ws = tempfile::tempdir().unwrap();
+    std::fs::write(ws.path().join("a.txt"), "abc\n").unwrap();
+    let mut h = Harness::new();
+    open_folder(&mut h, ws.path());
+    let staged = stage("test-keys", "yace_plugin_test_keys");
+    install(&mut h, staged.path());
+    h.app.open_file(&ws.path().join("a.txt"), false);
+    h.settle();
+    let summary = {
+        let plugins = h.paths().config_dir.join("plugins");
+        let plan =
+            store::plan_install(&plugins.join("dev.yace.test-keys"), &plugins, yace_app::app::App::yace_version())
+                .unwrap();
+        yace_app::plugin_cli::trust_summary(&plan).join("\n")
+    };
+    assert!(summary.contains("(keyboard)") && summary.contains("(editor.selections)"), "{summary}");
+
+    h.app.execute("testkeys.on", None);
+    h.settle();
+    assert_eq!(state(&h, "dev.yace.test-keys"), PluginState::Active);
+    assert_eq!(h.app.cursor_style, 2, "block cursor");
+    h.key("x");
+    assert_eq!(h.active_text(), "bc\n", "x deleted a char instead of typing");
+    h.key("l");
+    h.type_text("Z"); // not handled: typed as usual, where the plugin put the cursor
+    assert_eq!(h.active_text(), "bZc\n");
+    // Keybindings it passes on still work.
+    h.key("ctrl+a");
+    let sel = h.app.layout.active_group().active_view().unwrap().sel.primary();
+    assert_eq!((sel.from(), sel.to()), (0, 4), "Select All");
+    h.key("right");
+    // `i` stops capturing: `x` types again.
+    h.key("i");
+    assert_eq!(h.app.cursor_style, 6, "bar cursor");
+    h.key("x");
+    assert!(h.active_text().contains('x'), "{}", h.active_text());
+
+    // Disabling the plugin while it captures restores keys and the cursor.
+    h.app.execute("testkeys.on", None);
+    h.settle();
+    assert_eq!(h.app.cursor_style, 2);
+    h.app.execute("yace.extensions.disable", None);
+    h.type_text("Keys Test");
+    h.key("enter");
+    h.settle();
+    assert_eq!(h.app.cursor_style, 0, "the user's cursor again");
+    let before = h.active_text();
+    h.key("x");
+    assert_ne!(h.active_text(), before, "x types again");
+}
+
+/// The real Vim plugin (`YACE_TEST_VIM=<plugin folder with lib/>`, built
+/// from github.com/abedmurrar/yace-vim): modes, operators, the cursor shape
+/// and the status bar, in the editor.
+#[test]
+fn real_vim_plugin() {
+    let Ok(dir) = std::env::var("YACE_TEST_VIM") else { return };
+    let ws = tempfile::tempdir().unwrap();
+    std::fs::write(ws.path().join("a.txt"), "foo bar baz\nsecond line\n").unwrap();
+    let mut h = Harness::new();
+    open_folder(&mut h, ws.path());
+    install(&mut h, Path::new(&dir));
+    h.settle();
+    assert_eq!(state(&h, "io.github.abedmurrar.yace-vim"), PluginState::Active, "starts on its own");
+    h.app.open_file(&ws.path().join("a.txt"), false);
+    h.settle();
+    assert_eq!(h.app.cursor_style, 2, "block cursor in Normal mode");
+    assert!(h.screen().contains("NORMAL"), "{}", h.screen());
+
+    h.type_text("dw");
+    assert_eq!(h.active_text(), "bar baz\nsecond line\n");
+    h.type_text("ciwqux");
+    assert!(h.screen().contains("-- INSERT --"));
+    assert_eq!(h.app.cursor_style, 6, "bar cursor in Insert mode");
+    h.key("escape");
+    assert_eq!(h.active_text(), "qux baz\nsecond line\n");
+    assert!(h.screen().contains("NORMAL"), "{}\n{}", h.screen(), log(&h, "io.github.abedmurrar.yace-vim"));
+    h.type_text("jdd");
+    assert_eq!(h.active_text(), "qux baz\n");
+    h.type_text("u");
+    h.settle();
+    assert_eq!(h.active_text(), "qux baz\nsecond line\n", "u is the editor's undo");
+    h.type_text("ggVjd");
+    assert_eq!(h.active_text(), "");
+    h.type_text("u");
+    h.settle();
+    // Editor shortcuts still work in Normal mode.
+    h.key("ctrl+p");
+    assert!(
+        h.screen().contains("Go to File")
+            || matches!(h.app.overlays.last(), Some(yace_app::overlay::Overlay::Picker(_))),
+        "{}",
+        h.screen()
+    );
+    h.key("escape");
+    // :w saves.
+    h.type_text("ggA!");
+    h.key("escape");
+    h.type_text(":w");
+    h.key("enter");
+    h.settle();
+    assert!(
+        std::fs::read_to_string(ws.path().join("a.txt")).unwrap().starts_with("qux baz!"),
+        "text {:?}, file {:?}\n{}\n{}",
+        h.active_text(),
+        std::fs::read_to_string(ws.path().join("a.txt")).unwrap(),
+        h.screen(),
+        log(&h, "io.github.abedmurrar.yace-vim")
+    );
+    // What a key costs in the plugin (Extensions: Show Performance).
+    let i = h.app.plugins.find("io.github.abedmurrar.yace-vim").unwrap();
+    if let Some(st) =
+        h.app.plugins.entries[i].loaded.as_ref().and_then(|l| l.stats.get(&yace_plugin_host::Callback::Key))
+    {
+        eprintln!(
+            "vim keys: {} calls, {:.1} µs average, {:.1} µs max",
+            st.calls,
+            st.total.as_secs_f64() * 1e6 / st.calls as f64,
+            st.max.as_secs_f64() * 1e6
+        );
+    }
+    // Toggling it off gives the keys back.
+    h.command("vim.toggle");
+    h.settle();
+    assert_eq!(h.app.cursor_style, 0);
+    h.type_text("x");
+    assert!(h.active_text().contains('x'), "{}", h.active_text());
 }

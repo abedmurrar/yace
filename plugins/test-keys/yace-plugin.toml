@@ -1,0 +1,13 @@
+# Test fixture (crates/yace/tests/m8.rs). A two-mode editor in a few lines:
+# "Modal On" captures keys; then `x` deletes the char under the cursor,
+# `l` moves right, `i` stops capturing (insert), and other keys pass.
+id = "dev.yace.test-keys"
+name = "Keys Test Plugin"
+version = "0.1.0"
+yace = ">=0.14"
+library = "lib/libyace_plugin_test_keys.so"
+capabilities = ["documents.read", "documents.write", "keyboard", "editor.selections"]
+
+[[commands]]
+id = "testkeys.on"
+title = "Modal On"

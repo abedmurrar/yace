@@ -343,6 +343,10 @@ impl App {
     /// Deactivate a plugin, cancel its jobs and remove what it showed.
     pub(crate) fn stop_plugin(&mut self, i: usize, state: PluginState) {
         self.plugins.jobs.cancel_plugin(i);
+        if self.plugins.key_capture == Some(i) {
+            self.plugins.key_capture = None;
+            let _ = self.set_cursor_style("default");
+        }
         if self.plugins.entries.get(i).is_some_and(|e| e.loaded.is_some()) {
             let r = plugins::call(self, i, |l| l.shutdown());
             if let Some(d) = r {
@@ -920,13 +924,72 @@ impl App {
             .group(g)
             .map(|gr| gr.views[v].sel.ranges().iter().map(|r| json!({"anchor": r.anchor, "head": r.head})).collect())
             .unwrap_or_default();
+        let first = self.layout.group(g).map(|gr| gr.views[v].scroll_line).unwrap_or(0);
+        let height = self.active_view_height().max(1);
+        let opts = self.edit_options(d);
         json!({
             "doc": d,
             "version": doc.version(),
             "path": doc.path().map(|p| p.display().to_string()),
             "language": self.syntax.language(d).id,
             "selections": sels,
+            // Added in YACE 0.15: the lines on screen, and indentation.
+            "visibleLines": { "first": first, "last": first + height - 1 },
+            "tabSize": opts.tab_width,
+            "insertSpaces": opts.insert_spaces,
         })
+    }
+
+    /// `set_selections` from a plugin: on the active editor if it shows
+    /// `doc`, else on the first editor that does.
+    pub(crate) fn plugin_set_selections(
+        &mut self,
+        doc: u64,
+        version: u64,
+        sels: &[(u64, u64)],
+    ) -> Result<(), (YaceStatus, String)> {
+        let d = u32::try_from(doc).map_err(|_| (YACE_E_NOT_FOUND, "no such document".to_string()))?;
+        let (len, current) = match self.docs.doc(d) {
+            Some(x) => (x.rope().len_chars() as u64, x.version()),
+            None => return Err((YACE_E_NOT_FOUND, "no such document".into())),
+        };
+        if current != version {
+            return Err((YACE_E_STALE, format!("the document is at version {current}, not {version}")));
+        }
+        if sels.is_empty() || sels.iter().any(|&(a, h)| a > len || h > len) {
+            return Err((yace_plugin_api::YACE_E_INVALID, format!("selections must be within 0..{len}")));
+        }
+        let (g, v) = match self.active() {
+            Some((g, v, ad)) if ad == d => (g, v),
+            _ => *self.layout.views_of(d).first().ok_or((YACE_E_NOT_FOUND, "no editor shows it".to_string()))?,
+        };
+        let ranges: Vec<yace_buffer::Range> =
+            sels.iter().map(|&(a, h)| yace_buffer::Range::new(a as usize, h as usize)).collect();
+        self.set_view_selection(g, v, yace_buffer::Selection::new(ranges, 0));
+        self.reveal_cursor = true;
+        self.needs_render = true;
+        Ok(())
+    }
+
+    /// Give a captured key to the plugin that asked for keys. True if it
+    /// handled it.
+    pub(crate) fn plugin_key(&mut self, i: usize, key: &yace_keymap::KeyPress, ch: Option<char>) -> bool {
+        if self.plugins.entries.get(i).is_none_or(|e| e.state != PluginState::Active) {
+            self.plugins.key_capture = None;
+            return false;
+        }
+        let text = key.text_char(ch).map(String::from);
+        let popup = self.completion.is_some() || self.hover.is_some() || self.signature.is_some();
+        // Keybinding syntax, as in keybindings.toml: "ctrl+r", "escape".
+        let json = json!({ "key": key.to_string().to_lowercase(), "text": text, "popup": popup }).to_string();
+        let Some((status, took)) = plugins::call(self, i, |l| l.key(&json)) else { return false };
+        self.after_call(i, if status == yace_plugin_api::YACE_PASS { YACE_OK } else { status }, took, "key");
+        let handled = status == YACE_OK;
+        if handled {
+            self.run_deferred_plugin_commands();
+            self.needs_render = true;
+        }
+        handled
     }
 
     pub(crate) fn plugin_document_text(&self, doc: u64, start: u64, end: u64) -> Result<String, String> {

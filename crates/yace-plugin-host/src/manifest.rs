@@ -24,6 +24,8 @@ pub const CAPABILITIES: &[(&str, &str)] = &[
     ("process", "start programs"),
     ("network", "use the network"),
     ("filesystem", "read and write files"),
+    ("keyboard", "see the keys you type in an editor first and decide what they do (modal editing such as Vim)"),
+    ("editor.selections", "move the cursor and the selection"),
 ];
 
 /// Activation events (spec §18.6).

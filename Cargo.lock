@@ -3710,6 +3710,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "yace-plugin-test-keys"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "yace-plugin",
+]
+
+[[package]]
 name = "yace-plugin-test-misbehave"
 version = "0.1.0"
 dependencies = [

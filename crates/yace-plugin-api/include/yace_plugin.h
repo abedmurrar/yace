@@ -33,6 +33,8 @@ typedef int32_t YaceStatus;
 #define YACE_E_UNSUPPORTED 7
 #define YACE_E_CANCELLED 8
 #define YACE_E_PANIC 9
+/* on_key: not handled, YACE handles the key as usual. */
+#define YACE_PASS 10
 
 #define YACE_LEVEL_DEBUG 0u
 #define YACE_LEVEL_INFO 1u
@@ -81,6 +83,10 @@ typedef struct YaceHost {
     YaceStatus (*spawn_job)(YaceHostCtx *ctx, YaceJobFn job, void *data, YaceHandle *out);
     bool (*job_cancelled)(YaceHostCtx *ctx, YaceHandle job);
     YaceStatus (*post_message)(YaceHostCtx *ctx, YaceStr data);
+    /* Added in YACE 0.15: check `size` before calling. */
+    YaceStatus (*set_selections)(YaceHostCtx *ctx, YaceHandle doc, uint64_t version, YaceStr sels);
+    YaceStatus (*set_cursor_style)(YaceHostCtx *ctx, YaceStr style);
+    YaceStatus (*capture_keys)(YaceHostCtx *ctx, bool on);
 } YaceHost;
 
 /* Every callback may be NULL. */
@@ -96,6 +102,8 @@ typedef struct YacePlugin {
     YaceStatus (*on_view_action)(void *instance, YaceStr view, YaceStr item, YaceStr action);
     YaceStatus (*on_quick_open)(void *instance, YaceStr provider, YaceStr query, uint64_t request);
     void (*destroy)(void *instance);
+    /* Added in YACE 0.15. */
+    YaceStatus (*on_key)(void *instance, YaceStr key);
 } YacePlugin;
 
 /* Export this. Write at most out->size bytes; set out->size to what you wrote. */

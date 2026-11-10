@@ -1,0 +1,16 @@
+[package]
+name = "yace-plugin-test-keys"
+description = "Test fixture: a tiny modal plugin for the key-capture, selection and cursor-style host functions"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+yace-plugin.workspace = true
+serde_json.workspace = true

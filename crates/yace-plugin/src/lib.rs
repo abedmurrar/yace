@@ -104,7 +104,7 @@ pub struct Selection {
 }
 
 /// The active editor's document.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
 pub struct ActiveDocument {
     pub doc: u64,
     pub version: u64,
@@ -112,6 +112,34 @@ pub struct ActiveDocument {
     pub language: String,
     #[serde(default)]
     pub selections: Vec<Selection>,
+    /// The lines on screen (YACE ≥ 0.15).
+    #[serde(default, rename = "visibleLines")]
+    pub visible_lines: Option<VisibleLines>,
+    /// Indentation settings for the file (YACE ≥ 0.15).
+    #[serde(default, rename = "tabSize")]
+    pub tab_size: Option<u32>,
+    #[serde(default, rename = "insertSpaces")]
+    pub insert_spaces: Option<bool>,
+}
+
+/// First and last line (0-based) shown in the editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub struct VisibleLines {
+    pub first: u64,
+    pub last: u64,
+}
+
+/// A key typed in an editor while [`Host::capture_keys`] is on.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Key {
+    /// In keybinding syntax: `"x"`, `"shift+a"`, `"ctrl+r"`, `"escape"`.
+    pub key: String,
+    /// What it would type, if anything (`"A"`, `"$"`).
+    #[serde(default)]
+    pub text: Option<String>,
+    /// A completion, hover or parameter-hint popup is open.
+    #[serde(default)]
+    pub popup: bool,
 }
 
 /// Replace chars `start..end` with `text`.
@@ -307,6 +335,47 @@ impl Host {
         self.check((h.apply_edits)(h.ctx, doc, version, s(&json)))
     }
 
+    /// Whether the editor has the functions added in YACE 0.15
+    /// (`set_selections`, `set_cursor_style`, `capture_keys`).
+    pub fn has_editor_control(&self) -> bool {
+        self.h().size as usize >= std::mem::size_of::<YaceHost>()
+    }
+
+    fn need_editor_control(&self) -> Result<()> {
+        if self.has_editor_control() {
+            Ok(())
+        } else {
+            Err(Error { status: YACE_E_UNSUPPORTED, message: "this YACE is too old (needs 0.15 or later)".into() })
+        }
+    }
+
+    /// Set the selections of the editor showing `doc` (`(anchor, head)` in
+    /// chars; the first is the primary, the cursor is at `head`). Needs
+    /// the `editor.selections` capability.
+    pub fn set_selections(&self, doc: u64, version: u64, sels: &[(u64, u64)]) -> Result<()> {
+        self.need_editor_control()?;
+        let list: Vec<Selection> = sels.iter().map(|&(anchor, head)| Selection { anchor, head }).collect();
+        let json = serde_json::to_string(&list).map_err(|e| Error::new(e.to_string()))?;
+        let h = self.h();
+        self.check((h.set_selections)(h.ctx, doc, version, s(&json)))
+    }
+
+    /// The terminal cursor's shape: `"block"`, `"bar"`, `"underline"` or
+    /// `"default"`.
+    pub fn set_cursor_style(&self, style: &str) -> Result<()> {
+        self.need_editor_control()?;
+        let h = self.h();
+        self.check((h.set_cursor_style)(h.ctx, s(style)))
+    }
+
+    /// While on, keys typed in an editor go to [`Plugin::key`] first. Needs
+    /// the `keyboard` capability.
+    pub fn capture_keys(&self, on: bool) -> Result<()> {
+        self.need_editor_control()?;
+        let h = self.h();
+        self.check((h.capture_keys)(h.ctx, on))
+    }
+
     pub fn open_file(&self, path: &str, line: u32, column: u32) -> Result<()> {
         let h = self.h();
         self.check((h.open_file)(h.ctx, s(path), line, column))
@@ -445,6 +514,11 @@ pub trait Plugin: Sized + 'static {
     }
     /// Quick Open with the plugin's prefix; answer with
     /// [`Host::quick_open_results`] (now or later, using `request`).
+    /// A key typed in an editor while [`Host::capture_keys`] is on. Return
+    /// true if handled (YACE then does nothing with it).
+    fn key(&mut self, _key: &Key) -> bool {
+        false
+    }
     fn quick_open(&mut self, _provider: &str, _query: &str, _request: u64) -> Result<()> {
         Err(Error::unsupported())
     }
@@ -535,6 +609,21 @@ extern "C" fn cb_quick_open<T: Plugin>(
     let (provider, query) = unsafe { (str_of(provider), str_of(query)) };
     guard::<T>(inst, |p| p.quick_open(provider, query, request))
 }
+extern "C" fn cb_key<T: Plugin>(inst: *mut c_void, key: YaceStr) -> YaceStatus {
+    // SAFETY: borrowed for the call.
+    let key = unsafe { str_of(key) };
+    let Ok(key) = serde_json::from_str::<Key>(key) else { return YACE_E_INVALID };
+    let mut handled = false;
+    let st = guard::<T>(inst, |p| {
+        handled = p.key(&key);
+        Ok(())
+    });
+    match st {
+        YACE_OK if handled => YACE_OK,
+        YACE_OK => yace_plugin_api::YACE_PASS,
+        other => other,
+    }
+}
 extern "C" fn cb_destroy<T: Plugin>(inst: *mut c_void) {
     if !inst.is_null() {
         // SAFETY: created in `__init`, destroyed once.
@@ -577,6 +666,7 @@ pub unsafe fn __init<T: Plugin>(abi: u32, host: *const YaceHost, out: *mut YaceP
         on_view_action: Some(cb_view_action::<T>),
         on_quick_open: Some(cb_quick_open::<T>),
         destroy: Some(cb_destroy::<T>),
+        on_key: Some(cb_key::<T>),
     };
     // Write at most the size the editor knows (ABI rule).
     // SAFETY: `out` points to at least `out.size` writable bytes.

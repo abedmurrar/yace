@@ -68,6 +68,8 @@ pub const YACE_E_UNSUPPORTED: YaceStatus = 7;
 pub const YACE_E_CANCELLED: YaceStatus = 8;
 /// The plugin panicked (set by the SDK).
 pub const YACE_E_PANIC: YaceStatus = 9;
+/// `on_key`: the plugin did not handle the key; YACE handles it as usual.
+pub const YACE_PASS: YaceStatus = 10;
 
 /// Log / notification levels.
 pub const YACE_LEVEL_DEBUG: u32 = 0;
@@ -189,6 +191,20 @@ pub struct YaceHost {
     /// Deliver `data` to the plugin's `on_message` on the UI thread. Any
     /// thread.
     pub post_message: extern "C" fn(ctx: *mut YaceHostCtx, data: YaceStr) -> YaceStatus,
+
+    // --- Added in YACE 0.15 (check `size` before calling) ------------------
+    /// Set the selections of the editor showing `doc` (the active one if it
+    /// shows it): `[{"anchor": n, "head": n}, …]` in char offsets, the first
+    /// is the primary; the cursor is at `head`. Fails if the document is no
+    /// longer at `version`. Needs `editor.selections`.
+    pub set_selections:
+        extern "C" fn(ctx: *mut YaceHostCtx, doc: YaceHandle, version: u64, sels: YaceStr) -> YaceStatus,
+    /// The terminal cursor's shape: `"block"`, `"bar"`, `"underline"` or
+    /// `"default"` (the user's).
+    pub set_cursor_style: extern "C" fn(ctx: *mut YaceHostCtx, style: YaceStr) -> YaceStatus,
+    /// While on, every key typed in an editor goes to `on_key` first (modal
+    /// editing). Needs `keyboard`.
+    pub capture_keys: extern "C" fn(ctx: *mut YaceHostCtx, on: bool) -> YaceStatus,
 }
 
 /// Callbacks a plugin provides. Version 1. Every pointer may be null.
@@ -218,14 +234,21 @@ pub struct YacePlugin {
         Option<extern "C" fn(instance: *mut c_void, provider: YaceStr, query: YaceStr, request: u64) -> YaceStatus>,
     /// Free the plugin's state (after `deactivate`, before unloading).
     pub destroy: Option<extern "C" fn(instance: *mut c_void)>,
+    /// Added in YACE 0.15. A key typed in an editor while `capture_keys` is
+    /// on: `{"key": "ctrl+r", "text": "r"|null, "popup": bool}` (`key` in
+    /// keybinding syntax, `text` what it would type, `popup` whether a
+    /// completion, hover or parameter-hint popup is open). Return
+    /// [`YACE_OK`] if handled, [`YACE_PASS`] to let YACE handle it.
+    pub on_key: Option<extern "C" fn(instance: *mut c_void, key: YaceStr) -> YaceStatus>,
 }
 
 /// `yace_plugin_init`.
 pub type InitFn = unsafe extern "C" fn(abi: u32, host: *const YaceHost, out: *mut YacePlugin) -> YaceStatus;
 
-/// Size of version-1 tables, the smallest the host accepts.
-pub const PLUGIN_V1_SIZE: usize = core::mem::size_of::<YacePlugin>();
-pub const HOST_V1_SIZE: usize = core::mem::size_of::<YaceHost>();
+/// Size of the first version-1 tables (YACE ≤ 0.14), the smallest the host
+/// accepts; fields after them were appended later.
+pub const PLUGIN_V1_SIZE: usize = core::mem::offset_of!(YacePlugin, on_key);
+pub const HOST_V1_SIZE: usize = core::mem::offset_of!(YaceHost, set_selections);
 
 #[cfg(test)]
 extern crate std;
@@ -276,7 +299,10 @@ mod tests {
             create_terminal,
             spawn_job,
             job_cancelled,
-            post_message
+            post_message,
+            set_selections,
+            set_cursor_style,
+            capture_keys
         ));
         want.extend(off!(
             YacePlugin,
@@ -290,7 +316,8 @@ mod tests {
             on_message,
             on_view_action,
             on_quick_open,
-            destroy
+            destroy,
+            on_key
         ));
         let mut c =
             String::from("#include <stdio.h>\n#include <stddef.h>\n#include \"yace_plugin.h\"\nint main(void) {\n");

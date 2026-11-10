@@ -324,6 +324,8 @@ pub struct App {
     pub(crate) backup_dir: Option<PathBuf>,
     /// Document version last backed up, per backed-up document.
     pub(crate) backed_up: HashMap<DocId, u64>,
+    /// DECSCUSR code of the cursor shape set by a plugin (0: the user's).
+    pub cursor_style: u8,
     pending_fs: HashSet<PathBuf>,
     fs_deadline: Option<Instant>,
     /// Scroll the active view to its cursor after this event.
@@ -468,6 +470,7 @@ impl App {
             backup_deadline: None,
             backup_dir: None,
             backed_up: HashMap::new(),
+            cursor_style: 0,
             pending_fs: HashSet::new(),
             fs_deadline: None,
             reveal_cursor: false,
@@ -984,6 +987,14 @@ impl App {
             self.terminal_key(key, ch);
             return;
         }
+        // A modal-editing plugin (Vim) sees editor keys first.
+        if self.focus == Focus::Editor
+            && !self.resolver.is_pending()
+            && let Some(i) = self.plugins.key_capture
+            && self.plugin_key(i, &key, ch)
+        {
+            return;
+        }
         if self.focus == Focus::Explorer
             && self.sidebar_view == SidebarView::Plugin
             && !self.resolver.is_pending()
@@ -1464,6 +1475,22 @@ impl App {
         if !(out.attached.is_empty() && out.removed.is_empty() && out.edits.is_empty()) {
             self.lsp_sync(&out.attached, &out.removed, &out.edits);
         }
+    }
+
+    /// The terminal cursor's shape (a plugin's `set_cursor_style`).
+    pub(crate) fn set_cursor_style(&mut self, style: &str) -> Result<(), String> {
+        let code = match style {
+            "default" => 0,
+            "block" => 2,
+            "underline" => 4,
+            "bar" => 6,
+            other => return Err(format!("unknown cursor style `{other}` (block, bar, underline, default)")),
+        };
+        if self.cursor_style != code {
+            self.cursor_style = code;
+            self.effects.push(Effect::Write(format!("\x1b[{code} q").into_bytes()));
+        }
+        Ok(())
     }
 
     pub(crate) fn on_document_edited(&mut self) {

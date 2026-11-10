@@ -23,7 +23,7 @@ telemetry.
 | | YACE | Helix | Micro | Neovim | VS Code |
 |---|---|---|---|---|---|
 | Runs in | terminal | terminal | terminal | terminal | desktop window |
-| Keys | VS Code's | modal | Ctrl+S, Ctrl+C… | modal | VS Code's |
+| Keys | VS Code's, or Vim's ([plugin](https://github.com/abedmurrar/yace-vim)) | modal | Ctrl+S, Ctrl+C… | modal | VS Code's |
 | Opens `.code-workspace` files | yes | no | no | no | yes |
 | Language servers | built in | built in | plugin | built in | built in |
 | Integrated terminal | yes, with splits | no | yes | yes | yes |

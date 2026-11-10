@@ -89,7 +89,7 @@ impl App {
         self.layout.sync_views(d, &applied.changes, None);
     }
 
-    fn set_view_selection(&mut self, g: GroupId, v: usize, sel: Selection) {
+    pub(crate) fn set_view_selection(&mut self, g: GroupId, v: usize, sel: Selection) {
         if let Some(gr) = self.layout.group_mut(g)
             && let Some(view) = gr.views.get_mut(v)
         {

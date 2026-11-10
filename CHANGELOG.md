@@ -13,6 +13,18 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- Modal editing for plugins, the base of the
+  [Vim plugin](https://github.com/abedmurrar/yace-vim): a plugin can see
+  the keys typed in an editor first and decide what they do
+  (`capture_keys`, `on_key`), move the cursor and selection
+  (`set_selections`) and change the cursor's shape (`set_cursor_style`).
+  Two new capabilities, `keyboard` and `editor.selections`, are named in
+  the install prompt. `active_document` also reports the lines on screen
+  and the indentation settings. Appended to plugin ABI 1: existing plugins
+  keep working. Stopping the plugin gives the keys and the cursor back.
+
 ### Changed
 
 - The README lists crash recovery and the ESLint and Biome plugins.

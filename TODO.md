@@ -582,6 +582,7 @@ Legend:
 - [~] [M7] Semantic tokens — deferred: tree-sitter covers colouring
 - [x] [M7] Several language servers per document (core mechanism: merged diagnostics, code actions from every server, `editor.defaultFormatter`); plugin `[[lsp_servers]]` with `root_files`, `local_bin`, `${workspaceFolder}` settings; tool-specific servers such as ESLint or Biome ship as plugins, not built in — v0.13.0
 - [x] [Plugins] External ESLint and Biome plugins (github.com/abedmurrar/yace-eslint, yace-biome, v0.1.0, in the plugin index) built on several servers per document; tested on real projects with `biome.json` (Biome 2.6.6) and `eslint.config.mjs` (ESLint 9, vscode-eslint-language-server): `real_biome`, `real_eslint`; without the plugin nothing changes
+- [x] [Plugins] Modal editing for plugins (`capture_keys`/`on_key`, `set_selections`, `set_cursor_style`; capabilities `keyboard`, `editor.selections`) and the Vim plugin (github.com/abedmurrar/yace-vim) — v0.15.0
 - [ ] [Plugins] Colour themes as plugins (later; replaces showing VS Code themes in the picker)
 - [x] [M7] Completion item documentation side panel — right of the list (left if no room, hidden under 20 columns); the selected item is resolved once (`completionItem/resolve`, newest only); `toggleSuggestionDetails` — v0.11.0
 - [ ] [M7] Mouse-hover popups

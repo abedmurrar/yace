@@ -31,6 +31,7 @@ pub fn status_name(s: YaceStatus) -> &'static str {
         7 => "unsupported",
         8 => "cancelled",
         9 => "the plugin panicked",
+        10 => "not handled",
         _ => "unknown error",
     }
 }
@@ -46,6 +47,7 @@ pub enum Callback {
     Message,
     ViewAction,
     QuickOpen,
+    Key,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -108,6 +110,7 @@ impl Loaded {
             on_view_action: None,
             on_quick_open: None,
             destroy: None,
+            on_key: None,
         };
         // SAFETY: `host` and `table` are valid for the call; the plugin may
         // write at most `table.size` bytes (ABI rule).
@@ -168,6 +171,14 @@ impl Loaded {
         self.timed(Callback::Command, |t| match t.on_command {
             Some(f) => f(t.instance, s(id), s(args)),
             None => yace_plugin_api::YACE_E_UNSUPPORTED,
+        })
+    }
+
+    /// A captured key; `YACE_PASS` if not handled (or no `on_key`).
+    pub fn key(&mut self, json: &str) -> (YaceStatus, Duration) {
+        self.timed(Callback::Key, |t| match t.on_key {
+            Some(f) => f(t.instance, s(json)),
+            None => yace_plugin_api::YACE_PASS,
         })
     }
 

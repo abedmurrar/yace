@@ -5,6 +5,16 @@ a command id, so you can find and run any of them from the Command Palette
 (`Ctrl+Shift+P` or `F1`), and override or remove them in
 `~/.config/yace/keybindings.toml`.
 
+**Vim keys.** The [Vim plugin](https://github.com/abedmurrar/yace-vim)
+adds Normal, Insert and Visual modes:
+
+```sh
+yace --install-plugin io.github.abedmurrar.yace-vim
+```
+
+The editor's own shortcuts keep working next to it (`Ctrl+P`, `Ctrl+Shift+P`,
+`Ctrl+S`, `Ctrl+B`, …); "Vim: Toggle Vim Keys" turns it off and on.
+
 ## What your terminal can send
 
 Terminals don't all report the same key combinations. Some need the

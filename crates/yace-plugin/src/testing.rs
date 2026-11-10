@@ -41,6 +41,10 @@ pub struct MockState {
     pub quick_open: Vec<(u64, Vec<QuickOpenItem>)>,
     pub terminals: Vec<TerminalSpec>,
     pub messages: Vec<String>,
+    /// `set_selections` calls: (doc, selections as (anchor, head)).
+    pub selections: Vec<(u64, Vec<(u64, u64)>)>,
+    pub cursor_style: String,
+    pub capturing_keys: bool,
     pub jobs: u64,
     last_error: String,
 }
@@ -148,6 +152,11 @@ extern "C" fn apply_edits(_: *mut YaceHostCtx, doc: YaceHandle, version: u64, ed
         }
         *t = chars.into_iter().collect();
         *s.versions.entry(doc).or_default() += 1;
+        // The active document's version follows, as in the editor.
+        let v = s.versions[&doc];
+        if let Some(a) = s.active.as_mut().filter(|a| a.doc == doc) {
+            a.version = v;
+        }
         YACE_OK
     })
 }
@@ -230,6 +239,32 @@ extern "C" fn post_message(_: *mut YaceHostCtx, data: YaceStr) -> YaceStatus {
     with(|s| s.messages.push(text(data)));
     YACE_OK
 }
+extern "C" fn set_selections(_: *mut YaceHostCtx, doc: YaceHandle, version: u64, sels: YaceStr) -> YaceStatus {
+    let list: Vec<crate::Selection> = match serde_json::from_str(&text(sels)) {
+        Ok(l) => l,
+        Err(e) => return fail(YACE_E_INVALID, e.to_string()),
+    };
+    with(|s| {
+        if s.versions.get(&doc).copied().unwrap_or(0) != version {
+            s.last_error = "stale document version".into();
+            return YACE_E_STALE;
+        }
+        let pairs: Vec<(u64, u64)> = list.iter().map(|x| (x.anchor, x.head)).collect();
+        if let Some(a) = s.active.as_mut().filter(|a| a.doc == doc) {
+            a.selections = list;
+        }
+        s.selections.push((doc, pairs));
+        YACE_OK
+    })
+}
+extern "C" fn set_cursor_style(_: *mut YaceHostCtx, style: YaceStr) -> YaceStatus {
+    with(|s| s.cursor_style = text(style));
+    YACE_OK
+}
+extern "C" fn capture_keys(_: *mut YaceHostCtx, on: bool) -> YaceStatus {
+    with(|s| s.capturing_keys = on);
+    YACE_OK
+}
 
 /// A fake editor host for tests. Its state lives in a thread-local.
 pub struct MockHost {
@@ -269,6 +304,9 @@ impl MockHost {
             spawn_job,
             job_cancelled,
             post_message,
+            set_selections,
+            set_cursor_style,
+            capture_keys,
         });
         Self { table }
     }
@@ -349,8 +387,7 @@ mod tests {
             s.settings.insert("greeting".into(), json!("Count"));
             s.documents.insert(7, "héllo".into());
             s.versions.insert(7, 3);
-            s.active =
-                Some(ActiveDocument { doc: 7, version: 3, path: None, language: "plain".into(), selections: vec![] });
+            s.active = Some(ActiveDocument { doc: 7, version: 3, language: "plain".into(), ..Default::default() });
         });
         let mut p = Counter::new(mock.host());
         p.command("c.inc", Some(json!(2))).unwrap();
@@ -387,6 +424,7 @@ mod tests {
             on_view_action: None,
             on_quick_open: None,
             destroy: None,
+            on_key: None,
         };
         // SAFETY: valid pointers.
         assert_eq!(unsafe { yace_plugin_init(2, mock.raw(), &mut table) }, yace_plugin_api::YACE_E_ABI);

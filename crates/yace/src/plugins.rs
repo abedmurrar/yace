@@ -238,6 +238,8 @@ pub struct PluginHost {
     /// Commands plugins asked to run, after the current callback.
     /// Commands plugins asked to run, with the asking plugin's index.
     pub deferred: Vec<(String, Option<Value>, Option<usize>)>,
+    /// The plugin that sees editor keys first (`capture_keys`), if any.
+    pub key_capture: Option<usize>,
     /// Events waiting for delivery: (event type, JSON).
     pub queue: Vec<(String, Value)>,
     /// Coalesced high-frequency events, delivered after a short delay.
@@ -278,6 +280,7 @@ impl Default for PluginHost {
             safe_mode: false,
             discovered: false,
             deferred: Vec::new(),
+            key_capture: None,
             queue: Vec::new(),
             pending: BTreeMap::new(),
             pending_deadline: None,
@@ -368,6 +371,9 @@ pub fn host_table(ctx: &HostCtx) -> Box<YaceHost> {
         spawn_job: h_spawn_job,
         job_cancelled: h_job_cancelled,
         post_message: h_post_message,
+        set_selections: h_set_selections,
+        set_cursor_style: h_set_cursor_style,
+        capture_keys: h_capture_keys,
     })
 }
 
@@ -592,6 +598,55 @@ extern "C" fn h_apply_edits(c: *mut YaceHostCtx, doc: YaceHandle, version: u64, 
             Ok(()) => YACE_OK,
             Err((s, e)) => fail(ctx, s, e),
         }
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct SelIn {
+    anchor: u64,
+    head: u64,
+}
+
+extern "C" fn h_set_selections(c: *mut YaceHostCtx, doc: YaceHandle, version: u64, sels: YaceStr) -> YaceStatus {
+    with_app(c, |ctx, app| {
+        if let Err(s) = needs(app, ctx, "editor.selections") {
+            return s;
+        }
+        let json = arg!(ctx, sels, "selections");
+        let sels: Vec<SelIn> = match serde_json::from_str(&json) {
+            Ok(v) => v,
+            Err(e) => return fail(ctx, YACE_E_INVALID, format!("selections: {e}")),
+        };
+        let sels: Vec<(u64, u64)> = sels.iter().map(|s| (s.anchor, s.head)).collect();
+        match app.plugin_set_selections(doc, version, &sels) {
+            Ok(()) => YACE_OK,
+            Err((s, e)) => fail(ctx, s, e),
+        }
+    })
+}
+
+extern "C" fn h_set_cursor_style(c: *mut YaceHostCtx, style: YaceStr) -> YaceStatus {
+    with_app(c, |ctx, app| {
+        let style = arg!(ctx, style, "style");
+        match app.set_cursor_style(&style) {
+            Ok(()) => YACE_OK,
+            Err(e) => fail(ctx, YACE_E_INVALID, e),
+        }
+    })
+}
+
+extern "C" fn h_capture_keys(c: *mut YaceHostCtx, on: bool) -> YaceStatus {
+    with_app(c, |ctx, app| {
+        if let Err(s) = needs(app, ctx, "keyboard") {
+            return s;
+        }
+        let i = ctx.shared.index;
+        if on {
+            app.plugins.key_capture = Some(i);
+        } else if app.plugins.key_capture == Some(i) {
+            app.plugins.key_capture = None;
+        }
+        YACE_OK
     })
 }
 
