@@ -1,0 +1,66 @@
+name: Snap
+
+# Builds the YACE snap, by hand only (Actions → Snap → Run workflow);
+# releases don't run it. The Snap Store holds classic-confinement snaps for
+# manual approval, and every upload meanwhile is refused as "waiting for
+# previous upload(s)", so nothing is uploaded unless `publish` is ticked.
+# The snaps are attached to the run as artifacts either way.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Also upload to the Snap Store (needs SNAPCRAFT_STORE_CREDENTIALS)"
+        type: boolean
+        default: false
+      channel:
+        description: "Store channel to publish to"
+        default: edge
+
+permissions:
+  contents: read
+
+jobs:
+  snap:
+    strategy:
+      # One architecture failing (a mirror timing out) doesn't cancel the other.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # Docker on the x86 runners drops forwarded traffic, which cuts the
+      # LXD build container off the network (apt update fails inside it).
+      - name: Let the LXD build container reach the network
+        run: sudo iptables -P FORWARD ACCEPT
+      - uses: snapcore/action-build@v1
+        id: build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snap-${{ matrix.os }}
+          path: ${{ steps.build.outputs.snap }}
+      - name: Publish to the Snap Store
+        if: ${{ inputs.publish }}
+        shell: bash
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        run: |
+          if [ -z "$SNAPCRAFT_STORE_CREDENTIALS" ]; then
+            echo "::notice::No SNAPCRAFT_STORE_CREDENTIALS secret: built only, not published"
+            exit 0
+          fi
+          sudo snap install snapcraft --classic
+          # Until the store approves classic confinement, every upload is
+          # held for manual review: report that, don't fail the release.
+          if snapcraft upload --release="${{ inputs.channel }}" "${{ steps.build.outputs.snap }}" 2>&1 | tee upload.log; then
+            exit 0
+          fi
+          # Held for review ("classic not allowed"), or queued behind an
+          # earlier upload that is still in review: both clear once the
+          # store approves classic confinement.
+          if grep -qE "confinement 'classic' not allowed|Waiting for previous upload" upload.log; then
+            echo "::warning::Uploaded; held for manual review until classic confinement is approved (forum: store-requests/classic-confinement)"
+            exit 0
+          fi
+          exit 1

@@ -13,11 +13,12 @@ Security, Performance.
 
 ## [Unreleased]
 
-### Removed
+### Changed
 
-- The Snap package. The Snap Store rejected every upload without saying
-  why, so releases no longer build or upload it. Install YACE from the APT
-  repository, with `install.sh`, or from a release archive.
+- Releases no longer upload the Snap. The Snap Store holds YACE's first
+  upload until classic confinement is approved, and refused every later
+  one meanwhile. The Snap files stay, and the Snap workflow builds it by
+  hand, uploading only when asked.
 
 ### Added
 

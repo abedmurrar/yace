@@ -99,3 +99,8 @@ Pushing the tag runs `.github/workflows/release.yml`:
    (`scripts/apt_repo.sh`, key in the `APT_SIGNING_KEY` secret) from the
    latest release's packages. Pushing the release commit itself doesn't
    deploy the website, so this is the only deploy of a release.
+
+The Snap (`snap/snapcraft.yaml`, classic confinement) isn't part of a
+release. Build it by hand with Actions → Snap → Run workflow; it uploads
+to the Snap Store only when "publish" is ticked. The store holds it until
+classic confinement is approved, and refuses every later upload until then.
