@@ -46,11 +46,11 @@ screenshots.
 
 ## Status
 
-YACE is at version 0.10.0. It is built and tested on Linux. There are no
-prebuilt packages yet, so you [build it from source](installation.md) with
-Cargo. Things that are still missing are tracked in the project's
-`TODO.md`; the biggest are backups of unsaved changes after a crash, and
-packages (Debian, APT and Snap).
+YACE is before 1.0 and runs on Linux (x86_64 and arm64). Install it from
+its APT repository, with the install script, or from a release archive
+([Installation](installation.md)). Things that are still missing are
+tracked in the project's `TODO.md`; the biggest is macOS and Windows
+support.
 
 ## Where to go next
 

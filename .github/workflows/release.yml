@@ -106,11 +106,3 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run pages.yml --ref main
-
-  snap:
-    needs: [verify, publish]
-    if: ${{ !contains(needs.verify.outputs.version, '-') }}
-    uses: ./.github/workflows/snap.yml
-    with:
-      channel: stable
-    secrets: inherit

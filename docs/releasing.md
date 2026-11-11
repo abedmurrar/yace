@@ -99,5 +99,3 @@ Pushing the tag runs `.github/workflows/release.yml`:
    (`scripts/apt_repo.sh`, key in the `APT_SIGNING_KEY` secret) from the
    latest release's packages. Pushing the release commit itself doesn't
    deploy the website, so this is the only deploy of a release.
-8. builds the Snap and uploads it to the stable channel (pre-releases skip
-   this step)

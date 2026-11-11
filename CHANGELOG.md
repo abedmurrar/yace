@@ -13,6 +13,12 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Removed
+
+- The Snap package. The Snap Store rejected every upload without saying
+  why, so releases no longer build or upload it. Install YACE from the APT
+  repository, with `install.sh`, or from a release archive.
+
 ### Added
 
 - The plugin index lists the [Vim plugin](https://github.com/abedmurrar/yace-vim)
