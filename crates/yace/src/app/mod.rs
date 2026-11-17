@@ -12,6 +12,7 @@ mod folding;
 mod git;
 mod git_ops;
 mod history;
+pub(crate) mod inlay;
 mod keybindings;
 mod live_reload;
 mod lsp;
@@ -373,6 +374,9 @@ pub struct App {
     hover_deadline: Option<Instant>,
     /// A mouse motion that changed nothing on screen (no redraw).
     quiet_motion: bool,
+    /// Inlay hints of the shown documents, and when to ask again.
+    inlays: HashMap<DocId, inlay::DocInlays>,
+    inlay_deadline: Option<Instant>,
     pub signature: Option<completion::SignaturePopup>,
     /// Quick suggestions fire when this passes (typing pause).
     completion_deadline: Option<Instant>,
@@ -506,6 +510,8 @@ impl App {
             hover_target: None,
             hover_deadline: None,
             quiet_motion: false,
+            inlays: HashMap::new(),
+            inlay_deadline: None,
             signature: None,
             completion_deadline: None,
             completion_req: None,

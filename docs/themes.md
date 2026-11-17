@@ -161,6 +161,8 @@ VS Code ids are also accepted as aliases (`quickInput.background`,
 | `yace.missingRootForeground` | Unavailable workspace folder |
 | `scrollbarSlider.background` | Scrollbar thumb |
 | `editorWhitespace.foreground` | Rendered whitespace |
+| `editorInlayHint.foreground` | Inlay hints (types, parameter names) |
+| `editorInlayHint.background` | Inlay hint background |
 | `editor.findMatchHighlightBackground` | Find matches |
 | `editor.findMatchBackground` | Current find match |
 | `editorSuggestWidget.highlightForeground` | Matched characters in completion and pickers |

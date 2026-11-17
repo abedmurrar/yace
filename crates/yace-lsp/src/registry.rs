@@ -63,12 +63,25 @@ fn def(name: &str, command: &str, args: &[&str], languages: &[&str], hint: &str,
     }
 }
 
+/// `{typescript, javascript}: { inlayHints }` settings for the TypeScript servers.
+fn ts_settings(inlay_hints: Value) -> Value {
+    let lang = serde_json::json!({ "inlayHints": inlay_hints });
+    serde_json::json!({ "typescript": lang.clone(), "javascript": lang })
+}
+
 /// The built-in table, in preference order per language.
 pub fn builtin() -> Vec<ServerDef> {
     vec![
         def("rust-analyzer", "rust-analyzer", &[], &["rust"], "rustup component add rust-analyzer", false),
         ServerDef {
             kind: DefKind::TypeScriptNative,
+            // Inlay hints are off unless asked for (as in VS Code): parameter
+            // names of literal arguments, variable and return types.
+            settings: ts_settings(serde_json::json!({
+                "parameterNames": { "enabled": "literals" },
+                "variableTypes": { "enabled": true },
+                "functionLikeReturnTypes": { "enabled": true }
+            })),
             ..def(
                 "typescript",
                 "tsc",
@@ -80,6 +93,12 @@ pub fn builtin() -> Vec<ServerDef> {
         },
         ServerDef {
             kind: DefKind::TypeScriptTsserver,
+            // The same hints in typescript-language-server's names.
+            settings: ts_settings(serde_json::json!({
+                "includeInlayParameterNameHints": "literals",
+                "includeInlayVariableTypeHints": true,
+                "includeInlayFunctionLikeReturnTypeHints": true
+            })),
             ..def(
                 "typescript-language-server",
                 "typescript-language-server",

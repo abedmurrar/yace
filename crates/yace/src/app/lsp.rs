@@ -89,6 +89,7 @@ impl App {
             self.lsp.next_deadline(self.lsp_timeout(), idle),
             self.completion_deadline,
             self.hover_deadline,
+            self.inlay_deadline,
             self.format_save.map(|(_, t)| t),
         ]
         .into_iter()
@@ -98,6 +99,10 @@ impl App {
 
     pub(crate) fn lsp_on_tick(&mut self, now: Instant) {
         for (server, p) in self.lsp.expire(now, self.lsp_timeout()) {
+            if let (ReqKind::InlayHints, Some(d)) = (&p.kind, p.doc) {
+                self.on_inlay_hints(server, d, true, None);
+                continue;
+            }
             if let ReqKind::CodeActions { seq } = p.kind {
                 self.code_actions_answered(seq, server, Vec::new());
                 continue;
@@ -120,6 +125,8 @@ impl App {
             self.hover_deadline = None;
             self.request_mouse_hover();
         }
+        self.inlay_track();
+        self.inlay_on_tick(now);
         if let Some((d, t)) = self.format_save
             && now >= t
         {
@@ -180,6 +187,13 @@ impl App {
                 for e in list {
                     map_diags(ds, &e.changes);
                 }
+            }
+            if let Some(x) = self.inlays.get_mut(d) {
+                for e in list {
+                    x.map(&e.changes);
+                }
+                // Ask once typing pauses, not while it goes on.
+                self.inlay_deadline = Some(Instant::now() + super::inlay::INLAY_DELAY);
             }
             for id in self.lsp.attachments(*d).iter().map(|l| l.server) {
                 let Some(server) = self.lsp.server(id) else { continue };
@@ -324,6 +338,7 @@ impl App {
 
     /// Stop a server for good: its documents and diagnostics are dropped.
     fn remove_server(&mut self, id: u32) {
+        self.inlay_drop_server(id, None);
         let docs = self.lsp.docs_of(id);
         self.lsp.stop(id);
         self.lsp.servers.retain(|s| s.id != id);
@@ -506,6 +521,7 @@ impl App {
     }
 
     fn lsp_close(&mut self, d: DocId) {
+        self.inlays.remove(&d);
         let all = self.lsp.attachments(d);
         self.lsp.docs.remove(&d);
         self.lsp.extra.remove(&d);
@@ -665,6 +681,10 @@ impl App {
                         .map(|it| registry::config_section(&settings, it.get("section").and_then(Value::as_str)))
                         .collect(),
                 )
+            }
+            "workspace/inlayHint/refresh" => {
+                self.inlay_refresh(server);
+                Value::Null
             }
             "workspace/diagnostic/refresh" => {
                 for d in self.lsp.docs_of(server) {
@@ -1060,6 +1080,14 @@ impl App {
             if again == Some(true) || !fresh {
                 self.pull_diagnostics(d, server);
             }
+            return;
+        }
+        if let (ReqKind::InlayHints, Some(d)) = (&p.kind, p.doc) {
+            let hints = match result {
+                Ok(Reply::InlayHints(h)) => Some(h),
+                _ => None,
+            };
+            self.on_inlay_hints(server, d, fresh, hints);
             return;
         }
         let reply = match result {

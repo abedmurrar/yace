@@ -586,7 +586,7 @@ Legend:
 - [ ] [Plugins] Colour themes as plugins (later; replaces showing VS Code themes in the picker)
 - [x] [M7] Completion item documentation side panel — right of the list (left if no room, hidden under 20 columns); the selected item is resolved once (`completionItem/resolve`, newest only); `toggleSuggestionDetails` — v0.11.0
 - [x] [M7] Mouse-hover popups — rest the mouse on a word for `hoverDelay` (300 ms; `hoverEnabled`): shown at the pointer in any group, kept while the pointer is on the word (or the server's range) or in the popup, the wheel scrolls it; closed by a key, a click, a scroll or leaving; quiet when no server answers; hover requests carry a seq (older cancelled). Motion that changes nothing no longer redraws (4,375 motion events: CPU 1.2–1.45 s → 0.33–0.54 s, terminal output 107 KiB → 0)
-- [ ] [M7] Code lens, inlay hints, call hierarchy, document highlights (not in the M7 scope)
+- [~] [M7] Code lens, inlay hints, call hierarchy, document highlights (not in the M7 scope) — inlay hints done (v0.17.0): `textDocument/inlayHint` for the visible lines ± a screen, 250 ms after typing pauses or a scroll, `workspace/inlayHint/refresh`, positions follow edits until the answer; `DisplayMap` counts hint cells (wrap, cursor column, clicks, Up/Down); `inlayHintsEnabled`; `editorInlayHint.*` colours; TypeScript servers started with hint settings; typing p50 with TS 7 0.206–0.210 ms on vs 0.193–0.197 ms off. Code lens, call hierarchy, document highlights still open
 
 ---
 

@@ -78,6 +78,7 @@ pub struct ServerCaps {
     pub diagnostic_pull: bool,
     /// Diagnostics of one file depend on others (re-pull open files).
     pub diagnostic_inter_file: bool,
+    pub inlay_hint: bool,
     pub encoding: crate::position::Encoding,
 }
 
@@ -128,6 +129,7 @@ impl ServerCaps {
         caps.document_symbol = has(&c, "documentSymbolProvider");
         caps.workspace_symbol = has(&c, "workspaceSymbolProvider");
         caps.code_action = has(&c, "codeActionProvider");
+        caps.inlay_hint = has(&c, "inlayHintProvider");
         caps.code_action_resolve = c
             .get("codeActionProvider")
             .and_then(|v| v.get("resolveProvider"))
@@ -357,4 +359,37 @@ pub struct Progress {
     pub title: Option<String>,
     pub message: Option<String>,
     pub percentage: Option<u32>,
+}
+
+/// An inlay hint: text shown at `position` that isn't in the document
+/// (`label` parts are joined; padding becomes spaces).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlayHint {
+    pub position: Position,
+    pub label: String,
+}
+
+impl InlayHint {
+    /// Decode one hint; `None` when it has no position or label.
+    pub fn from_value(v: &Value) -> Option<Self> {
+        let position = Position::deserialize(v.get("position")?).ok()?;
+        let label = match v.get("label")? {
+            Value::String(s) => s.clone(),
+            Value::Array(parts) => parts.iter().filter_map(|p| p.get("value").and_then(Value::as_str)).collect(),
+            _ => return None,
+        };
+        // One row: no line breaks or other control characters.
+        let label: String = label.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        let label = label.trim();
+        if label.is_empty() {
+            return None;
+        }
+        let pad = |k: &str| v.get(k).and_then(Value::as_bool).unwrap_or(false);
+        let label = format!(
+            "{}{label}{}",
+            if pad("paddingLeft") { " " } else { "" },
+            if pad("paddingRight") { " " } else { "" }
+        );
+        Some(Self { position, label })
+    }
 }

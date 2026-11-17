@@ -16,6 +16,7 @@ pub enum Reply {
     CompletionResolved(Box<CompletionItem>),
     /// The hover text and the range it is about.
     Hover(String, Option<Range>),
+    InlayHints(Vec<InlayHint>),
     SignatureHelp(Option<SignatureHelp>),
     Locations(Vec<Location>),
     Symbols(Vec<Symbol>),
@@ -214,6 +215,9 @@ pub fn decode_reply(method: &str, v: Value) -> Reply {
             v.get("contents").map(markup_text).unwrap_or_default(),
             v.get("range").and_then(|r| Range::deserialize(r).ok()),
         ),
+        "textDocument/inlayHint" => Reply::InlayHints(
+            v.as_array().map(|a| a.iter().filter_map(InlayHint::from_value).collect()).unwrap_or_default(),
+        ),
         "textDocument/signatureHelp" => Reply::SignatureHelp(SignatureHelp::deserialize(&v).ok()),
         "textDocument/definition"
         | "textDocument/declaration"
@@ -342,6 +346,18 @@ mod tests {
             panic!()
         };
         assert_eq!(h, "```ts\nlet x: number\n```\n\nDoc");
+        let Reply::InlayHints(h) = decode_reply(
+            "textDocument/inlayHint",
+            json!([
+                {"position": {"line": 0, "character": 5}, "label": ": i32", "paddingLeft": false},
+                {"position": {"line": 1, "character": 2}, "label": [{"value": "a"}, {"value": ":"}], "paddingRight": true},
+                {"position": {"line": 2, "character": 0}, "label": "\n"},
+                {"label": "no position"}
+            ]),
+        ) else {
+            panic!()
+        };
+        assert_eq!(h.iter().map(|x| x.label.as_str()).collect::<Vec<_>>(), [": i32", "a: "]);
         let Reply::Hover(_, Some(r)) = decode_reply(
             "textDocument/hover",
             json!({"contents": "x", "range": {"start": {"line": 1, "character": 4}, "end": {"line": 1, "character": 9}}}),

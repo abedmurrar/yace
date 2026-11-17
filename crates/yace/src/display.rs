@@ -6,6 +6,10 @@
 //! viewport, or the distance from the top of the view to the cursor); no
 //! per-document row index is maintained, so huge files cost nothing extra.
 //! With no folds and no wrap every query reduces to plain line arithmetic.
+//!
+//! Inlay hints (`: i32` after `let x`) are text shown before a char that
+//! isn't in the buffer: they take cells in a row (for wrapping, the cursor
+//! column and clicks) but never hold the cursor.
 
 use std::cell::RefCell;
 
@@ -49,6 +53,23 @@ pub fn map_folds(folds: &mut Vec<Fold>, cs: &ChangeSet) {
     }
 }
 
+/// Text shown before the char at `pos` that isn't in the buffer (an inlay
+/// hint; its padding is part of `text`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Inlay {
+    pub pos: usize,
+    pub text: String,
+    /// Cells `text` takes.
+    pub cells: usize,
+}
+
+impl Inlay {
+    pub fn new(pos: usize, text: String) -> Self {
+        let cells = unicode_width::UnicodeWidthStr::width(text.as_str());
+        Self { pos, text, cells }
+    }
+}
+
 /// A screen row: buffer line plus wrapped segment index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Row {
@@ -76,6 +97,8 @@ pub struct DisplayMap<'a> {
     tab: usize,
     /// Segments computed during this frame (lines can be long).
     seg_cache: RefCell<Vec<(usize, Vec<Segment>)>>,
+    /// Inlay hints, sorted by position.
+    inlays: &'a [Inlay],
 }
 
 fn grapheme_cells(g: &str, col: usize, tab: usize) -> usize {
@@ -91,6 +114,12 @@ fn grapheme_cells(g: &str, col: usize, tab: usize) -> usize {
 /// Split a line into wrapped segments (word boundaries; continuation rows
 /// keep the line's indentation, as VS Code's `wrappingIndent: same`).
 pub fn wrap_line(text: &str, width: usize, tab: usize) -> Vec<Segment> {
+    wrap_line_with(text, width, tab, &[])
+}
+
+/// `wrap_line` with inlay cells `(char offset in the line, cells)` shown
+/// before those chars (sorted); a hint moves to the next row with its char.
+pub fn wrap_line_with(text: &str, width: usize, tab: usize, inlays: &[(usize, usize)]) -> Vec<Segment> {
     let width = width.max(4);
     let mut segs = Vec::new();
     // Leading indentation in cells (continuation rows reuse it).
@@ -112,8 +141,13 @@ pub fn wrap_line(text: &str, width: usize, tab: usize) -> Vec<Segment> {
     let mut ci = 0usize;
     let mut last_break: Option<(usize, usize)> = None; // (char index after whitespace, col there)
     let mut prev_ws = false;
+    let mut hints = inlays.iter().peekable();
     for g in text.graphemes(true) {
-        let w = grapheme_cells(g, abs_col, tab);
+        let mut hint = 0;
+        while let Some((_, c)) = hints.next_if(|(o, _)| *o <= ci) {
+            hint += c;
+        }
+        let w = grapheme_cells(g, abs_col, tab) + hint;
         let ws = g.chars().all(char::is_whitespace);
         if !ws && prev_ws && ci > seg_start {
             last_break = Some((ci, col));
@@ -128,7 +162,7 @@ pub fn wrap_line(text: &str, width: usize, tab: usize) -> Vec<Segment> {
             last_break = None;
         }
         col += w;
-        abs_col += w;
+        abs_col += w - hint;
         ci += g.chars().count();
         prev_ws = ws;
     }
@@ -152,7 +186,43 @@ impl<'a> DisplayMap<'a> {
                 _ => hidden.push((h + 1, l)),
             }
         }
-        Self { rope, hidden, headers, wrap: wrap.filter(|w| *w > 0), tab: tab.max(1), seg_cache: RefCell::default() }
+        Self {
+            rope,
+            hidden,
+            headers,
+            wrap: wrap.filter(|w| *w > 0),
+            tab: tab.max(1),
+            seg_cache: RefCell::default(),
+            inlays: &[],
+        }
+    }
+
+    /// Show these inlay hints (sorted by position).
+    pub fn with_inlays(mut self, inlays: &'a [Inlay]) -> Self {
+        self.inlays = inlays;
+        self
+    }
+
+    pub fn has_inlays(&self) -> bool {
+        !self.inlays.is_empty()
+    }
+
+    /// The inlay hints on `line`.
+    pub fn line_inlays(&self, line: usize) -> &'a [Inlay] {
+        if self.inlays.is_empty() || line >= self.rope.len_lines() {
+            return &[];
+        }
+        let ls = self.rope.line_to_char(line);
+        let le = ls + line_without_ending(self.rope, line).len_chars();
+        let a = self.inlays.partition_point(|h| h.pos < ls);
+        let b = self.inlays.partition_point(|h| h.pos <= le);
+        &self.inlays[a..b.max(a)]
+    }
+
+    /// `(char offset in the line, cells)` of the line's inlay hints.
+    fn line_inlay_cells(&self, line: usize) -> Vec<(usize, usize)> {
+        let ls = self.rope.line_to_char(line);
+        self.line_inlays(line).iter().map(|h| (h.pos - ls, h.cells)).collect()
     }
 
     pub fn is_plain(&self) -> bool {
@@ -211,7 +281,7 @@ impl<'a> DisplayMap<'a> {
             return s.clone();
         }
         let text: String = line_without_ending(self.rope, line).into();
-        let segs = wrap_line(&text, width, self.tab);
+        let segs = wrap_line_with(&text, width, self.tab, &self.line_inlay_cells(line));
         let mut c = self.seg_cache.borrow_mut();
         if c.len() > 256 {
             c.clear();
@@ -312,27 +382,29 @@ impl<'a> DisplayMap<'a> {
             let segs = self.segments(vline);
             let last = segs.len() - 1;
             let content: String = line_without_ending(self.rope, vline).into();
-            return (Row { line: vline, sub: last }, self.col_in(&content, segs[last], segs[last].end));
+            return (Row { line: vline, sub: last }, self.col_in(vline, &content, segs[last], segs[last].end));
         }
         let off = pos - ls;
         let segs = self.segments(line);
         let sub = segs.iter().rposition(|s| s.start <= off).unwrap_or(0);
         let content: String = line_without_ending(self.rope, line).into();
-        (Row { line, sub }, self.col_in(&content, segs[sub], off))
+        (Row { line, sub }, self.col_in(line, &content, segs[sub], off))
     }
 
     /// Cells from the start of the row to char offset `off` of the line.
-    fn col_in(&self, content: &str, seg: Segment, off: usize) -> usize {
+    /// A position with an inlay hint is before the hint.
+    fn col_in(&self, line: usize, content: &str, seg: Segment, off: usize) -> usize {
         let mut abs = 0usize;
         let mut ci = 0usize;
         let mut col = seg.indent;
+        let hints = self.line_inlay_cells(line);
         for g in content.graphemes(true) {
             if ci >= off {
                 break;
             }
             let w = grapheme_cells(g, abs, self.tab);
             if ci >= seg.start {
-                col += w;
+                col += w + hints.iter().filter(|(o, _)| *o == ci).map(|(_, c)| c).sum::<usize>();
             }
             abs += w;
             ci += g.chars().count();
@@ -345,7 +417,8 @@ impl<'a> DisplayMap<'a> {
         let row = self.clamp(row);
         let ls = self.rope.line_to_char(row.line);
         let content = line_without_ending(self.rope, row.line);
-        if self.wrap.is_none() {
+        let hints = self.line_inlay_cells(row.line);
+        if self.wrap.is_none() && hints.is_empty() {
             return ls + char_at_visual_col(content, col, self.tab);
         }
         let segs = self.segments(row.line);
@@ -361,10 +434,12 @@ impl<'a> DisplayMap<'a> {
                 if ci >= seg.end {
                     break;
                 }
-                if c + w > col {
+                // A click on a hint lands at its position.
+                let hint: usize = hints.iter().filter(|(o, _)| *o == ci).map(|(_, c)| c).sum();
+                if c + hint + w > col {
                     return ls + ci;
                 }
-                c += w;
+                c += hint + w;
             }
             abs += w;
             ci += g.chars().count();
@@ -468,5 +543,29 @@ mod tests {
         let p = m.char_at(Row { line: 0, sub: 0 }, 50);
         assert_eq!(m.row_of(p).0.sub, 0);
         assert_eq!(m.distance(Row::default(), Row { line: 1, sub: 0 }, 10), Some(2));
+    }
+
+    #[test]
+    fn inlay_hints_take_cells_but_never_hold_the_cursor() {
+        let rope = Rope::from_str("let x = 1;\nlet yy = 2;\n");
+        let hints = [Inlay::new(5, ": i32".into()), Inlay::new(17, ": i64".into())];
+        let m = DisplayMap::new(&rope, &[], None, 4).with_inlays(&hints);
+        assert_eq!(m.line_inlays(0).len(), 1);
+        // The cursor after `x` sits before the hint; the next char after it.
+        assert_eq!(m.row_of(5).1, 5);
+        assert_eq!(m.row_of(6).1, 11);
+        // Clicks: on the hint land at its position, after it on the next char.
+        assert_eq!(m.char_at(Row::default(), 7), 5);
+        assert_eq!(m.char_at(Row::default(), 11), 6);
+        assert_eq!(m.char_at(Row::default(), 4), 4);
+        assert_eq!(m.char_at(Row::default(), 99), 10);
+        // Second line: positions are absolute.
+        assert_eq!(m.row_of(rope.line_to_char(1) + 7).1, 12);
+        // Wrapping counts the hint's cells.
+        let m = DisplayMap::new(&rope, &[], Some(10), 4).with_inlays(&hints);
+        let segs = m.segments(0);
+        assert_eq!(segs.len(), 2, "{segs:?}");
+        let plain = DisplayMap::new(&rope, &[], Some(10), 4);
+        assert_eq!(plain.segments(0).len(), 1);
     }
 }

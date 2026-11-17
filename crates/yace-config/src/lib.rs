@@ -308,6 +308,10 @@ pub fn from_vscode_settings(json: &serde_json::Value) -> Table {
             ("editor.hover.delay", J::Number(n)) if n.as_u64().is_some() => {
                 put("editor", "hoverDelay", Value::Integer(n.as_u64().unwrap_or(300) as i64))
             }
+            // "on", "off", "onUnlessPressed", "offUnlessPressed" (no held-key mode here).
+            ("editor.inlayHints.enabled", J::String(s)) => {
+                put("editor", "inlayHintsEnabled", Value::Boolean(s.starts_with("on")))
+            }
             ("editor.suggestOnTriggerCharacters", J::Bool(b)) => {
                 put("editor", "suggestOnTriggerCharacters", Value::Boolean(*b))
             }

@@ -77,6 +77,8 @@ isolation.
 - **The display map** (`display.rs`) maps buffer lines to screen rows
   (folds + soft wrap) on demand for the rows asked for; rendering, cursor
   placement, scrolling, vertical movement and mouse hit-testing share it.
+  Inlay hints are part of it: they take cells in a row but are never a
+  cursor position (`app/inlay.rs` asks for them and moves them with edits).
 - **Language servers** start when the first file of their language opens,
   one per (server, workspace root). A file has one main server (hover,
   completion, navigation) and may have more from plugins (ESLint, Biome):

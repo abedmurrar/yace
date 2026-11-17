@@ -17,11 +17,12 @@ pub(crate) struct ViewGeo {
     pub wrap: Option<usize>,
     pub tab: usize,
     pub height: usize,
+    pub inlays: std::sync::Arc<Vec<crate::display::Inlay>>,
 }
 
 impl ViewGeo {
     pub fn map(&self) -> DisplayMap<'_> {
-        DisplayMap::new(&self.rope, &self.folds, self.wrap, self.tab)
+        DisplayMap::new(&self.rope, &self.folds, self.wrap, self.tab).with_inlays(&self.inlays)
     }
 }
 
@@ -76,6 +77,7 @@ impl App {
             wrap: self.wrap_width(view.doc, width),
             tab: self.settings_for(doc.path()).editor.tab_size.max(1),
             height,
+            inlays: self.inlays_shared(view.doc),
         })
     }
 
@@ -301,7 +303,7 @@ impl App {
     /// Move cursors hidden by folds to the end of their visible header.
     fn move_hidden_cursors(&mut self, g: GroupId, v: usize, geo: &ViewGeo) {
         let Some(view) = self.layout.group_mut(g).and_then(|gr| gr.views.get_mut(v)) else { return };
-        let map = DisplayMap::new(&geo.rope, &view.folds, geo.wrap, geo.tab);
+        let map = DisplayMap::new(&geo.rope, &view.folds, geo.wrap, geo.tab).with_inlays(&geo.inlays);
         let rope = &geo.rope;
         let sel = view.sel.transform(|r| {
             let line = rope.char_to_line(r.head.min(rope.len_chars()));

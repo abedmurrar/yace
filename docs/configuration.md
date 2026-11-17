@@ -77,6 +77,7 @@ in "Developer: Show Configuration Errors".
 | `suggestOnTriggerCharacters` | `true` | bool | `editor.suggestOnTriggerCharacters` |
 | `hoverEnabled` | `true` | bool; show the hover popup (type and docs) when the mouse rests on a symbol. `Ctrl+K Ctrl+I` shows it either way | `editor.hover.enabled` |
 | `hoverDelay` | `300` | ms the mouse rests on a symbol before its hover shows | `editor.hover.delay` |
+| `inlayHintsEnabled` | `true` | bool; show the language server's inlay hints (types and parameter names inside the code, e.g. `let x: i32`) | `editor.inlayHints.enabled` (`on`/`onUnlessPressed` → true) |
 | `showFoldingControls` | `"mouseover"` | `"always"`, `"mouseover"` (folded lines always; foldable ones while the mouse is over the gutter), `"never"` | `editor.showFoldingControls` |
 | `tokenColorCustomizations` | `{}` | syntax colour overrides: `comments`, `strings`, `keywords`, `numbers`, `types`, `functions`, `variables`, any scope name, `textMateRules`, and `"[Theme Name]"` sections ([themes.md](themes.md)) | `editor.tokenColorCustomizations` |
 
@@ -194,6 +195,13 @@ Built-in servers (used when found on `PATH`; YACE never installs them):
 | `taplo` | TOML | `cargo install taplo-cli --locked` |
 | `marksman` | Markdown | see github.com/artempyanykh/marksman |
 | `docker-langserver` (Node.js) | Dockerfile | `npm install -g dockerfile-language-server-nodejs` |
+
+The TypeScript servers are started with inlay hints for parameter names of
+literal arguments, variable types and return types (TypeScript sends none
+otherwise). To change them, define the server yourself with its own
+`settings`, e.g. `settings = { typescript = { inlayHints = { variableTypes
+= { enabled = false } } } }` for `typescript`, or
+`includeInlayVariableTypeHints = false` for `typescript-language-server`.
 
 Node.js servers are external tools like any other: their memory is not
 YACE's and is shown separately by "Developer: Show Running Language

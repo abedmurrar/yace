@@ -13,6 +13,16 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- Inlay hints: types and parameter names from the language server inside
+  the code (`let total: number`, `add(a: 1, b: 2)`), as in VS Code. The
+  cursor steps over them, they wrap with the line, and they are asked for
+  the visible lines once typing pauses. `editor.inlayHintsEnabled` turns
+  them off; `editorInlayHint.foreground` and `.background` colour them.
+  The TypeScript servers are started with hints for parameter names,
+  variable types and return types.
+
 ## [0.16.0] - 2026-11-17
 
 ### Changed

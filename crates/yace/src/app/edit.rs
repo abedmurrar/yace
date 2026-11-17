@@ -119,10 +119,10 @@ impl App {
     pub(crate) fn cmd_move(&mut self, kind: Move, extend: bool) {
         let tw = self.tab_width_active();
         let page = self.active_view_height().saturating_sub(1).max(1);
-        // Folds or word wrap: vertical moves go by display rows, horizontal
-        // ones step over folded regions.
+        // Folds, word wrap or inlay hints: vertical moves go by display
+        // rows, horizontal ones step over folded regions.
         if let Some((g, v, _, geo)) = self.active_geo()
-            && !geo.map().is_plain()
+            && !(geo.map().is_plain() && geo.inlays.is_empty())
         {
             let map = geo.map();
             let vertical = match kind {

@@ -74,6 +74,8 @@ pub static COLOR_KEYS: &[ColorKey] = keys! {
     "yace.missingRootForeground" => missing_root, "Unavailable workspace folder";
     "scrollbarSlider.background" => scrollbar, "Scrollbar thumb";
     "editorWhitespace.foreground" => whitespace, "Rendered whitespace";
+    "editorInlayHint.foreground" => inlay_hint_fg, "Inlay hints (types, parameter names)";
+    "editorInlayHint.background" => inlay_hint_bg, "Inlay hint background";
     "editor.findMatchHighlightBackground" => find_match_bg, "Find matches";
     "editor.findMatchBackground" => find_current_bg, "Current find match";
     "editorSuggestWidget.highlightForeground" => match_fg, "Matched characters in completion and pickers";
@@ -767,9 +769,12 @@ mod tests {
                 syntax = syntax.join(",\n        "),
                 mods = mods.join(",\n        "),
             ));
-            // And the compiled code gives the same theme.
-            let compiled = load_theme(&cat, id, &Overrides::default()).unwrap().0;
-            assert_eq!(format!("{compiled:?}"), format!("{t:?}"), "{id}: builtin_gen.rs is stale (see above)");
+            // And the compiled code gives the same theme (not while it is
+            // being regenerated: a new key makes the old code stale).
+            if std::env::var_os("YACE_REGENERATE").is_none() {
+                let compiled = load_theme(&cat, id, &Overrides::default()).unwrap().0;
+                assert_eq!(format!("{compiled:?}"), format!("{t:?}"), "{id}: builtin_gen.rs is stale (see above)");
+            }
         }
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/theme/builtin_gen.rs");
         let current = std::fs::read_to_string(path).unwrap_or_default();

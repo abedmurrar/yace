@@ -857,7 +857,8 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
     let sel_style = t.selection(group_focused);
     let len_lines = rope.len_lines();
     // Display rows (folds + word wrap) for the viewport only.
-    let map = crate::display::DisplayMap::new(rope, &view.folds, app.wrap_width(view.doc, gl.text_width as usize), tw);
+    let map = crate::display::DisplayMap::new(rope, &view.folds, app.wrap_width(view.doc, gl.text_width as usize), tw)
+        .with_inlays(app.inlays_of(view.doc));
     let rows = map.rows(view.top(), height);
     let scroll_col = if map.wraps() { 0 } else { view.scroll_col };
     let first_line = rows.first().map(|r| r.line).unwrap_or(0);
@@ -989,13 +990,27 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         let mut ci = line_start + seg.start;
         let mut bi = rope.char_to_byte(ci);
         let max_col = scroll_col + gl.text_width as usize;
+        // Inlay hints show before their char; tab stops ignore them.
+        let seg_from = ci;
+        let mut hints = map.line_inlays(line).iter().filter(move |h| h.pos >= seg_from).peekable();
+        let mut hint_cells = 0;
+        let hint_style = if t.is_mono() {
+            Style::new().add_modifier(Modifier::DIM)
+        } else {
+            Style::new().fg(t.inlay_hint_fg).bg(t.inlay_hint_bg)
+        };
         // Unified diffs are coloured by line prefix (no parser needed).
         let diff_style = is_diff.then(|| diff_line_style(t, &content.chars().take(4).collect::<String>())).flatten();
         for g in text.graphemes(true) {
+            while let Some(h) = hints.next_if(|h| h.pos <= ci) {
+                draw_inlay(buf, gl, y, col, scroll_col, max_col, h, hint_style);
+                col += h.cells;
+                hint_cells += h.cells;
+            }
             if col >= max_col {
                 break;
             }
-            let w = grapheme_width(g, col, tw);
+            let w = grapheme_width(g, col - hint_cells, tw);
             let n = g.chars().count();
             while si < spans.len() && spans[si].end <= bi {
                 si += 1;
@@ -1050,6 +1065,7 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         }
         // Selected line break / secondary cursor at end of line.
         let end_x = gl.text_x as usize + col.saturating_sub(scroll_col);
+        let eol_col = col;
         if col >= scroll_col && col < max_col {
             let nl_selected =
                 active_ranges.iter().any(|(a, b)| line_end >= *a && line_end < *b && line + 1 < len_lines);
@@ -1058,6 +1074,13 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
             } else if nl_selected {
                 put(buf, end_x as u16, y, " ", 1, sel_style);
             }
+        }
+        // Hints at the end of the line (after a cursor there).
+        let eol_cursor = line_heads.contains(&line_end) && line_end != head && group_focused;
+        for h in hints {
+            let at = if eol_cursor && col == eol_col { col + 1 } else { col };
+            draw_inlay(buf, gl, y, at, scroll_col, max_col, h, hint_style);
+            col = at + h.cells;
         }
         // Folded region placeholder.
         if map.is_folded_header(line) && col + 1 >= scroll_col && col + 4 <= max_col {
@@ -1084,6 +1107,31 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
 }
 
 /// Completion list, parameter hints and hover, anchored at the cursor.
+/// Draw an inlay hint at cell `col` of a row, clipped to the text area.
+#[allow(clippy::too_many_arguments)]
+fn draw_inlay(
+    buf: &mut Buffer,
+    gl: &GroupLayout,
+    y: u16,
+    col: usize,
+    scroll_col: usize,
+    max_col: usize,
+    h: &crate::display::Inlay,
+    style: Style,
+) {
+    let mut c = col;
+    for ch in h.text.chars() {
+        let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if c + w > max_col {
+            break;
+        }
+        if c >= scroll_col && w > 0 {
+            put(buf, (gl.text_x as usize + c - scroll_col) as u16, y, &ch.to_string(), w as u16, style);
+        }
+        c += w;
+    }
+}
+
 /// Rows a hover popup shows at most (the mouse wheel scrolls the rest).
 pub const HOVER_ROWS: usize = 15;
 
@@ -1337,7 +1385,8 @@ fn editor_cursor(app: &App, wl: &WorkbenchLayout) -> Option<(u16, u16)> {
     let doc = app.docs.doc(view.doc)?;
     let rope = doc.rope();
     let tw = app.settings_for(doc.path()).editor.tab_size.max(1);
-    let map = crate::display::DisplayMap::new(rope, &view.folds, app.wrap_width(view.doc, gl.text_width as usize), tw);
+    let map = crate::display::DisplayMap::new(rope, &view.folds, app.wrap_width(view.doc, gl.text_width as usize), tw)
+        .with_inlays(app.inlays_of(view.doc));
     let (row, col) = map.row_of(view.sel.primary().head);
     let height = gl.content.height as usize;
     let dy = map.distance(map.clamp(view.top()), row, height.saturating_sub(1))?;

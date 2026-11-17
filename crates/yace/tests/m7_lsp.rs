@@ -6,6 +6,7 @@ mod common;
 use std::{path::Path, time::Duration};
 
 use common::{Harness, multi_root};
+use ratatui::crossterm::event::KeyModifiers;
 use yace_app::{
     cli::{Launch, Target},
     initial_workspace,
@@ -286,6 +287,72 @@ fn mouse_hover_can_be_turned_off_and_is_quiet_without_a_server() {
     rest(&mut h);
     assert!(h.app.hover.is_none());
     assert_eq!(h.app.notifications.len(), notes, "no notice for a file without a server");
+}
+
+#[test]
+fn inlay_hints_show_inside_the_code_and_follow_edits() {
+    if !have_python() {
+        return;
+    }
+    let f = fixture(&[("a.ts", "let x = 1;\nlet yy = 2;\nconst z = 3;\n")]);
+    let mut h = Harness::with_config(&config(&f.log, ", FAKE_LSP_INLAY = \"1\"", ""));
+    open_folder(&mut h, &f.root);
+    h.app.open_file(&f.root.join("a.ts"), false);
+    h.settle();
+    assert!(wait_running(&mut h));
+    rest(&mut h);
+    assert!(h.wait_for(T, |h| h.screen().contains("let x: i32 = 1;")), "{}", h.screen());
+    assert!(h.screen().contains("let yy: i32 = 2;"));
+    // The hint is drawn in its own colour, not as code.
+    let (hx, hy) = screen_pos(&mut h, ": i32 = 1");
+    let buf = h.render();
+    assert_ne!(buf[(hx, hy)].fg, buf[(hx - 1, hy)].fg, "hint styled apart from the code");
+    // A click on the hint lands at its position; right of it on the next char.
+    let (lx, ly) = screen_pos(&mut h, "let x");
+    h.click(lx + 7, ly, KeyModifiers::NONE);
+    assert_eq!(h.cursor(), (0, 5));
+    h.click(lx + 11, ly, KeyModifiers::NONE);
+    assert_eq!(h.cursor(), (0, 6), "on '=' after the hint");
+    // Up and Down keep the screen column (hints count).
+    h.key("down");
+    assert_eq!(h.cursor(), (1, 6));
+    h.key("down");
+    assert_eq!(h.cursor(), (2, 11), "screen column 11 of a line without hints");
+    // The cursor is never inside a hint: Right steps over it.
+    h.click(lx + 5, ly, KeyModifiers::NONE);
+    assert_eq!(h.cursor(), (0, 5));
+    h.key("right");
+    assert_eq!(h.cursor(), (0, 6));
+    // Typing before a hint moves it at once (before the server answers).
+    h.key("ctrl+home");
+    h.type_text("  ");
+    assert!(h.screen().contains("  let x: i32 = 1;"), "{}", h.screen());
+    // The server asks for a refresh after each save: the new hints show.
+    h.key("ctrl+s");
+    h.settle();
+    assert!(h.wait_for(T, |h| {
+        rest(h);
+        h.screen().contains("let x: u8 = 1;")
+    }));
+}
+
+#[test]
+fn inlay_hints_can_be_turned_off() {
+    if !have_python() {
+        return;
+    }
+    let f = fixture(&[("a.ts", "let x = 1;\n")]);
+    let mut h =
+        Harness::with_config(&config(&f.log, ", FAKE_LSP_INLAY = \"1\"", "[editor]\ninlayHintsEnabled = false\n"));
+    open_folder(&mut h, &f.root);
+    h.app.open_file(&f.root.join("a.ts"), false);
+    h.settle();
+    assert!(wait_running(&mut h));
+    rest(&mut h);
+    std::thread::sleep(Duration::from_millis(300));
+    h.settle();
+    assert!(h.screen().contains("let x = 1;"));
+    assert!(!log_has(&f.log, "textDocument/inlayHint"));
 }
 
 #[test]

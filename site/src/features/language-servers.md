@@ -15,6 +15,7 @@ formatting.** It never installs anything.
 | The selected completion's documentation | shown in a panel beside the list; "Toggle Suggestion Details" (`Ctrl+Space` while the list is open, enhanced terminals) hides it |
 | Parameter hints | `Ctrl+Shift+Space`, also on `(` and `,` |
 | Hover | rest the mouse on a symbol, or `Ctrl+K Ctrl+I` |
+| Inlay hints: types and parameter names inside the code | shown by servers that send them; `editor.inlayHintsEnabled` |
 | Go to definition, also into other workspace folders | `F12`, `Ctrl+Click` |
 | Go to implementations / references | `Ctrl+F12` / `Shift+F12` |
 | Rename symbol | `F2` |
@@ -30,6 +31,13 @@ pointer. Move into the popup to read it (the wheel scrolls a long one);
 moving off the symbol, clicking or typing closes it. `editor.hoverEnabled
 = false` turns this off and `editor.hoverDelay` changes the wait. Inside
 tmux, the mouse needs `set -g mouse on`.
+
+Inlay hints are the grey labels a server adds inside the code, such as
+`let total: number` or `add(a: 1, b: 2)`. They aren't part of the file:
+the cursor steps over them and copying leaves them out. They are asked for
+the visible lines once typing pauses, so they never slow typing down.
+rust-analyzer sends them by default; YACE turns on TypeScript's for
+parameter names, variable types and return types.
 
 ![A hover from the TypeScript server; the status bar counts one error](../media/lsp-hover.svg)
 

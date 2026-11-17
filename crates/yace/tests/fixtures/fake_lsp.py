@@ -13,6 +13,8 @@ Behaviour:
   workspace symbols ("def name" / "class Name"), a quick fix for TODO,
   formatting (strips trailing whitespace)
 - a document containing "CRASH" makes the server exit with status 3
+- $FAKE_LSP_INLAY=1: inlay hints ": i32" after every "let NAME"; each save
+  asks YACE to refresh them and they become ": u8"
 """
 import json, os, re, sys
 
@@ -24,6 +26,8 @@ PULL = os.environ.get("FAKE_LSP_PULL") == "1"
 # and FAKE_LSP_MATCH the words it reports.
 NAME = os.environ.get("FAKE_LSP_NAME", "fake")
 MATCH = os.environ.get("FAKE_LSP_MATCH", "TODO|ERROR")
+INLAY = os.environ.get("FAKE_LSP_INLAY") == "1"
+saves = 0
 docs = {}
 root = None
 
@@ -149,7 +153,7 @@ def symbols(text):
 
 
 def handle(msg):
-    global root
+    global root, saves
     method, mid, p = msg.get("method"), msg.get("id"), msg.get("params") or {}
     if method == "initialize":
         folders = p.get("workspaceFolders") or []
@@ -163,6 +167,7 @@ def handle(msg):
             "documentSymbolProvider": True, "workspaceSymbolProvider": True,
             "codeActionProvider": True, "documentFormattingProvider": True,
             "positionEncoding": "utf-16",
+            **({"inlayHintProvider": True} if INLAY else {}),
             **({"diagnosticProvider": {"identifier": "fake", "interFileDependencies": True, "workspaceDiagnostics": False}} if PULL else {})},
             "serverInfo": {"name": "fake-lsp"}}})
     elif method == "initialized":
@@ -186,6 +191,15 @@ def handle(msg):
         if "CRASH" in text:
             os._exit(3)
         publish(uri)
+    elif method == "textDocument/didSave" and INLAY:
+        saves += 1
+        send({"id": f"refresh-{saves}", "method": "workspace/inlayHint/refresh", "params": None})
+    elif method == "textDocument/inlayHint":
+        text = docs.get(p["textDocument"]["uri"], "")
+        a, b = offset(text, p["range"]["start"]), offset(text, p["range"]["end"])
+        label = ": u8" if saves else ": i32"
+        send({"id": mid, "result": [{"position": position(text, m.end(1)), "label": label, "kind": 1}
+                                    for m in re.finditer(r"\blet (\w+)", text) if a <= m.start() < b]})
     elif method == "textDocument/didClose":
         docs.pop(p["textDocument"]["uri"], None)
     elif method == "textDocument/completion":

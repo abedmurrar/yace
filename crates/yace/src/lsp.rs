@@ -126,6 +126,8 @@ pub enum ReqKind {
     },
     ExecuteCommand,
     PullDiagnostics,
+    /// Inlay hints for the visible lines of a document.
+    InlayHints,
 }
 
 impl ReqKind {
@@ -241,7 +243,8 @@ pub fn client_capabilities() -> Value {
             "symbol": { "dynamicRegistration": false },
             "didChangeConfiguration": { "dynamicRegistration": false },
             "executeCommand": { "dynamicRegistration": false },
-            "diagnostics": { "refreshSupport": true }
+            "diagnostics": { "refreshSupport": true },
+            "inlayHint": { "refreshSupport": true }
         },
         "window": { "workDoneProgress": true },
         "textDocument": {
@@ -281,7 +284,8 @@ pub fn client_capabilities() -> Value {
             "rangeFormatting": {},
             "rename": { "prepareSupport": false },
             "publishDiagnostics": { "versionSupport": true },
-            "diagnostic": { "dynamicRegistration": false, "relatedDocumentSupport": false }
+            "diagnostic": { "dynamicRegistration": false, "relatedDocumentSupport": false },
+            "inlayHint": { "dynamicRegistration": false }
         }
     })
 }
