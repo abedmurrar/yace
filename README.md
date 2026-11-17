@@ -149,8 +149,8 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
 - **Git, per repository.** Each workspace folder shows its own branch in
   the status bar, changed files in the Explorer and change bars in the
   gutter (as you type); a Source Control view lists conflicts, staged
-  changes, changes and untracked files of every repository, with diffs,
-  stage/unstage, commit and branch switching. Uses your `git`; reads never
+  changes, changes and untracked files of every repository, with
+  side-by-side diffs, stage/unstage, commit and branch switching. Uses your `git`; reads never
   lock the index and nothing changes a repository unless you ask. See
   [`docs/git.md`](docs/git.md).
 - **Native plugins.** Rust (or C ABI) shared libraries with commands,

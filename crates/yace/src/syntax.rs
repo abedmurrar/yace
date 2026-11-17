@@ -13,6 +13,7 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
     ops::Range,
+    path::Path,
     path::PathBuf,
     rc::Rc,
     time::{Duration, Instant},
@@ -196,9 +197,9 @@ impl SyntaxStore {
         Some(ParseJob { id: self.next_job, doc: d, lang: ds.lang, rope: rope.clone(), old })
     }
 
-    fn attach(&mut self, d: DocId, doc: &mut Document) -> Option<ParseJob> {
+    fn attach(&mut self, d: DocId, doc: &mut Document, language_from: Option<&Path>) -> Option<ParseJob> {
         let first: String = doc.rope().lines().next().map(|l| l.chars().take(200).collect()).unwrap_or_default();
-        let lang = yace_syntax::detect(doc.path(), &first, &self.assoc);
+        let lang = yace_syntax::detect(doc.path().or(language_from), &first, &self.assoc);
         doc.track_edits();
         doc.take_edits();
         let syntax = if doc.large_file { None } else { Syntax::new(lang) };
@@ -255,13 +256,14 @@ impl SyntaxStore {
             if entry.loading {
                 continue;
             }
+            let language_from = entry.language_from.clone();
             let doc = &mut entry.doc;
             let stale_attach = match self.docs.get(&id) {
                 None => true,
                 Some(ds) => assoc_changed || ds.path.as_deref() != doc.path() || !doc.is_tracking_edits(),
             };
             if stale_attach {
-                out.jobs.extend(self.attach(id, doc));
+                out.jobs.extend(self.attach(id, doc, language_from.as_deref()));
                 out.attached.push(id);
                 continue;
             }

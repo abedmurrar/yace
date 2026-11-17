@@ -187,7 +187,7 @@ impl App {
         match rows.get(row).cloned() {
             Some(ScmRow::File { repo, group, path, .. }) => {
                 let full = self.git.repos[repo].info.toplevel.join(path.trim_end_matches('/'));
-                if file || group == ScmGroup::Conflicts {
+                if file || (group == ScmGroup::Conflicts && !self.side_by_side_fits()) {
                     if full.is_file() {
                         self.open_file(&full, false);
                         self.focus_editor();
@@ -330,8 +330,20 @@ impl App {
     // ------------------------------------------------------------------
     // Changes documents
 
-    /// Open the changes of a file: working tree vs index, or staged.
+    /// Open the changes of a file: working tree vs index, or staged. Side
+    /// by side when the group is wide enough, else as a unified diff.
     pub(crate) fn git_open_changes(&mut self, repo: usize, rel: &str, group: ScmGroup) {
+        if self.side_by_side_fits() {
+            use crate::git::Side;
+            let (left, right) = match group {
+                ScmGroup::Staged => (Side::Head, Side::Index),
+                ScmGroup::Untracked => (Side::Empty, Side::WorkingTree),
+                ScmGroup::Conflicts => (Side::Stage(2), Side::Stage(3)),
+                ScmGroup::Changes => (Side::Index, Side::WorkingTree),
+            };
+            self.git_compare(repo, rel, left, right);
+            return;
+        }
         let r = &self.git.repos[repo];
         let name = rel.trim_end_matches('/').rsplit('/').next().unwrap_or(rel).to_string();
         let (title, staged, untracked) = match group {

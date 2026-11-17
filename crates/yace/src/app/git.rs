@@ -92,6 +92,9 @@ impl App {
                 }
             }
             GitResult::DiffText { title, file, result } => self.on_git_diff_text(title, file, result),
+            GitResult::Compare { title, file, left, right, result } => {
+                self.on_git_compare(title, file, (left, right), result)
+            }
             GitResult::Branches { toplevel, result } => self.on_git_branches(&toplevel, result),
             GitResult::Op { toplevel, op, result } => self.on_git_op(&toplevel, op, result),
         }

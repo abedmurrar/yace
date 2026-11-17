@@ -27,6 +27,7 @@ pub mod ctx {
     pub const SUGGEST_WIDGET_VISIBLE: &str = "suggestWidgetVisible";
     pub const PARAMETER_HINTS_VISIBLE: &str = "parameterHintsVisible";
     pub const EDITOR_HOVER_VISIBLE: &str = "editorHoverVisible";
+    pub const IN_DIFF_EDITOR: &str = "isInDiffEditor";
 }
 
 const ED: &str = "editorFocus";
@@ -310,6 +311,10 @@ pub const DEFAULTS: &[(&str, &str, &str)] = &[
     ("ctrl+k ctrl+n", "yace.showNotifications", ""),
     // Popups (last, so they win while visible).
     ("escape", "editor.action.hideHover", "editorHoverVisible"),
+    ("alt+f5", "workbench.action.compareEditor.nextChange", "isInDiffEditor"),
+    ("shift+alt+f5", "workbench.action.compareEditor.previousChange", "isInDiffEditor"),
+    ("f7", "workbench.action.compareEditor.nextChange", "isInDiffEditor"),
+    ("shift+f7", "workbench.action.compareEditor.previousChange", "isInDiffEditor"),
     ("escape", "closeParameterHints", "parameterHintsVisible && !suggestWidgetVisible"),
     ("down", "selectNextSuggestion", "suggestWidgetVisible && editorFocus"),
     ("up", "selectPrevSuggestion", "suggestWidgetVisible && editorFocus"),

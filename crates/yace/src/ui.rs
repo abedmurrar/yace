@@ -264,6 +264,8 @@ pub fn draw(app: &App, f: &mut Frame) {
     let mut cursor = None;
     if app.overlays.is_empty() {
         cursor = match app.focus {
+            // A diff tab has no text cursor (its row is highlighted).
+            Focus::Editor if app.active_diff().is_some() => None,
             Focus::Editor => editor_cursor(app, &wl),
             Focus::Find => wl.groups.iter().find(|g| g.id == app.layout.active).and_then(|g| find_bar_cursor(app, g)),
             Focus::Explorer if app.sidebar_view == SidebarView::Search => {
@@ -835,6 +837,10 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
         draw_empty_group(app, buf, gl.content, gl.id == app.layout.active);
         return;
     };
+    if let Some(diff) = app.diff_of(view.doc) {
+        draw_diff(app, buf, gl, diff, group_focused);
+        return;
+    }
     if app.docs.is_loading(view.doc) {
         fill(buf, gl.content, Style::new().bg(t.bg));
         let msg = format!("Loading {}…", app.docs.name(view.doc));
@@ -1107,6 +1113,99 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
 }
 
 /// Completion list, parameter hints and hover, anchored at the cursor.
+/// A side-by-side diff: the old version left, the new right, in aligned
+/// rows; changed lines tinted, their changed text more strongly, filler
+/// rows striped.
+fn draw_diff(app: &App, buf: &mut Buffer, gl: &GroupLayout, v: &crate::diff_view::DiffView, focused: bool) {
+    use crate::{
+        diff_view::{RowKind, changed_span},
+        editor::DocId,
+    };
+    let t = &app.theme;
+    let area = gl.content;
+    fill(buf, area, Style::new().bg(t.bg));
+    let (Some(ld), Some(rd)) = (app.docs.doc(v.left), app.docs.doc(v.right)) else { return };
+    let tw = app.settings_for(Some(&v.file)).editor.tab_size.max(1);
+    let half = area.width.saturating_sub(1) / 2;
+    let left = Rect { width: half, ..area };
+    let div_x = area.x + half;
+    let right = Rect { x: div_x + 1, width: area.width.saturating_sub(half + 1), ..area };
+    let line_text = |rope: &yace_buffer::Rope, l: Option<usize>| -> String {
+        l.filter(|l| *l < rope.len_lines()).map(|l| line_without_ending(rope, l).to_string()).unwrap_or_default()
+    };
+    let stripe = if app.glyphs.vbar == "|" { "/" } else { "╱" };
+    let shown = || v.rows.iter().skip(v.top).take(area.height as usize);
+    // Syntax spans of each side's visible lines, asked for once.
+    let side_spans = |id: DocId, doc: &yace_buffer::Document, lines: Vec<usize>| -> Vec<yace_syntax::Span> {
+        let (Some(a), Some(b)) = (lines.iter().min(), lines.iter().max()) else { return Vec::new() };
+        let rope = doc.rope();
+        let eb = if b + 1 < rope.len_lines() { rope.line_to_byte(b + 1) } else { rope.len_bytes() };
+        if doc.large_file {
+            return Vec::new();
+        }
+        app.syntax.spans(id, rope, rope.line_to_byte(*a)..eb).map(|s| s.to_vec()).unwrap_or_default()
+    };
+    let lspans = side_spans(v.left, ld, shown().filter_map(|r| r.left).collect());
+    let rspans = side_spans(v.right, rd, shown().filter_map(|r| r.right).collect());
+    for (i, row) in v.rows.iter().enumerate().skip(v.top).take(area.height as usize) {
+        let y = area.y + (i - v.top) as u16;
+        let (lt, rt) = (line_text(ld.rope(), row.left), line_text(rd.rope(), row.right));
+        let (lspan, rspan) = if row.kind == RowKind::Modified { changed_span(&lt, &rt) } else { ((0, 0), (0, 0)) };
+        let (lbg, rbg) = match row.kind {
+            RowKind::Equal => (t.bg, t.bg),
+            RowKind::Added => (t.bg, t.diff_inserted_line_bg),
+            RowKind::Removed => (t.diff_removed_line_bg, t.bg),
+            RowKind::Modified => (t.diff_removed_line_bg, t.diff_inserted_line_bg),
+        };
+        let cursor = i == v.cursor && focused;
+        let sides = [
+            (left, &lspans, ld, row.left, &lt, lbg, t.diff_removed_text_bg, lspan, "-"),
+            (right, &rspans, rd, row.right, &rt, rbg, t.diff_inserted_text_bg, rspan, "+"),
+        ];
+        for (r, spans, doc, line, text, bg, strong, span, sign) in sides {
+            let bg = if cursor && row.kind == RowKind::Equal { t.cursor_line_bg } else { bg };
+            fill(buf, Rect { x: r.x, y, width: r.width, height: 1 }, Style::new().bg(bg));
+            let Some(line) = line else {
+                let s: String = stripe.repeat(r.width as usize);
+                put(buf, r.x, y, &s, r.width, Style::new().fg(t.diff_diagonal).bg(t.bg));
+                continue;
+            };
+            // Line number and +/- sign.
+            let numw = doc.rope().len_lines().to_string().len().max(3) as u16;
+            let num_style = Style::new().fg(if cursor { t.line_number_active } else { t.line_number }).bg(bg);
+            put(buf, r.x, y, &format!(" {:>w$} ", line + 1, w = numw as usize), numw + 2, num_style);
+            if row.kind != RowKind::Equal {
+                put(buf, r.x + numw + 2, y, sign, 1, Style::new().fg(t.muted).bg(bg));
+            }
+            let text_x = r.x + numw + 4;
+            let width = r.right().saturating_sub(text_x) as usize;
+            let sb = doc.rope().line_to_byte(line);
+            let (mut col, mut ci, mut bi) = (0usize, 0usize, sb);
+            let mut si = spans.partition_point(|s| s.end <= sb);
+            for g in text.graphemes(true) {
+                let w = grapheme_width(g, col, tw);
+                if col >= v.scroll_col + width {
+                    break;
+                }
+                while si < spans.len() && spans[si].end <= bi {
+                    si += 1;
+                }
+                let scope = spans.get(si).filter(|s| s.start <= bi).map(|s| s.scope);
+                let cbg = if ci >= span.0 && ci < span.1 { strong } else { bg };
+                if col >= v.scroll_col {
+                    let sym = if g == "\t" { " ".repeat(w) } else { g.to_string() };
+                    let x = text_x + (col - v.scroll_col) as u16;
+                    put(buf, x, y, &sym, w as u16, syntax_style(t, scope).bg(cbg));
+                }
+                col += w;
+                ci += g.chars().count();
+                bi += g.len();
+            }
+        }
+        put(buf, div_x, y, app.glyphs.vbar, 1, Style::new().fg(t.border).bg(t.bg));
+    }
+}
+
 /// Draw an inlay hint at cell `col` of a row, clipped to the text area.
 #[allow(clippy::too_many_arguments)]
 fn draw_inlay(

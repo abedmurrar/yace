@@ -428,6 +428,132 @@ fn clicking_the_status_bar_branch_checks_out_in_that_repository() {
     assert!(!h.screen().contains("Switch Branch in"));
 }
 
+/// The diff tab in the active group, if one is open.
+fn diff_tab(h: &Harness) -> Option<u32> {
+    h.app.docs.ids().into_iter().find(|d| h.app.diff_of(*d).is_some())
+}
+
+/// The row of the screen showing both `a` and `b`.
+fn row_with(h: &mut Harness, a: &str, b: &str) -> Option<String> {
+    h.screen().lines().find(|l| l.contains(a) && l.contains(b)).map(String::from)
+}
+
+#[test]
+fn open_changes_shows_both_versions_side_by_side() {
+    let r = repo("main", &[("a.txt", "one\ntwo\nthree\nfour\n")]);
+    std::fs::write(r.path().join("a.txt"), "one\nTWO\nthree\nfour\nfive\n").unwrap();
+    let mut h = Harness::new();
+    let _ws = open_ws(&mut h, &[r.path()]);
+    h.command("workbench.action.toggleSidebarVisibility");
+    h.app.open_file(&r.path().join("a.txt"), false);
+    h.settle();
+    settle_git(&mut h);
+    let docs_before = h.app.docs.ids().len();
+    h.command("git.openChange");
+    settle_git(&mut h);
+    let tab = diff_tab(&h).expect("a side-by-side diff tab");
+    let screen = h.screen();
+    assert!(screen.contains("a.txt (Index ↔ Working Tree)"), "{screen}");
+    // Aligned rows: the changed line beside its new version, the added
+    // line beside filler, equal lines beside each other.
+    assert!(row_with(&mut h, "two", "TWO").is_some(), "{screen}");
+    assert!(row_with(&mut h, "three", "three").is_some());
+    let five = row_with(&mut h, "five", "five").map(|_| ()).or_else(|| {
+        h.screen().lines().find(|l| l.contains("five")).map(|l| assert!(l.contains('╱'), "filler beside: {l}"))
+    });
+    assert!(five.is_some(), "{}", h.screen());
+    // Colours: the changed text is tinted more strongly than its line.
+    let buf = h.render();
+    let (mut two, mut big) = (None, None);
+    for y in 0..buf.area.height {
+        let row: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect();
+        if let (Some(a), Some(b)) = (row.find("two"), row.find("TWO")) {
+            two = Some((row[..a].chars().count() as u16, y));
+            big = Some((row[..b].chars().count() as u16, y));
+        }
+    }
+    let ((tx, ty), (bx, by)) = (two.unwrap(), big.unwrap());
+    assert_ne!(buf[(tx, ty)].bg, buf[(tx - 3, ty)].bg, "changed text vs the rest of its line");
+    assert_ne!(buf[(tx, ty)].bg, buf[(bx, by)].bg, "removed vs added");
+    // The cursor starts on the first change; the next change is "five".
+    assert_eq!(h.app.diff_of(tab).unwrap().cursor, 1);
+    h.key("alt+f5");
+    assert_eq!(h.app.diff_of(tab).unwrap().cursor, 4);
+    h.key("alt+f5");
+    assert_eq!(h.app.diff_of(tab).unwrap().cursor, 1, "wraps around");
+    h.key("down");
+    h.key("down");
+    assert_eq!(h.app.diff_of(tab).unwrap().cursor, 3);
+    // Editing the open file updates the diff (after a pause).
+    h.key("enter");
+    assert_eq!(h.cursor(), (3, 0), "Enter opened the file at that line");
+    h.key("ctrl+home");
+    h.type_text("zero\n");
+    h.app.on_tick(std::time::Instant::now() + Duration::from_secs(1));
+    h.app.on_tick(std::time::Instant::now() + Duration::from_secs(2));
+    let rows = &h.app.diff_of(tab).unwrap().rows;
+    assert_eq!(rows.len(), 6, "{rows:?}");
+    assert_eq!(rows[0].left, None, "the new first line is added");
+    // Closing the diff tab drops the hidden version it opened.
+    h.key("ctrl+z");
+    h.key("ctrl+pagedown");
+    assert_eq!(h.app.active().map(|(_, _, d)| d), Some(tab));
+    h.key("ctrl+w");
+    h.settle();
+    assert!(diff_tab(&h).is_none());
+    assert_eq!(h.app.docs.ids().len(), docs_before, "only the file's own document is left");
+}
+
+#[test]
+fn staged_untracked_and_conflicts_open_side_by_side() {
+    let r = repo("main", &[("a.txt", "base\n")]);
+    // A conflict on a.txt: main and other both change its line.
+    git(r.path(), &["checkout", "-q", "-b", "other"]);
+    std::fs::write(r.path().join("a.txt"), "theirs\n").unwrap();
+    git(r.path(), &["commit", "-qam", "other"]);
+    git(r.path(), &["checkout", "-q", "main"]);
+    std::fs::write(r.path().join("a.txt"), "ours\n").unwrap();
+    git(r.path(), &["commit", "-qam", "main"]);
+    let _ = Command::new("git").args(["merge", "-q", "other"]).current_dir(r.path()).output();
+    std::fs::write(r.path().join("b.txt"), "new\nfile\n").unwrap();
+    std::fs::write(r.path().join("c.txt"), "staged\n").unwrap();
+    git(r.path(), &["add", "c.txt"]);
+    let mut h = Harness::new();
+    let _ws = open_ws(&mut h, &[r.path()]);
+    // A narrow sidebar leaves the editor wide enough for two panes.
+    h.app.sidebar_width = 12;
+    h.command("workbench.view.scm");
+    settle_git(&mut h);
+    for (label, title, a, b) in [
+        ("a.txt", "a.txt (Ours ↔ Theirs)", "ours", "theirs"),
+        ("b.txt", "b.txt (Empty ↔ Working Tree)", "file", "file"),
+        ("c.txt", "c.txt (HEAD ↔ Index)", "staged", "staged"),
+    ] {
+        h.command("workbench.view.scm");
+        select_row(&mut h, label);
+        h.key("enter");
+        settle_git(&mut h);
+        let screen = h.screen();
+        assert!(screen.contains(title), "{label}: {screen}");
+        assert!(row_with(&mut h, a, b).is_some() || screen.contains(b), "{label}: {screen}");
+    }
+}
+
+#[test]
+fn a_narrow_group_gets_the_unified_diff() {
+    let r = repo("main", &[("a.txt", "one\n")]);
+    std::fs::write(r.path().join("a.txt"), "uno\n").unwrap();
+    let mut h = Harness::new();
+    let _ws = open_ws(&mut h, &[r.path()]);
+    h.app.open_file(&r.path().join("a.txt"), false);
+    h.settle();
+    settle_git(&mut h);
+    h.command("git.openChange");
+    settle_git(&mut h);
+    assert!(diff_tab(&h).is_none());
+    assert!(h.active_text().contains("@@"), "{}", h.active_text());
+}
+
 /// The Task Runner plugin subscribes to `gitStatusChanged`: switching
 /// branches (where package.json differs) updates its view.
 #[test]

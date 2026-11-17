@@ -779,6 +779,12 @@ fn builtin_commands() -> Vec<Command> {
         c!("workbench.action.editor.previousChange", "Git", "Go to Previous Change", |a, _| a.git_goto_change(false)),
         c!("yace.git.showChange", "Git", "Show Change Under Cursor", |a, _| a.git_show_change()),
         c!("workbench.view.scm", "View", "Show Source Control", |a, _| a.show_scm()),
+        c!("workbench.action.compareEditor.nextChange", "Diff", "Go to Next Change", |a, _| {
+            a.diff_goto_change(true)
+        }),
+        c!("workbench.action.compareEditor.previousChange", "Diff", "Go to Previous Change", |a, _| {
+            a.diff_goto_change(false)
+        }),
         c!("git.openChange", "Git", "Open Changes", |a, _| a.git_open_changes_cmd()),
         c!("git.stage", "Git", "Stage Changes", |a, _| a.git_stage_active(true)),
         c!("git.unstage", "Git", "Unstage Changes", |a, _| a.git_stage_active(false)),

@@ -13,6 +13,19 @@ Security, Performance.
 
 ## [Unreleased]
 
+### Added
+
+- A side-by-side diff. Source Control and "Git: Open Changes" show a
+  file's two versions in aligned, read-only panes: index and working tree,
+  HEAD and index for staged changes, an empty side for a new file, and
+  ours and theirs for a merge conflict. Changed lines are tinted, their
+  changed text more strongly, with striped filler opposite added or removed
+  lines. The right side follows your unsaved edits. `Alt+F5`/`F7` go to the
+  next change and `Enter` opens the file at that line. Editors narrower
+  than 100 columns get the unified diff as before. New colours:
+  `diffEditor.insertedLineBackground`, `removedLineBackground`,
+  `insertedTextBackground`, `removedTextBackground` and `diagonalFill`.
+
 ## [0.17.0] - 2026-11-17
 
 ### Added

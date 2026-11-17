@@ -293,6 +293,11 @@ impl App {
                 }
                 if let Some(g) = wl.groups.iter().find(|g| hit(g.rect, x, y)) {
                     let gid = g.id;
+                    let diff = self.layout.group(gid).and_then(|gr| gr.active_view()).map(|v| v.doc);
+                    if let Some(d) = diff.filter(|d| self.diff_of(*d).is_some()) {
+                        self.diff_scroll(d, gid, delta);
+                        return;
+                    }
                     if m.modifiers.contains(KeyModifiers::SHIFT) {
                         if let Some(view) = self.layout.group_mut(gid).and_then(|gr| gr.active_view_mut()) {
                             view.scroll_col = (view.scroll_col as isize + delta * 2).max(0) as usize;
@@ -594,6 +599,12 @@ impl App {
     }
 
     fn mouse_editor(&mut self, g: &ui::GroupLayout, x: u16, y: u16, count: u8, mods: KeyModifiers) {
+        if let Some(d) = self.layout.group(g.id).and_then(|gr| gr.active_view()).map(|v| v.doc)
+            && self.diff_of(d).is_some()
+        {
+            self.diff_click(d, g.id, y.saturating_sub(g.content.y) as usize, count);
+            return;
+        }
         self.layout.active = g.id;
         self.focus_editor();
         // The fold marker column of the gutter toggles folds.

@@ -367,7 +367,7 @@ Legend:
 - [x] [M3] Clean buffer → silent reload, cursor clamped
 - [x] [M3] Dirty buffer → sticky notification: Reload (discard mine) / Keep mine; keeping marks it conflicted
 - [x] [M3] Deleted on disk → tab marked "(deleted)"; buffer stays editable and can be saved again
-- [~] [M9+] Compare (diff view) for conflicts — conflicts are listed in Source Control; a side-by-side/merge view is not built
+- [~] [M9+] Compare (diff view) for conflicts — side-by-side diff (v0.18.0): Source Control and Open Changes show Index ↔ Working Tree, HEAD ↔ Index, Empty ↔ Working Tree (untracked) and Ours ↔ Theirs (conflicts) in aligned read-only panes, live with the open document, changed text highlighted, Alt+F5/F7 between changes, Enter opens the file; unified diff under 100 columns. A three-way merge editor is not built
 
 ### Tabs (§10.1)
 - [x] [M3] Open in a tab; switch; close (`Ctrl+W`, prompts if dirty)
@@ -641,7 +641,7 @@ Legend:
 - [x] [M9] Commands ask which repository when ambiguous (never "the workspace")
 - [x] [M9] `gitStatusChanged` plugin event (the Task Runner rescans on branch switches)
 - [x] [M9] Test: branches in two roots stay independent; switching one leaves the other (§28.5)
-- [~] [M9+] Stage/unstage hunks, discard changes, history, compare revisions, stash/apply, side-by-side diff, conflict navigation (§15.2)
+- [~] [M9+] Stage/unstage hunks, discard changes, history, compare revisions, stash/apply, side-by-side diff, conflict navigation (§15.2) — side-by-side diff done (v0.18.0); the rest open
 - [x] [M9] Status bar branch clickable (opens Checkout to… for the repository the label names; `git.checkout` takes `{ "repository" }`)
 
 ---

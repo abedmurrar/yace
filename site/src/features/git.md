@@ -21,7 +21,12 @@ ask it to change something.
 - **Source Control view** (`Ctrl+Shift+G`): one section per repository
   with Merge Conflicts, Staged Changes, Changes and Untracked. Press `s`
   or `u` to stage or unstage, `c` to commit, `b` to switch or create a
-  branch, and `Enter` to see a file's changes.
+  branch, and `Enter` to see a file's changes side by side.
+- **Diff:** the old version left, the new right, aligned row by row, with
+  the changed text highlighted. It follows your unsaved edits.
+  `Alt+F5`/`F7` jumps to the next change and `Enter` opens the file at
+  that line. In an editor narrower than 100 columns it shows one unified
+  diff instead.
 
 ![A file's changes against the index, coloured by line](../media/scm-diff.svg)
 
@@ -37,6 +42,6 @@ Changes made outside YACE (in a terminal, for example) show up because the
 `.git` folder is watched. Each repository refreshes on its own, so a big
 repository never delays the others.
 
-Staging single hunks, discarding changes, history and a side-by-side diff
+Staging single hunks, discarding changes, history and editing in the diff
 are not there yet. The [Git reference](../docs/git.md) has every command,
 key and setting.

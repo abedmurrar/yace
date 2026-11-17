@@ -4,6 +4,7 @@
 //! Tests drive it directly with synthetic events.
 
 pub(crate) mod completion;
+mod diff;
 mod edit;
 pub mod explorer_ops;
 mod files;
@@ -377,6 +378,8 @@ pub struct App {
     /// Inlay hints of the shown documents, and when to ask again.
     inlays: HashMap<DocId, inlay::DocInlays>,
     inlay_deadline: Option<Instant>,
+    /// When to rebuild diff tabs whose documents changed.
+    diff_deadline: Option<Instant>,
     pub signature: Option<completion::SignaturePopup>,
     /// Quick suggestions fire when this passes (typing pause).
     completion_deadline: Option<Instant>,
@@ -512,6 +515,7 @@ impl App {
             quiet_motion: false,
             inlays: HashMap::new(),
             inlay_deadline: None,
+            diff_deadline: None,
             signature: None,
             completion_deadline: None,
             completion_req: None,
@@ -598,6 +602,7 @@ impl App {
             self.lsp_deadline(),
             self.git_deadline(),
             self.plugins.pending_deadline,
+            self.diff_deadline,
         ]
         .into_iter()
         .flatten()
@@ -605,6 +610,7 @@ impl App {
     }
 
     pub fn on_tick(&mut self, now: Instant) {
+        self.diff_track(now);
         if self.resolver.expire(now) {
             self.needs_render = true;
         }
@@ -842,6 +848,7 @@ impl App {
         c.set(ctx::SUGGEST_WIDGET_VISIBLE, self.completion.is_some());
         c.set(ctx::PARAMETER_HINTS_VISIBLE, self.signature.is_some());
         c.set(ctx::EDITOR_HOVER_VISIBLE, self.hover.is_some());
+        c.set(ctx::IN_DIFF_EDITOR, self.active_diff().is_some());
         match self.focus {
             Focus::Explorer if self.sidebar_visible && self.sidebar_view == SidebarView::Search => {
                 c.set(ctx::SEARCH_VIEW_FOCUS, true);
@@ -1014,6 +1021,10 @@ impl App {
             && let Some(i) = self.plugins.key_capture
             && self.plugin_key(i, &key, ch)
         {
+            return;
+        }
+        // A diff tab moves its own rows (both panes together).
+        if self.focus == Focus::Editor && !self.resolver.is_pending() && self.diff_key(key) {
             return;
         }
         if self.focus == Focus::Explorer

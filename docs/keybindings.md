@@ -234,6 +234,7 @@ other commands are in the palette ("Fold Recursively", "Fold Level 2"…).
 |---|---|---|
 | `Ctrl+Shift+G` | Show Source Control | `workbench.view.scm` |
 | `Alt+F5` / `Shift+Alt+F5` | Go to Next / Previous Change | `workbench.action.editor.nextChange` … |
+| `Alt+F5` / `Shift+Alt+F5`, `F7` / `Shift+F7` (in a diff) | Go to Next / Previous Change in the diff | `workbench.action.compareEditor.nextChange` … |
 
 In the Source Control view: `Enter` opens changes, `o` the file, `s`/`u`
 stage/unstage, `c` commit, `b` switch branch, `r` refresh, arrows move and

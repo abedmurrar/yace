@@ -28,6 +28,11 @@ pub struct DocEntry {
     pub pending_cursor: Option<(usize, usize)>,
     /// A generated, read-only document (Git changes).
     pub virtual_doc: Option<VirtualDoc>,
+    /// Detect the language from this path (a virtual document showing a
+    /// file's older version).
+    pub language_from: Option<PathBuf>,
+    /// A side-by-side diff tab.
+    pub diff: Option<Box<crate::diff_view::DiffView>>,
 }
 
 /// What a read-only generated document shows.
@@ -66,12 +71,36 @@ impl DocumentStore {
         if let Some(k) = &key {
             self.by_key.insert(k.clone(), id);
         }
-        self.docs.insert(id, DocEntry { doc, untitled, key, loading: false, pending_cursor: None, virtual_doc: None });
+        self.docs.insert(
+            id,
+            DocEntry {
+                doc,
+                untitled,
+                key,
+                loading: false,
+                pending_cursor: None,
+                virtual_doc: None,
+                language_from: None,
+                diff: None,
+            },
+        );
         id
     }
     pub fn get(&self, id: DocId) -> Option<&DocEntry> {
         self.docs.get(&id)
     }
+    /// A read-only generated document (no `Untitled-N` number).
+    pub fn insert_virtual(&mut self, doc: Document, title: String, file: Option<PathBuf>) -> DocId {
+        let id = self.insert(doc);
+        if let Some(e) = self.docs.get_mut(&id) {
+            if e.untitled.take().is_some() {
+                self.next_untitled -= 1;
+            }
+            e.virtual_doc = Some(VirtualDoc { title, file });
+        }
+        id
+    }
+
     pub fn get_mut(&mut self, id: DocId) -> Option<&mut DocEntry> {
         self.docs.get_mut(&id)
     }

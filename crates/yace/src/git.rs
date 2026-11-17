@@ -46,6 +46,14 @@ pub enum GitJob {
         title: String,
         file: PathBuf,
     },
+    /// Both sides of a side-by-side diff.
+    Compare {
+        toplevel: PathBuf,
+        rel: String,
+        left: Side,
+        right: Side,
+        title: String,
+    },
     Branches {
         toplevel: PathBuf,
     },
@@ -81,6 +89,44 @@ fn count(n: usize) -> String {
     if n == 1 { "1 file".into() } else { format!("{n} files") }
 }
 
+/// One side of a comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Head,
+    Index,
+    /// A conflict stage: 2 is ours, 3 is theirs.
+    Stage(u8),
+    /// Nothing (a new file).
+    Empty,
+    /// The file on disk (or its open document).
+    WorkingTree,
+}
+
+impl Side {
+    pub fn label(self) -> &'static str {
+        match self {
+            Side::Head => "HEAD",
+            Side::Index => "Index",
+            Side::Stage(2) => "Ours",
+            Side::Stage(_) => "Theirs",
+            Side::Empty => "Empty",
+            Side::WorkingTree => "Working Tree",
+        }
+    }
+
+    /// The side's text; the working tree is read by the app (its open
+    /// document may have unsaved edits).
+    fn text(self, git: &Git, toplevel: &std::path::Path, rel: &str) -> Result<Option<String>, yace_git::GitError> {
+        match self {
+            Side::Head => yace_git::ops::show_text(git, toplevel, &format!("HEAD:{rel}")),
+            Side::Index => yace_git::ops::show_text(git, toplevel, &format!(":{rel}")),
+            Side::Stage(n) => yace_git::ops::show_text(git, toplevel, &format!(":{n}:{rel}")),
+            Side::Empty => Ok(Some(String::new())),
+            Side::WorkingTree => Ok(None),
+        }
+    }
+}
+
 /// A finished job.
 #[derive(Debug, Clone)]
 pub enum GitResult {
@@ -105,6 +151,14 @@ pub enum GitResult {
         title: String,
         file: PathBuf,
         result: Result<String, GitError>,
+    },
+    /// Both sides' texts (`None` for the working tree, read by the app).
+    Compare {
+        title: String,
+        file: PathBuf,
+        left: Side,
+        right: Side,
+        result: Result<(Option<String>, Option<String>), GitError>,
     },
     Branches {
         toplevel: PathBuf,
@@ -151,6 +205,10 @@ pub fn run_job(git: &Git, job: GitJob) -> GitResult {
                 yace_git::ops::diff_text(git, &toplevel, &rel, staged)
             };
             GitResult::DiffText { title, file, result }
+        }
+        GitJob::Compare { toplevel, rel, left, right, title } => {
+            let result = left.text(git, &toplevel, &rel).and_then(|l| Ok((l, right.text(git, &toplevel, &rel)?)));
+            GitResult::Compare { title, file: toplevel.join(&rel), left, right, result }
         }
         GitJob::Branches { toplevel } => {
             let result = yace_git::ops::branches(git, &toplevel);

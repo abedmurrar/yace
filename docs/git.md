@@ -48,9 +48,17 @@ its branch, then **Merge Conflicts**, **Staged Changes**, **Changes** and
 | `b` | switch branch (or create one) |
 | `r` | refresh |
 
-**Changes view.** A read-only diff (`file.ts (Working Tree)`, `(Index)` for
-staged changes), coloured by line. `Enter` on a line opens the file at
-that line.
+**Changes view.** The file's two versions side by side in aligned,
+read-only panes: `file.ts (Index ↔ Working Tree)` for changes,
+`(HEAD ↔ Index)` for staged ones, `(Empty ↔ Working Tree)` for an untracked
+file, and `(Ours ↔ Theirs)` for a merge conflict. Changed lines are tinted
+(more strongly where the text changed), with a striped filler row opposite
+an added or removed line. The right side is your open document, so unsaved
+edits show and the rows follow them. Arrows, Page Up/Down and the wheel
+move both panes; `Alt+F5` / `Shift+Alt+F5` (or `F7` / `Shift+F7`) go to
+the next / previous change; `Enter` or a double-click opens the file at
+that line. When the editor is narrower than 100 columns, the changes open
+as one unified diff instead (`Enter` on a line opens the file there).
 
 ## Commands
 
@@ -66,7 +74,7 @@ that line.
 | Git: Create Branch… | | from the current commit, then switches to it |
 | Git: Refresh | | |
 | Git: Show Output | | every git command run, with timings and errors |
-| Go to Next / Previous Change | `Alt+F5` / `Shift+Alt+F5` | |
+| Go to Next / Previous Change | `Alt+F5` / `Shift+Alt+F5` | in a file: its changed lines; in a diff: `workbench.action.compareEditor.nextChange` / `previousChange` (also `F7` / `Shift+F7`) |
 | Git: Show Change Under Cursor | | |
 
 When it isn't clear which repository a command is for (no file open,
@@ -106,6 +114,6 @@ The VS Code keys in brackets are read from workspace and folder settings.
 ## Not yet
 
 Staging individual hunks, discarding changes, history, comparing revisions,
-stash, and a side-by-side diff are planned. Plugins receive a
+stash, and editing in the diff view are planned. Plugins receive a
 `gitStatusChanged` event (`{repo, roots, branch}`) when a repository's
 state changes.

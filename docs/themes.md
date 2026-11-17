@@ -163,6 +163,11 @@ VS Code ids are also accepted as aliases (`quickInput.background`,
 | `editorWhitespace.foreground` | Rendered whitespace |
 | `editorInlayHint.foreground` | Inlay hints (types, parameter names) |
 | `editorInlayHint.background` | Inlay hint background |
+| `diffEditor.insertedLineBackground` | Diff: added lines |
+| `diffEditor.removedLineBackground` | Diff: removed lines |
+| `diffEditor.insertedTextBackground` | Diff: added text in a changed line |
+| `diffEditor.removedTextBackground` | Diff: removed text in a changed line |
+| `diffEditor.diagonalFill` | Diff: filler rows |
 | `editor.findMatchHighlightBackground` | Find matches |
 | `editor.findMatchBackground` | Current find match |
 | `editorSuggestWidget.highlightForeground` | Matched characters in completion and pickers |

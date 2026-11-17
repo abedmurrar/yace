@@ -9,7 +9,13 @@ use crate::exec::{Git, GitError};
 /// isn't there (new file) or isn't text.
 pub fn base_text(git: &Git, toplevel: &Path, rel: &str, index: bool) -> Result<Option<String>, GitError> {
     let spec = if index { format!(":{rel}") } else { format!("HEAD:{rel}") };
-    match git.read(toplevel, &["show", &spec]) {
+    show_text(git, toplevel, &spec)
+}
+
+/// The text of `git show SPEC` (`HEAD:path`, `:path`, `:2:path` for "ours"
+/// in a conflict). `None` when it isn't there or isn't text.
+pub fn show_text(git: &Git, toplevel: &Path, spec: &str) -> Result<Option<String>, GitError> {
+    match git.read(toplevel, &["show", spec]) {
         Ok(bytes) => Ok(String::from_utf8(bytes).ok()),
         Err(GitError::Failed { .. }) => Ok(None),
         Err(e) => Err(e),

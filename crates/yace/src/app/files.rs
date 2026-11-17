@@ -195,9 +195,12 @@ impl App {
 
     /// Drop a document if no view shows it any more.
     pub(crate) fn release_doc_if_unused(&mut self, doc: DocId) {
-        if self.layout.views_of(doc).is_empty() {
+        // A diff tab still shows it (without a tab of its own).
+        if self.layout.views_of(doc).is_empty() && !self.diff_uses(doc) {
             let big = self.docs.doc(doc).is_some_and(|d| d.len_chars() > 1 << 20);
-            self.docs.remove(doc);
+            if let Some(view) = self.docs.remove(doc).and_then(|e| e.diff) {
+                self.diff_closed(*view);
+            }
             if self.backed_up.contains_key(&doc) {
                 self.backup_soon();
             }

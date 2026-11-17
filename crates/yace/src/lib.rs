@@ -8,6 +8,7 @@ pub mod backup;
 pub mod cli;
 pub mod clipboard;
 pub mod commands;
+pub mod diff_view;
 pub mod display;
 pub mod editor;
 pub mod explorer;
