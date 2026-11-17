@@ -13,6 +13,8 @@ Security, Performance.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-17
+
 ### Added
 
 - Inlay hints: types and parameter names from the language server inside
@@ -925,7 +927,8 @@ Reproduce with `scripts/bench.sh` and `scripts/bench_interactive.py`.
 - Very large files are read on the main thread.
 - There's no crash recovery for unsaved edits yet.
 
-[Unreleased]: https://github.com/abedmurrar/yace/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/abedmurrar/yace/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/abedmurrar/yace/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/abedmurrar/yace/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/abedmurrar/yace/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/abedmurrar/yace/compare/v0.13.0...v0.14.0
