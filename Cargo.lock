@@ -3637,6 +3637,7 @@ dependencies = [
 name = "yace-git"
 version = "0.15.0"
 dependencies = [
+ "criterion",
  "imara-diff",
  "tempfile",
 ]

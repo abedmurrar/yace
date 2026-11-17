@@ -63,6 +63,35 @@ Measured on a 44,100-file repository with 3,300 to 4,000 folders:
   538 MiB on a two-file project, while YACE used 32 MiB. YACE shows the
   servers' memory separately.
 
+## Tracked in CI
+
+The Benchmarks workflow runs `scripts/bench_ci.py` on every push to
+`main` and on pull requests that touch the code. It measures:
+
+- the binary size
+- startup time and memory at the first frame
+- idle CPU, and input and render latency while typing 300 keys
+- memory after Quick Open indexing and a search of the YACE repository
+- the criterion benches for the buffer, parsing and highlighting, Quick
+  Open over 200,000 names, and the Git line diff
+
+Each result is compared with the median of the last 10 runs on `main`,
+which are kept in `history.jsonl` on the
+[`benchmarks` branch](https://github.com/abedmurrar/yace/tree/benchmarks).
+
+- **Fails:** binary size up more than 3%, or memory up more than 10%.
+  These stay steady on GitHub's shared runners.
+- **Warns:** a timing more than 30% slower (and, for latencies, at least
+  0.25 ms slower). Timings on shared runners are noisy, so a warning is a
+  prompt to measure locally, not proof.
+
+The table is on each run's summary page. To run the same suite locally:
+
+```sh
+scripts/bench_ci.py run --out bench.json
+scripts/bench_ci.py compare bench.json history.jsonl   # history from the benchmarks branch
+```
+
 ## Reproduce them
 
 ```sh
@@ -72,6 +101,7 @@ scripts/bench_terminal.py             # typing while a terminal floods output
 cargo bench -p yace-buffer            # text buffer
 cargo bench -p yace-syntax            # parsing and highlighting
 cargo bench -p yace-search            # Quick Open and search
+cargo bench -p yace-git --bench diff  # Git line diff
 ```
 
 The repository's `TODO.md` has the full notes, including the exact

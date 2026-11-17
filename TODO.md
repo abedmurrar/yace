@@ -675,9 +675,9 @@ Legend:
 - [x] Website screenshots and recordings generated from the real release binary in a PTY (`site/capture/`: SVG stills, animated SVG recordings and asciicast v2 sources, in `site/src/media/`)
 
 ### Performance (§23)
-- [ ] [M10] Benchmark suite: cold and warm start, workspace load, directory expansion, Quick Open, typing latency, scrolling, large file, multi-cursor, syntax, search, git, terminal throughput, plugin activation, memory (§23.7)
+- [~] [M10] Benchmark suite: cold and warm start, workspace load, directory expansion, Quick Open, typing latency, scrolling, large file, multi-cursor, syntax, search, git, terminal throughput, plugin activation, memory (§23.7) — `scripts/bench_ci.py` (2026-11-17): binary size, startup and memory at first frame, idle CPU, typing input/render latency, memory after Quick Open and a search, criterion (buffer incl. 10 MB file and 1000 cursors, syntax, Quick Open 200k, git line diff); terminal throughput stays manual (`bench_terminal.py`); directory expansion, scrolling and plugin activation not measured yet
 - [ ] [M10] Separate memory categories: core / child process / plugin / caches (§23.2)
-- [ ] [M10] CI regression tracking where measurements are stable (§23.8)
+- [x] [M10] CI regression tracking where measurements are stable (§23.8) — `.github/workflows/bench.yml` (2026-11-17): history on the `benchmarks` branch; binary size +3% and memory +10% fail, timings +30% warn
 - [ ] [M10] Minimal / reduced-feature mode (§23.9)
 - [ ] [M10] Terminal compatibility matrix: GNOME Terminal, Kitty, Alacritty, WezTerm, Foot, Konsole, tmux (§22.5)
 

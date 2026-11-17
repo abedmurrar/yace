@@ -4,14 +4,17 @@ after Quick Open indexing and a workspace search, then after idling.
 
 Usage: scripts/bench_memory.py WORKSPACE_OR_FOLDER [SEARCH_TERM]
 Set YACE_MALLOC_TRIM=0 to measure without heap trimming (A/B).
+YACE_BENCH_BIN overrides the binary (e.g. to compare with an older release).
 """
 import os, pty, select, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 target = sys.argv[1]
 term = sys.argv[2] if len(sys.argv) > 2 else "import"
-subprocess.run(["cargo", "build", "--release", "-q", "-p", "yace"], cwd=ROOT, check=True)
-binary = os.path.join(ROOT, "target", "release", "yace")
+binary = os.environ.get("YACE_BENCH_BIN")
+if not binary:
+    subprocess.run(["cargo", "build", "--release", "-q", "-p", "yace"], cwd=ROOT, check=True)
+    binary = os.path.join(ROOT, "target", "release", "yace")
 tmp = tempfile.mkdtemp()
 os.makedirs(f"{tmp}/config")
 with open(f"{tmp}/config/config.toml", "w") as f:

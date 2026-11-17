@@ -1,0 +1,72 @@
+name: Benchmarks
+
+# Measures every push to main (and pull requests) with scripts/bench_ci.py
+# and compares with the history on the `benchmarks` branch: binary size and
+# memory regressions fail, slower timings warn (shared runners are noisy).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/bench*"
+      - ".github/workflows/bench.yml"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/bench*"
+      - ".github/workflows/bench.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    name: benchmarks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Measure
+        run: python3 scripts/bench_ci.py run --out bench.json
+      - name: Fetch the history
+        run: |
+          if ! git clone --quiet --depth 1 --branch benchmarks --single-branch \
+              "https://github.com/${{ github.repository }}" history; then
+            git init --quiet -b benchmarks history
+          fi
+      - name: Compare
+        id: compare
+        run: python3 scripts/bench_ci.py compare bench.json history/history.jsonl --summary "$GITHUB_STEP_SUMMARY"
+      - name: Record in the history
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && steps.compare.outcome != 'skipped'
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/bench_ci.py append bench.json history/history.jsonl
+          cd history
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add history.jsonl
+          git commit --quiet -m "bench: ${GITHUB_SHA::12}"
+          git push --quiet "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}" HEAD:benchmarks
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench
+          path: bench.json

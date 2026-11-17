@@ -11,7 +11,12 @@ authors.workspace = true
 imara-diff = { version = "0.1", default-features = false, features = ["unified_diff"] }
 
 [dev-dependencies]
+criterion.workspace = true
 tempfile.workspace = true
+
+[[bench]]
+name = "diff"
+harness = false
 
 [lints]
 workspace = true

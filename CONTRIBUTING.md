@@ -12,6 +12,8 @@ with first-class multi-root workspaces. A few rules keep it that way.
   - Nothing heavy at startup.
   - Back performance claims with numbers from `scripts/bench.sh`,
     `scripts/bench_interactive.py` or `cargo bench`.
+  - The Benchmarks workflow measures every pull request against `main`
+    (`scripts/bench_ci.py`): more binary size or memory fails it.
 - **Multi-root is not optional.** Every feature has to respect workspace
   root boundaries.
 - **Never lose user data.** No silent overwrites. Unsaved changes are never
