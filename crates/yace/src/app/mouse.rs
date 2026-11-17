@@ -13,9 +13,12 @@ use yace_buffer::{
     movement::{line_range, word_at},
 };
 
-use super::{App, Focus};
+use super::{
+    App, Focus,
+    completion::{self, HoverAnchor, HoverTarget},
+};
 use crate::{
-    editor::{GroupId, SplitHandle},
+    editor::{DocId, GroupId, SplitHandle},
     overlay::{Overlay, OverlayOutcome},
     ui::{self, overlay_geometry, tab_cells},
 };
@@ -54,22 +57,39 @@ fn hit(r: Rect, x: u16, y: u16) -> bool {
 impl App {
     pub(crate) fn on_mouse(&mut self, m: MouseEvent) {
         let (x, y) = (m.column, m.row);
-        self.mouse.hover = Some((x, y));
+        let before = self.mouse.hover.replace((x, y));
         if !self.overlays.is_empty() {
             self.mouse_overlay(m);
             return;
         }
         let wl = ui::workbench_layout(self);
+        if m.kind == MouseEventKind::Moved {
+            let changed = self.mouse_moved(&wl, x, y, before);
+            self.quiet_motion = !changed;
+            return;
+        }
+        // The wheel over a mouse hover scrolls it; anything else closes it.
+        if matches!(m.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown)
+            && let Some((r, _)) = ui::mouse_hover_box(self, &wl, self.area)
+            && hit(r, x, y)
+        {
+            let max = ui::hover_rows(self, self.area).saturating_sub(ui::HOVER_ROWS);
+            let Some(h) = self.hover.as_mut() else { return };
+            h.scroll =
+                if m.kind == MouseEventKind::ScrollUp { h.scroll.saturating_sub(3) } else { (h.scroll + 3).min(max) };
+            return;
+        }
+        self.hide_mouse_hover();
         match m.kind {
             MouseEventKind::Down(button) => {
                 let count = self.click_count(x, y);
-                // A status bar item with a command (plugin items).
+                // A status bar item with a command (the branch, plugin items).
                 if hit(wl.status, x, y) {
                     if button == MouseButton::Left
                         && let Some(cell) =
                             ui::status_cells(self, wl.status).into_iter().find(|c| x >= c.x && x < c.x + c.w)
                     {
-                        self.execute(&cell.command, None);
+                        self.execute(&cell.command, cell.args.as_ref());
                     }
                     return;
                 }
@@ -292,6 +312,61 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// The pointer moved with no button down. Rest it on a symbol and its
+    /// hover shows after `hoverDelay`. Returns whether the screen changes
+    /// (most motion redraws nothing).
+    fn mouse_moved(&mut self, wl: &ui::WorkbenchLayout, x: u16, y: u16, before: Option<(u16, u16)>) -> bool {
+        // Fold markers show while the pointer is over a group's gutter.
+        let gutter_of = |p: Option<(u16, u16)>| {
+            p.and_then(|(x, y)| wl.groups.iter().find(|g| x >= g.content.x && x < g.text_x && hit(g.content, x, y)))
+                .map(|g| g.id)
+        };
+        let mut changed = gutter_of(before) != gutter_of(Some((x, y)));
+        // Inside the hover popup it stays (to read or scroll it).
+        if ui::mouse_hover_box(self, wl, self.area).is_some_and(|(r, _)| hit(r, x, y)) {
+            self.hover_deadline = None;
+            return changed;
+        }
+        let target = self.hover_target_at(wl, x, y);
+        let same = |a: Option<(DocId, (usize, usize))>| {
+            a.zip(target).is_some_and(|((d, (s, e)), t)| d == t.doc && s <= t.pos && t.pos < e)
+        };
+        // Still on the symbol the popup (or the pending request) is about.
+        if same(self.hover.as_ref().and_then(|h| Some((h.doc, h.anchor?.range))))
+            || same(self.hover_target.map(|t| (t.doc, t.anchor.range)))
+        {
+            return changed;
+        }
+        changed |= self.hide_mouse_hover();
+        if let Some(t) = target {
+            let delay = self.settings_for(self.docs.doc(t.doc).and_then(|d| d.path())).editor.hover_delay;
+            self.hover_target = Some(t);
+            self.hover_deadline = Some(Instant::now() + Duration::from_millis(delay));
+        }
+        changed
+    }
+
+    /// The symbol under the pointer, in any group's text (not the find
+    /// bar or the scroll bar), when hover is on for its file.
+    fn hover_target_at(&self, wl: &ui::WorkbenchLayout, x: u16, y: u16) -> Option<HoverTarget> {
+        let g = wl.groups.iter().find(|g| hit(g.content, x, y) && x >= g.text_x && x < g.text_x + g.text_width)?;
+        if self.find.visible
+            && g.id == self.layout.active
+            && let Some(fb) = ui::find_bar_layout(self, g)
+            && (hit(fb.row, x, y) || fb.replace_row.is_some_and(|r| hit(r, x, y)))
+        {
+            return None;
+        }
+        let d = self.layout.group(g.id)?.active_view()?.doc;
+        let doc = self.docs.doc(d)?;
+        if !self.settings_for(doc.path()).editor.hover_enabled || self.docs.is_read_only(d) {
+            return None;
+        }
+        let pos = self.position_at(g, x, y)?;
+        let range = completion::word_at(doc.rope(), pos)?;
+        Some(HoverTarget { doc: d, version: doc.version(), pos, anchor: HoverAnchor { x, y, range } })
     }
 
     fn click_count(&mut self, x: u16, y: u16) -> u8 {

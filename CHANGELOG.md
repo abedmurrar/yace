@@ -22,10 +22,28 @@ Security, Performance.
 
 ### Added
 
+- Resting the mouse on a symbol shows its hover beside the pointer, as in
+  VS Code. Move into the popup to read it, and the wheel scrolls a long
+  one. `editor.hoverEnabled` and `editor.hoverDelay` (300 ms) control it;
+  VS Code's `editor.hover.*` settings are imported.
+- Clicking the branch in the status bar opens Checkout to… for the
+  repository the label shows. `git.checkout` accepts
+  `{ "repository": "/path" }`.
 - The plugin index lists the [Vim plugin](https://github.com/abedmurrar/yace-vim)
   (x86_64 and arm64 Linux): `yace --install-plugin io.github.abedmurrar.yace-vim`.
   The website's getting-started, editing and keybindings pages show how to
   get Vim keys.
+
+### Fixed
+
+- A slow hover answer can no longer replace a newer one: each hover request
+  cancels the one before.
+
+### Performance
+
+- Moving the mouse redraws only when something on screen changes (the hover,
+  fold markers). Moving over text 4,375 times used 0.33–0.54 s of CPU
+  instead of 1.2–1.45 s, and wrote nothing to the terminal instead of 107 KiB.
 
 ## [0.15.0] - 2026-11-10
 

@@ -19,7 +19,8 @@ the editor never waits for it.
 **Status bar.** The branch of the active file's repository (or of the
 selected Explorer folder): `⎇ main* ↑1 ↓2` — `*` when there are changes,
 `↑`/`↓` commits ahead of / behind its upstream, `(a1b2c3d)` when HEAD is
-detached, `⚠ n` for merge conflicts.
+detached, `⚠ n` for merge conflicts. Clicking it opens Checkout to… for
+the repository it names.
 
 **Explorer.** Changed files are coloured and marked: `M` modified, `A`
 added, `U` untracked, `D` deleted, `R` renamed, `!` conflict; ignored files
@@ -61,7 +62,7 @@ that line.
 | Git: Stage All Changes / Unstage All Changes | | |
 | Git: Commit | | staged changes; with nothing staged it offers to commit every change to tracked files |
 | Git: Commit All | | `git commit --all` |
-| Git: Checkout to… | | branches, most recently used first; a remote branch creates a local tracking branch; "Create new branch…" |
+| Git: Checkout to… | | branches, most recently used first; a remote branch creates a local tracking branch; "Create new branch…". Arguments: `{ "branch": "name" }` switches directly; `{ "repository": "/path" }` picks the repository |
 | Git: Create Branch… | | from the current commit, then switches to it |
 | Git: Refresh | | |
 | Git: Show Output | | every git command run, with timings and errors |

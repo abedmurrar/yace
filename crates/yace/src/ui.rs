@@ -255,6 +255,12 @@ pub fn draw(app: &App, f: &mut Frame) {
     if app.overlays.is_empty() && app.focus == Focus::Editor {
         draw_lsp_popups(app, buf, &wl, area);
     }
+    // Hover from the mouse: at the pointer, in whichever group it is.
+    if app.overlays.is_empty()
+        && let Some((r, lines)) = mouse_hover_box(app, &wl, area)
+    {
+        draw_hover(buf, r, &lines, Style::new().fg(theme.overlay_fg).bg(theme.overlay_bg));
+    }
     let mut cursor = None;
     if app.overlays.is_empty() {
         cursor = match app.focus {
@@ -1078,10 +1084,49 @@ fn draw_group(app: &App, buf: &mut Buffer, gl: &GroupLayout) {
 }
 
 /// Completion list, parameter hints and hover, anchored at the cursor.
+/// Rows a hover popup shows at most (the mouse wheel scrolls the rest).
+pub const HOVER_ROWS: usize = 15;
+
+/// Where the hover popup goes and its lines: above `at` (below if there is
+/// no room), at most 80 columns wide.
+fn hover_box(app: &App, at: (u16, u16), area: Rect, bottom: u16) -> Option<(Rect, Vec<String>)> {
+    let h = app.hover.as_ref()?;
+    let (cx, cy) = at;
+    let maxw = 80.min(area.width.saturating_sub(2)) as usize;
+    let lines = wrap_words(&h.lines, maxw);
+    let scroll = h.scroll.min(lines.len().saturating_sub(HOVER_ROWS));
+    let lines: Vec<String> = lines.into_iter().skip(scroll).take(HOVER_ROWS).collect();
+    let w = (lines.iter().map(|l| UnicodeWidthStr::width(l.as_str())).max().unwrap_or(0) as u16 + 2).min(area.width);
+    let hgt = lines.len() as u16;
+    let y = if cy >= area.y + hgt { cy - hgt } else { (cy + 1).min(bottom.saturating_sub(hgt)) };
+    let x = cx.min(area.right().saturating_sub(w));
+    Some((Rect { x, y, width: w, height: hgt }, lines))
+}
+
+/// How many rows the hover's text wraps to (for scrolling it).
+pub fn hover_rows(app: &App, area: Rect) -> usize {
+    app.hover.as_ref().map_or(0, |h| wrap_words(&h.lines, 80.min(area.width.saturating_sub(2)) as usize).len())
+}
+
+/// The mouse-opened hover popup's place (for drawing and for the mouse).
+pub fn mouse_hover_box(app: &App, wl: &WorkbenchLayout, area: Rect) -> Option<(Rect, Vec<String>)> {
+    let a = app.hover.as_ref()?.anchor?;
+    hover_box(app, (a.x, a.y), area, wl.status.y)
+}
+
+fn draw_hover(buf: &mut Buffer, r: Rect, lines: &[String], base: Style) {
+    for (i, l) in lines.iter().enumerate() {
+        let yy = r.y + i as u16;
+        fill(buf, Rect { x: r.x, y: yy, width: r.width, height: 1 }, base);
+        put(buf, r.x + 1, yy, l, r.width.saturating_sub(2), base);
+    }
+}
+
 fn draw_lsp_popups(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout, area: Rect) {
     if app.completion.is_none() && app.hover.is_none() && app.signature.is_none() {
         return;
     }
+
     let Some((cx, cy)) = editor_cursor(app, wl) else { return };
     let Some((g, v, d)) = app.active() else { return };
     let t = &app.theme;
@@ -1108,21 +1153,11 @@ fn draw_lsp_popups(app: &App, buf: &mut Buffer, wl: &WorkbenchLayout, area: Rect
             xx += cw;
         }
     }
-    // Hover: a box above the cursor (below if there is no room).
-    if let Some(h) = app.hover.as_ref().filter(|h| h.doc == d) {
-        let maxw = 80.min(area.width.saturating_sub(2)) as usize;
-        let mut lines = wrap_words(&h.lines, maxw);
-        lines.truncate(15);
-        let w =
-            (lines.iter().map(|l| UnicodeWidthStr::width(l.as_str())).max().unwrap_or(0) as u16 + 2).min(area.width);
-        let hgt = lines.len() as u16;
-        let y = if cy >= area.y + hgt { cy - hgt } else { (cy + 1).min(bottom.saturating_sub(hgt)) };
-        let x = cx.min(area.right().saturating_sub(w));
-        for (i, l) in lines.iter().enumerate() {
-            let yy = y + i as u16;
-            fill(buf, Rect { x, y: yy, width: w, height: 1 }, base);
-            put(buf, x + 1, yy, l, w.saturating_sub(2), base);
-        }
+    // Hover from the keyboard: a box above the cursor (below if there is no room).
+    if app.hover.as_ref().is_some_and(|h| h.doc == d && h.anchor.is_none())
+        && let Some((r, lines)) = hover_box(app, (cx, cy), area, bottom)
+    {
+        draw_hover(buf, r, &lines, base);
     }
     // Completion list below the cursor (above if there is no room).
     if let Some(c) = app.completion.as_ref().filter(|c| c.doc == d) {
@@ -1397,11 +1432,12 @@ fn status_base(app: &App) -> (String, Style, Vec<String>) {
 }
 
 /// Where a status bar item landed, and the command a click runs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StatusCell {
     pub x: u16,
     pub w: u16,
     pub command: String,
+    pub args: Option<serde_json::Value>,
 }
 
 /// The status bar's layout, shared by drawing and clicking.
@@ -1440,26 +1476,32 @@ fn status_layout(app: &App, r: Rect) -> StatusLayout {
     let shown_right = if lw_max < 10 { 0 } else { rw };
     let mut left_max = r.width.saturating_sub(shown_right);
     let mut lx = r.x;
+    let mut cells = Vec::new();
     if let Some(b) = &branch {
         let bw = w(b).min(left_max / 2);
+        // Clicking the branch switches branches in the repository it names.
+        if let Some(i) = app.git_active_repo() {
+            let repository = app.git.repos[i].info.toplevel.to_string_lossy().into_owned();
+            let args = serde_json::json!({ "repository": repository });
+            cells.push(StatusCell { x: lx, w: bw, command: "git.checkout".into(), args: Some(args) });
+        }
         lx += bw;
         left_max = left_max.saturating_sub(bw);
     }
-    let mut cells = Vec::new();
     // A left item counts only if it is fully shown (not cut by the ellipsis).
     let fits = w(&left) <= left_max;
     for (off, iw, cmd) in left_cells {
         if let Some(command) = cmd
             && (fits || off + iw < left_max)
         {
-            cells.push(StatusCell { x: lx + off, w: iw, command });
+            cells.push(StatusCell { x: lx + off, w: iw, command, args: None });
         }
     }
     if shown_right > 0 {
         let mut x = r.right().saturating_sub(rw);
         for (i, item) in pr.iter().enumerate().take(n_plugin_right) {
             if let Some(command) = &item.command {
-                cells.push(StatusCell { x, w: w(&item.text), command: command.clone() });
+                cells.push(StatusCell { x, w: w(&item.text), command: command.clone(), args: None });
             }
             x += w(&right[i]) + 3;
         }
@@ -1467,7 +1509,8 @@ fn status_layout(app: &App, r: Rect) -> StatusLayout {
     StatusLayout { branch, left, left_style, right_text, rw, shown_right, lx, left_max, cells }
 }
 
-/// Clickable status bar items (plugin items with a command).
+/// Clickable status bar items: the Git branch, and plugin items with a
+/// command.
 pub fn status_cells(app: &App, r: Rect) -> Vec<StatusCell> {
     status_layout(app, r).cells
 }

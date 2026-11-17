@@ -78,6 +78,39 @@ impl Completion {
 pub struct HoverPopup {
     pub doc: DocId,
     pub lines: Vec<String>,
+    /// Set when the mouse opened it: it shows at the pointer, and closes
+    /// when the pointer leaves the symbol (and the popup).
+    pub anchor: Option<HoverAnchor>,
+    /// Lines scrolled off the top (mouse wheel over the popup).
+    pub scroll: usize,
+}
+
+/// Where a mouse hover shows: the pointer cell, and the char range of the
+/// symbol it is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HoverAnchor {
+    pub x: u16,
+    pub y: u16,
+    pub range: (usize, usize),
+}
+
+/// The symbol under a resting mouse pointer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HoverTarget {
+    pub doc: DocId,
+    pub version: u64,
+    pub pos: usize,
+    pub anchor: HoverAnchor,
+}
+
+/// The word (letters, digits, `_`) at `pos`, if `pos` is on one.
+pub fn word_at(rope: &Rope, pos: usize) -> Option<(usize, usize)> {
+    use yace_buffer::text::{CharClass, char_class};
+    if pos >= rope.len_chars() || char_class(rope.char(pos)) != CharClass::Word {
+        return None;
+    }
+    let r = yace_buffer::movement::word_at(rope, pos);
+    Some((r.from(), r.to()))
 }
 
 #[derive(Debug, Clone)]
@@ -567,18 +600,81 @@ impl App {
     }
 
     pub(crate) fn lsp_hover(&mut self) {
+        self.hide_mouse_hover();
         let Some((s, d, params, ver)) = self.lsp_position_params(|c| c.hover, "Hover") else { return };
-        self.lsp.request(s, "textDocument/hover", params, ReqKind::Hover, Some(d), ver);
+        self.request_hover(s, d, params, ver, None);
     }
 
-    pub(crate) fn show_hover(&mut self, doc: Option<DocId>, text: String) {
-        let Some(d) = doc else { return };
-        let lines = markdown_to_lines(&text);
-        if lines.is_empty() {
-            self.notify(super::Severity::Info, "No hover information");
+    /// Only the newest hover request counts: older ones are cancelled.
+    fn request_hover(&mut self, server: u32, d: DocId, params: Value, ver: u64, anchor: Option<HoverAnchor>) {
+        self.lsp.cancel_where(|k| matches!(k, ReqKind::Hover { .. }));
+        self.lsp.seq += 1;
+        self.hover_seq = self.lsp.seq;
+        let kind = ReqKind::Hover { seq: self.hover_seq, anchor };
+        self.lsp.request(server, "textDocument/hover", params, kind, Some(d), ver);
+    }
+
+    /// The mouse rested on a symbol for `hoverDelay`: ask about it, quietly
+    /// (no server, or one without hover, says nothing).
+    pub(crate) fn request_mouse_hover(&mut self) {
+        let Some(t) = self.hover_target else { return };
+        if self.docs.doc(t.doc).map(|d| d.version()) != Some(t.version) {
             return;
         }
-        self.hover = Some(HoverPopup { doc: d, lines });
+        self.sync_documents();
+        let Some(ld) = self.lsp.docs.get(&t.doc).cloned() else { return };
+        let Some(s) = self.lsp.server(ld.server) else { return };
+        if s.status != Status::Running || !s.caps.hover {
+            return;
+        }
+        let enc = s.encoding();
+        let Some(doc) = self.docs.doc(t.doc) else { return };
+        let params = json!({ "textDocument": { "uri": ld.uri }, "position": to_lsp(doc.rope(), t.pos, enc) });
+        self.request_hover(ld.server, t.doc, params, t.version, Some(t.anchor));
+    }
+
+    pub(crate) fn show_hover(
+        &mut self,
+        doc: Option<DocId>,
+        seq: u64,
+        anchor: Option<HoverAnchor>,
+        text: String,
+        range: Option<(usize, usize)>,
+    ) {
+        let Some(d) = doc else { return };
+        if seq != self.hover_seq {
+            return;
+        }
+        if anchor.is_some() && self.hover_target.is_none_or(|t| Some(t.anchor) != anchor) {
+            return; // the pointer moved on
+        }
+        let lines = markdown_to_lines(&text);
+        if lines.is_empty() {
+            if anchor.is_none() {
+                self.notify(super::Severity::Info, "No hover information");
+            }
+            return;
+        }
+        // The server's range (`foo.bar` → `bar`) when it covers the pointer.
+        let anchor = anchor.map(|mut a| {
+            if let Some((s, e)) = range.filter(|(s, e)| s < e && *s <= a.range.0 && a.range.0 < *e) {
+                a.range = (s, e);
+            }
+            a
+        });
+        self.hover = Some(HoverPopup { doc: d, lines, anchor, scroll: 0 });
+    }
+
+    /// Close a hover the mouse opened, and forget the symbol under the
+    /// pointer (the next motion asks again). True if the screen changes.
+    pub(crate) fn hide_mouse_hover(&mut self) -> bool {
+        self.hover_target = None;
+        self.hover_deadline = None;
+        if self.hover.as_ref().is_some_and(|h| h.anchor.is_some()) {
+            self.hover = None;
+            return true;
+        }
+        false
     }
 }
 

@@ -302,6 +302,12 @@ pub fn from_vscode_settings(json: &serde_json::Value) -> Table {
             ("editor.quickSuggestionsDelay", J::Number(n)) if n.as_u64().is_some() => {
                 put("editor", "quickSuggestionsDelay", Value::Integer(n.as_u64().unwrap_or(50) as i64))
             }
+            ("editor.hover.enabled", J::Bool(b)) => put("editor", "hoverEnabled", Value::Boolean(*b)),
+            // Newer VS Code: "on", "off" or "onKeyboardModifier" (Alt held; YACE has no such mode).
+            ("editor.hover.enabled", J::String(s)) => put("editor", "hoverEnabled", Value::Boolean(s == "on")),
+            ("editor.hover.delay", J::Number(n)) if n.as_u64().is_some() => {
+                put("editor", "hoverDelay", Value::Integer(n.as_u64().unwrap_or(300) as i64))
+            }
             ("editor.suggestOnTriggerCharacters", J::Bool(b)) => {
                 put("editor", "suggestOnTriggerCharacters", Value::Boolean(*b))
             }

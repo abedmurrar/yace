@@ -162,7 +162,8 @@ Requires a Rust stable toolchain (edition 2024, rustc ≥ 1.88).
   "Extensions: Browse Plugins…" installs published ones, such as
   [YACE Themes](https://github.com/abedmurrar/yace-themes).
 - **Language servers.** Completion while you type, diagnostics (Problems:
-  Ctrl+Shift+M, F8), hover, parameter hints, go to definition (F12, also
+  Ctrl+Shift+M, F8), hover (rest the mouse on a symbol, or Ctrl+K Ctrl+I),
+  parameter hints, go to definition (F12, also
   into other roots), references (Shift+F12), rename (F2), document and
   workspace symbols (Ctrl+Shift+O, Ctrl+T), code actions (Ctrl+.) and
   formatting (Ctrl+Shift+I, format on save). Servers are the ones you

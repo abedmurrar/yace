@@ -10,7 +10,7 @@ use std::{
 };
 
 use common::Harness;
-use ratatui::style::Color;
+use ratatui::{crossterm::event::KeyModifiers, style::Color};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -391,6 +391,41 @@ fn commands_ask_which_repository_when_ambiguous() {
     settle_git(&mut h);
     let screen = h.screen();
     assert!(screen.contains("Switch Branch in") && !screen.contains("Choose a Repository"), "{screen}");
+}
+
+/// Clicking the branch in the status bar opens Checkout to… for the
+/// repository the label names, without asking which one.
+#[test]
+fn clicking_the_status_bar_branch_checks_out_in_that_repository() {
+    let a = repo("main", &[("a.txt", "a\n")]);
+    let b = repo("trunk", &[("b.txt", "b\n")]);
+    git(b.path(), &["branch", "-q", "only-in-b"]);
+    let mut h = Harness::new();
+    let _ws = open_ws(&mut h, &[a.path(), b.path()]);
+    let click_branch = |h: &mut Harness| {
+        let y = h.render().area.height - 1;
+        h.click(1, y, KeyModifiers::NONE);
+        settle_git(h);
+        h.screen()
+    };
+    assert!(status_line(&mut h).contains("main"), "{}", status_line(&mut h));
+    let screen = click_branch(&mut h);
+    assert!(screen.contains("Switch Branch in") && !screen.contains("Choose a Repository"), "{screen}");
+    assert!(!screen.contains("only-in-b"), "{screen}");
+    h.key("escape");
+    // With b's file open the label shows b's branch, and so does the picker.
+    h.app.open_file(&b.path().join("b.txt"), false);
+    h.settle();
+    settle_git(&mut h);
+    assert!(status_line(&mut h).contains("trunk"), "{}", status_line(&mut h));
+    let screen = click_branch(&mut h);
+    assert!(screen.contains("only-in-b") && !screen.contains("Choose a Repository"), "{screen}");
+    // Clicking elsewhere in the status bar does nothing.
+    h.key("escape");
+    let y = h.render().area.height - 1;
+    h.click(60, y, KeyModifiers::NONE);
+    settle_git(&mut h);
+    assert!(!h.screen().contains("Switch Branch in"));
 }
 
 /// The Task Runner plugin subscribes to `gitStatusChanged`: switching

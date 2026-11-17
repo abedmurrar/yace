@@ -12,7 +12,8 @@ ask it to change something.
 
 - **Status bar:** the branch of the active file's repository, with `*`
   when there are changes, `↑` and `↓` for commits ahead of and behind the
-  upstream, and `⚠` with a count for merge conflicts.
+  upstream, and `⚠` with a count for merge conflicts. Click it to switch
+  branches in that repository.
 - **Explorer:** changed files are coloured and marked (`M`, `A`, `U`, `D`,
   `R`, `!`); ignored files are dimmed.
 - **Gutter:** bars mark lines that differ from the index, updated as you

@@ -75,6 +75,8 @@ in "Developer: Show Configuration Errors".
 | `quickSuggestions` | `true` | bool; ask for completions while typing an identifier, not only on `.` etc. | `editor.quickSuggestions` |
 | `quickSuggestionsDelay` | `50` | ms of typing pause before asking | `editor.quickSuggestionsDelay` |
 | `suggestOnTriggerCharacters` | `true` | bool | `editor.suggestOnTriggerCharacters` |
+| `hoverEnabled` | `true` | bool; show the hover popup (type and docs) when the mouse rests on a symbol. `Ctrl+K Ctrl+I` shows it either way | `editor.hover.enabled` |
+| `hoverDelay` | `300` | ms the mouse rests on a symbol before its hover shows | `editor.hover.delay` |
 | `showFoldingControls` | `"mouseover"` | `"always"`, `"mouseover"` (folded lines always; foldable ones while the mouse is over the gutter), `"never"` | `editor.showFoldingControls` |
 | `tokenColorCustomizations` | `{}` | syntax colour overrides: `comments`, `strings`, `keywords`, `numbers`, `types`, `functions`, `variables`, any scope name, `textMateRules`, and `"[Theme Name]"` sections ([themes.md](themes.md)) | `editor.tokenColorCustomizations` |
 

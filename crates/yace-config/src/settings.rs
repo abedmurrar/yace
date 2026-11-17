@@ -157,6 +157,10 @@ pub struct EditorSettings {
     pub quick_suggestions_delay: u64,
     /// Ask for completions on the server's trigger characters (`.`, `::`, …).
     pub suggest_on_trigger_characters: bool,
+    /// Show the hover popup when the mouse rests on a symbol.
+    pub hover_enabled: bool,
+    /// Milliseconds the mouse rests on a symbol before its hover shows.
+    pub hover_delay: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -203,6 +207,8 @@ impl Default for EditorSettings {
             quick_suggestions: true,
             quick_suggestions_delay: 50,
             suggest_on_trigger_characters: true,
+            hover_enabled: true,
+            hover_delay: 300,
         }
     }
 }

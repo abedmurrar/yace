@@ -92,18 +92,38 @@ pub struct LspDoc {
 /// What a pending request is for (its answer is applied accordingly).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReqKind {
-    Completion { seq: u64 },
-    CompletionResolve { seq: u64, label: String, apply_edits: bool },
-    Hover,
-    SignatureHelp { seq: u64 },
-    Goto { what: &'static str },
+    Completion {
+        seq: u64,
+    },
+    CompletionResolve {
+        seq: u64,
+        label: String,
+        apply_edits: bool,
+    },
+    /// `anchor` is set when the mouse asked (the popup shows there).
+    Hover {
+        seq: u64,
+        anchor: Option<crate::app::completion::HoverAnchor>,
+    },
+    SignatureHelp {
+        seq: u64,
+    },
+    Goto {
+        what: &'static str,
+    },
     References,
     Rename,
     DocSymbols,
-    WorkspaceSymbols { seq: u64 },
-    CodeActions { seq: u64 },
+    WorkspaceSymbols {
+        seq: u64,
+    },
+    CodeActions {
+        seq: u64,
+    },
     CodeActionResolve,
-    Format { then_save: bool },
+    Format {
+        then_save: bool,
+    },
     ExecuteCommand,
     PullDiagnostics,
 }

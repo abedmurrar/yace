@@ -14,7 +14,7 @@ formatting.** It never installs anything.
 | Completion while you type | `Ctrl+Space` (enhanced terminals), or just type |
 | The selected completion's documentation | shown in a panel beside the list; "Toggle Suggestion Details" (`Ctrl+Space` while the list is open, enhanced terminals) hides it |
 | Parameter hints | `Ctrl+Shift+Space`, also on `(` and `,` |
-| Hover | `Ctrl+K Ctrl+I` |
+| Hover | rest the mouse on a symbol, or `Ctrl+K Ctrl+I` |
 | Go to definition, also into other workspace folders | `F12`, `Ctrl+Click` |
 | Go to implementations / references | `Ctrl+F12` / `Shift+F12` |
 | Rename symbol | `F2` |
@@ -24,6 +24,12 @@ formatting.** It never installs anything.
 | Go to symbol in the file / in the workspace | `Ctrl+Shift+O` / `Ctrl+T` |
 
 The status bar shows the error and warning counts and the active server.
+
+Resting the mouse on a symbol for 300 ms shows its hover beside the
+pointer. Move into the popup to read it (the wheel scrolls a long one);
+moving off the symbol, clicking or typing closes it. `editor.hoverEnabled
+= false` turns this off and `editor.hoverDelay` changes the wait. Inside
+tmux, the mouse needs `set -g mouse on`.
 
 ![A hover from the TypeScript server; the status bar counts one error](../media/lsp-hover.svg)
 

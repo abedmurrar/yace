@@ -14,7 +14,8 @@ pub enum Reply {
         incomplete: bool,
     },
     CompletionResolved(Box<CompletionItem>),
-    Hover(String),
+    /// The hover text and the range it is about.
+    Hover(String, Option<Range>),
     SignatureHelp(Option<SignatureHelp>),
     Locations(Vec<Location>),
     Symbols(Vec<Symbol>),
@@ -209,7 +210,10 @@ pub fn decode_reply(method: &str, v: Value) -> Reply {
             Some(i) => Reply::CompletionResolved(Box::new(i)),
             None => Reply::Other(v),
         },
-        "textDocument/hover" => Reply::Hover(v.get("contents").map(markup_text).unwrap_or_default()),
+        "textDocument/hover" => Reply::Hover(
+            v.get("contents").map(markup_text).unwrap_or_default(),
+            v.get("range").and_then(|r| Range::deserialize(r).ok()),
+        ),
         "textDocument/signatureHelp" => Reply::SignatureHelp(SignatureHelp::deserialize(&v).ok()),
         "textDocument/definition"
         | "textDocument/declaration"
@@ -331,13 +335,20 @@ mod tests {
 
     #[test]
     fn hover_and_capabilities() {
-        let Reply::Hover(h) = decode_reply(
+        let Reply::Hover(h, None) = decode_reply(
             "textDocument/hover",
             json!({"contents": [{"language": "ts", "value": "let x: number"}, "Doc"]}),
         ) else {
             panic!()
         };
         assert_eq!(h, "```ts\nlet x: number\n```\n\nDoc");
+        let Reply::Hover(_, Some(r)) = decode_reply(
+            "textDocument/hover",
+            json!({"contents": "x", "range": {"start": {"line": 1, "character": 4}, "end": {"line": 1, "character": 9}}}),
+        ) else {
+            panic!()
+        };
+        assert_eq!((r.start.character, r.end.character), (4, 9));
         let caps = ServerCaps::from_initialize(&json!({"capabilities": {
             "textDocumentSync": {"openClose": true, "change": 2, "save": {"includeText": false}},
             "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true},

@@ -85,10 +85,15 @@ impl App {
 
     pub(crate) fn lsp_deadline(&self) -> Option<Instant> {
         let idle = Some(self.settings.lsp.idle_shutdown_secs).filter(|s| *s > 0).map(Duration::from_secs);
-        [self.lsp.next_deadline(self.lsp_timeout(), idle), self.completion_deadline, self.format_save.map(|(_, t)| t)]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            self.lsp.next_deadline(self.lsp_timeout(), idle),
+            self.completion_deadline,
+            self.hover_deadline,
+            self.format_save.map(|(_, t)| t),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     pub(crate) fn lsp_on_tick(&mut self, now: Instant) {
@@ -110,6 +115,10 @@ impl App {
         if self.completion_deadline.is_some_and(|t| now >= t) {
             self.completion_deadline = None;
             self.request_completion(None, false);
+        }
+        if self.hover_deadline.is_some_and(|t| now >= t) {
+            self.hover_deadline = None;
+            self.request_mouse_hover();
         }
         if let Some((d, t)) = self.format_save
             && now >= t
@@ -1132,7 +1141,15 @@ impl App {
                 self.on_completion_resolved(server, seq, &label, apply_edits, *item)
             }
             (ReqKind::SignatureHelp { seq }, Reply::SignatureHelp(sh)) => self.on_signature_help(seq, sh),
-            (ReqKind::Hover, Reply::Hover(text)) if fresh => self.show_hover(p.doc, text),
+            (ReqKind::Hover { seq, anchor }, Reply::Hover(text, range)) if fresh => {
+                let enc = self.lsp.server(server).map(|s| s.encoding()).unwrap_or_default();
+                let range = p
+                    .doc
+                    .and_then(|d| self.docs.doc(d))
+                    .zip(range)
+                    .map(|(doc, r)| (from_lsp(doc.rope(), r.start, enc), from_lsp(doc.rope(), r.end, enc)));
+                self.show_hover(p.doc, seq, anchor, text, range)
+            }
             _ => {}
         }
     }

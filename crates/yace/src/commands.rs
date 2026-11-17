@@ -786,16 +786,23 @@ fn builtin_commands() -> Vec<Command> {
         c!("git.unstageAll", "Git", "Unstage All Changes", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::UnstageAll)),
         c!("git.commit", "Git", "Commit", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::Commit { all: false })),
         c!("git.commitAll", "Git", "Commit All", |a, _| a.scm_repo_cmd(crate::app::RepoCmd::Commit { all: true })),
-        c!(args r#"{ "branch": string }"#, "git.checkout", "Git", "Checkout to…", |a, v| {
+        c!(args r#"{ "branch": string } | { "repository": string }"#, "git.checkout", "Git", "Checkout to…", |a, v| {
             #[derive(serde::Deserialize)]
             #[serde(untagged)]
             enum B {
                 Name(String),
                 Obj { branch: String },
+                Repo { repository: std::path::PathBuf },
             }
-            match parse_args::<B>(v, r#"{ "branch": string } or "branch""#)? {
+            match parse_args::<B>(v, r#"{ "branch": string }, "branch" or { "repository": string }"#)? {
                 None => {
                     a.scm_repo_cmd(crate::app::RepoCmd::Checkout);
+                    Ok(())
+                }
+                Some(B::Repo { repository }) => {
+                    let i = a.git.repos.iter().position(|r| r.info.toplevel == repository);
+                    let i = i.ok_or_else(|| CommandError::Unavailable(format!("{} isn't an open repository", repository.display())))?;
+                    a.git_run_repo_cmd(i, crate::app::RepoCmd::Checkout);
                     Ok(())
                 }
                 Some(B::Name(b) | B::Obj { branch: b }) => a.git_switch_to(&b).map_err(CommandError::Unavailable),

@@ -3,7 +3,7 @@
 //! reads, watch changes, raw terminal output) that the event loop performs.
 //! Tests drive it directly with synthetic events.
 
-mod completion;
+pub(crate) mod completion;
 mod edit;
 pub mod explorer_ops;
 mod files;
@@ -366,6 +366,13 @@ pub struct App {
     /// The details panel beside the completion list is shown.
     pub suggest_details: bool,
     pub hover: Option<completion::HoverPopup>,
+    /// The newest hover request; older answers are dropped.
+    hover_seq: u64,
+    /// The symbol under a resting mouse pointer, and when to ask about it.
+    hover_target: Option<completion::HoverTarget>,
+    hover_deadline: Option<Instant>,
+    /// A mouse motion that changed nothing on screen (no redraw).
+    quiet_motion: bool,
     pub signature: Option<completion::SignaturePopup>,
     /// Quick suggestions fire when this passes (typing pause).
     completion_deadline: Option<Instant>,
@@ -495,6 +502,10 @@ impl App {
             completion: None,
             suggest_details: true,
             hover: None,
+            hover_seq: 0,
+            hover_target: None,
+            hover_deadline: None,
+            quiet_motion: false,
             signature: None,
             completion_deadline: None,
             completion_req: None,
@@ -957,13 +968,16 @@ impl App {
         if big_list.is_some() && self.completion.as_ref().map(|c| c.seq) != big_list {
             self.request_trim();
         }
-        self.needs_render = true;
+        if !std::mem::take(&mut self.quiet_motion) {
+            self.needs_render = true;
+        }
         if is_input {
             self.metrics.input.record(start.elapsed());
         }
     }
 
     pub fn resize(&mut self, w: u16, h: u16) {
+        self.hide_mouse_hover();
         // The preferred sidebar width is kept; layout clamps it per frame.
         self.area = Rect::new(0, 0, w, h);
         self.reveal_cursor = true;
@@ -973,6 +987,7 @@ impl App {
         if k.kind == KeyEventKind::Release {
             return;
         }
+        self.hide_mouse_hover();
         let (key, ch) = convert_key(&k);
         let Some(key) = key else { return };
 

@@ -174,6 +174,120 @@ fn completion_filter_accept_snippet_and_auto_import() {
     assert_eq!(h.active_text(), before);
 }
 
+/// Where `needle` first shows on screen.
+fn screen_pos(h: &mut Harness, needle: &str) -> (u16, u16) {
+    let buf = h.render();
+    for y in 0..buf.area.height {
+        let row: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect();
+        if let Some(byte) = row.find(needle) {
+            return (row[..byte].chars().count() as u16, y);
+        }
+    }
+    panic!("{needle} not on screen:\n{}", h.screen());
+}
+
+fn move_mouse(h: &mut Harness, (x, y): (u16, u16)) {
+    h.mouse(ratatui::crossterm::event::MouseEventKind::Moved, x, y);
+}
+
+/// Let the hover delay pass.
+fn rest(h: &mut Harness) {
+    h.app.on_tick(std::time::Instant::now() + Duration::from_secs(1));
+    h.settle();
+}
+
+#[test]
+fn resting_the_mouse_on_a_symbol_shows_its_hover() {
+    if !have_python() {
+        return;
+    }
+    let f = fixture(&[("a.ts", "alpha   beta\n\n\n\n\n\n\n\n\n\nend\n")]);
+    let mut h = Harness::with_config(&config(&f.log, "", ""));
+    open_folder(&mut h, &f.root);
+    h.app.open_file(&f.root.join("a.ts"), false);
+    h.settle();
+    assert!(wait_running(&mut h));
+    let (bx, by) = screen_pos(&mut h, "beta");
+    // Nothing is asked before the pointer rests.
+    move_mouse(&mut h, (bx + 1, by));
+    std::thread::sleep(Duration::from_millis(200));
+    h.settle();
+    assert!(h.app.hover.is_none() && !log_has(&f.log, "textDocument/hover"));
+    rest(&mut h);
+    assert!(h.wait_for(T, |h| h.app.hover.is_some()), "hover after resting");
+    let anchor = h.app.hover.as_ref().unwrap().anchor.expect("opened by the mouse");
+    assert_eq!((anchor.x, anchor.y), (bx + 1, by));
+    let (_, hy) = screen_pos(&mut h, "hover for beta");
+    assert!(hy > by, "below the pointer on the first row: {hy} vs {by}");
+    // Moving along the same word, or into the popup, keeps it.
+    move_mouse(&mut h, (bx + 3, by));
+    assert!(h.app.hover.is_some());
+    let (px, py) = screen_pos(&mut h, "hover for beta");
+    move_mouse(&mut h, (px + 2, py));
+    assert!(h.app.hover.is_some(), "the pointer is inside the popup");
+    // Off the word (spaces between the words) closes it.
+    move_mouse(&mut h, (bx - 2, by));
+    assert!(h.app.hover.is_none());
+    // A key press closes it and forgets the pending one.
+    move_mouse(&mut h, (bx, by));
+    rest(&mut h);
+    assert!(h.wait_for(T, |h| h.app.hover.is_some()));
+    h.key("ctrl+s");
+    assert!(h.app.hover.is_none());
+    // An answer about a symbol the pointer has left is dropped.
+    let (ax, ay) = screen_pos(&mut h, "alpha");
+    move_mouse(&mut h, (ax, ay));
+    rest(&mut h);
+    move_mouse(&mut h, (bx, by)); // before alpha's answer is handled
+    std::thread::sleep(Duration::from_millis(300));
+    h.settle();
+    assert!(h.app.hover.is_none(), "alpha's late answer is ignored");
+    rest(&mut h);
+    assert!(h.wait_for(T, |h| h.app.hover.is_some()));
+    assert!(h.screen().contains("hover for beta"));
+    // A click closes it; the keyboard hover still works and isn't closed by motion.
+    h.click(bx, by, ratatui::crossterm::event::KeyModifiers::NONE);
+    assert!(h.app.hover.is_none());
+    h.key("ctrl+k ctrl+i");
+    assert!(h.wait_for(T, |h| h.app.hover.is_some()));
+    assert!(h.app.hover.as_ref().unwrap().anchor.is_none());
+    move_mouse(&mut h, (ax, ay + 3));
+    assert!(h.app.hover.is_some(), "motion leaves a keyboard hover alone");
+    h.key("escape");
+    // Motion over empty space redraws nothing.
+    h.app.needs_render = false;
+    move_mouse(&mut h, (bx + 20, by + 5));
+    assert!(!h.app.needs_render, "a motion that changes nothing doesn't redraw");
+}
+
+#[test]
+fn mouse_hover_can_be_turned_off_and_is_quiet_without_a_server() {
+    if !have_python() {
+        return;
+    }
+    let f = fixture(&[("a.ts", "alpha beta\n"), ("notes.txt", "plain words\n")]);
+    let mut h = Harness::with_config(&config(&f.log, "", "[editor]\nhoverEnabled = false\n"));
+    open_folder(&mut h, &f.root);
+    h.app.open_file(&f.root.join("a.ts"), false);
+    h.settle();
+    assert!(wait_running(&mut h));
+    let p = screen_pos(&mut h, "beta");
+    move_mouse(&mut h, p);
+    rest(&mut h);
+    std::thread::sleep(Duration::from_millis(300));
+    h.settle();
+    assert!(h.app.hover.is_none() && !log_has(&f.log, "textDocument/hover"), "hoverEnabled = false");
+    // A file no server serves: no request and no notice.
+    h.app.open_file(&f.root.join("notes.txt"), false);
+    h.settle();
+    let notes = h.app.notifications.len();
+    let p = screen_pos(&mut h, "words");
+    move_mouse(&mut h, p);
+    rest(&mut h);
+    assert!(h.app.hover.is_none());
+    assert_eq!(h.app.notifications.len(), notes, "no notice for a file without a server");
+}
+
 #[test]
 fn hover_signature_help_and_stale_answers() {
     if !have_python() {
